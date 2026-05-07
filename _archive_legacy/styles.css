@@ -1,0 +1,1017 @@
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body {
+	font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+	background-color: #f6f7fb;
+	color: #1f2937;
+	padding: 16px;
+	line-height: 1.4;
+	font-size: 14px;
+}
+
+.container {
+	max-width: 1200px;
+	margin: 0 auto;
+	background-color: #ffffff;
+	border-radius: 12px;
+	box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+	overflow: hidden;
+}
+
+h1 {
+	text-align: center;
+	padding: 12px 16px;
+	background: linear-gradient(135deg, #5b6ee1 0%, #764ba2 100%);
+	color: white;
+	margin: 0;
+	font-size: 1.25em;
+	font-weight: 500;
+	letter-spacing: 0.3px;
+	position: relative;
+}
+
+/* Header Controls (oben rechts, klein und subtil) */
+.header-controls {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: flex;
+	gap: 8px;
+	align-items: center;
+}
+
+.header-toggle {
+	width: 26px;
+	height: 26px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	border: 1px solid rgba(255,255,255,0.35);
+	border-radius: 6px;
+	background: rgba(255,255,255,0.12);
+	color: #ffffff;
+	cursor: pointer;
+	transition: background 0.2s, box-shadow 0.2s, border-color 0.2s;
+	font-size: 12px;
+	line-height: 1;
+}
+
+.header-toggle:hover { background: rgba(255,255,255,0.22); box-shadow: 0 1px 4px rgba(0,0,0,0.15); }
+.header-toggle.active { border-color: #ffffff; box-shadow: 0 0 0 2px rgba(255,255,255,0.35) inset; }
+
+/* Wochen-Info Indikator */
+.week-info {
+	display: flex;
+	align-items: center;
+}
+
+.week-display {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	background: rgba(255, 255, 255, 0.15);
+	border: 1px solid rgba(255, 255, 255, 0.3);
+	border-radius: 12px;
+	font-size: 11px;
+	font-weight: 600;
+}
+
+.week-number {
+	color: rgba(255, 255, 255, 0.9);
+}
+
+.week-type {
+	padding: 2px 6px;
+	border-radius: 8px;
+	font-weight: 800;
+	font-size: 10px;
+	min-width: 16px;
+	text-align: center;
+}
+
+.week-type.even {
+	background: #22c55e;
+	color: white;
+}
+
+.week-type.odd {
+	background: #f59e0b;
+	color: white;
+}
+
+/* Wochen-Hervorhebung für aktuelle G/U Badges */
+.week-badge.current-week {
+	border: 1px solid rgba(255, 255, 255, 0.6) !important;
+	box-shadow: 0 0 3px rgba(255, 255, 255, 0.3);
+}
+
+/* SUP Panel */
+.sup-panel {
+	position: absolute;
+	top: calc(100% + 6px);
+	right: 8px;
+	z-index: 30;
+	background: #ffffff;
+	color: #111827;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+	box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+	min-width: 320px;
+	padding: 12px;
+}
+
+.sup-panel h3 {
+	font-size: 14px;
+	margin-bottom: 8px;
+	color: #111827;
+}
+
+.sup-row { display: flex; gap: 8px; align-items: center; margin: 8px 0; flex-wrap: wrap; }
+.sup-row label { font-size: 12px; color: #374151; }
+.sup-row select, .sup-row input[type="checkbox"] { accent-color: #7c3aed; }
+.sup-days { display: flex; gap: 8px; flex-wrap: wrap; }
+.sup-days label { display: inline-flex; gap: 6px; align-items: center; background: #f3f4f6; padding: 4px 8px; border-radius: 8px; }
+
+.sup-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 10px; }
+.sup-btn { padding: 6px 10px; border: 1px solid #d1d5db; border-radius: 8px; background: #fff; cursor: pointer; font-size: 12px; }
+.sup-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.sup-btn.warn { background: #fef3c7; border-color: #f59e0b; color: #92400e; }
+
+.sup-list { max-height: 240px; overflow: auto; margin-top: 8px; padding-right: 6px; }
+.sup-slot { border: 1px solid #e5e7eb; border-radius: 8px; padding: 8px; margin-top: 6px; background: #fafafa; }
+.sup-slot-title { font-weight: 700; font-size: 12px; margin-bottom: 6px; }
+.sup-slot select { width: 100%; }
+
+/* SUP Badge in Zellen */
+.sup-badge {
+	display: inline-block;
+	margin-left: 6px;
+	padding: 1px 4px;
+	border-radius: 6px;
+	background: #f59e0b;
+	color: #111827;
+	font-size: 8px;
+	font-weight: 700;
+	vertical-align: middle;
+	line-height: 1.2;
+}
+
+.absent-badge {
+	display: inline-block;
+	padding: 1px 3px;
+	border-radius: 4px;
+	background: #ef4444;
+	color: white;
+	font-size: 9px;
+	font-weight: 800;
+	vertical-align: middle;
+	text-shadow: 0 1px 1px rgba(0, 0, 0, 0.4);
+	line-height: 1.1;
+}
+
+/* Bei aktiver SUP-Substitution kräftiger Rahmen */
+.schedule-cell.sup-applied { outline: 2px dashed rgba(0,0,0,0.25); outline-offset: -2px; }
+
+@keyframes sync-pulse {
+	0% { opacity: 0.5; transform: scale(0.95); }
+	100% { opacity: 1; transform: scale(1); }
+}
+
+/* Filter-Bereich */
+.filter-section { position: relative; }
+
+.sync-indicator {
+	position: absolute;
+	top: 8px;
+	right: 8px;
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 4px 8px;
+	border: 1px solid #d1d5db;
+	border-radius: 999px;
+	background: #ffffff;
+	font-size: 12px;
+	color: #374151;
+}
+.sync-indicator.ok { border-color: #22c55e; color: #16a34a; }
+.sync-indicator.saving { border-color: #2563eb; color: #2563eb; }
+.sync-indicator.err { border-color: #ef4444; color: #ef4444; }
+
+.sync-dot { width: 8px; height: 8px; border-radius: 999px; background: #9ca3af; }
+.sync-dot.ok { background: #22c55e; }
+.sync-dot.saving { background: #2563eb; animation: sync-pulse 0.8s infinite alternate; }
+.sync-dot.err { background: #ef4444; }
+
+.filter-toolbar {
+	display: flex;
+	gap: 8px;
+	justify-content: center;
+	flex-wrap: wrap;
+	margin-bottom: 8px;
+}
+
+.toggle-btn {
+	appearance: none;
+	border: 1px solid #d1d5db;
+	background: #ffffff;
+	color: #374151;
+	padding: 6px 10px;
+	border-radius: 8px;
+	font-weight: 500;
+	cursor: pointer;
+	transition: background 0.2s, box-shadow 0.2s, transform 0.05s;
+	font-size: 13px;
+}
+
+.toggle-btn:hover {
+	background: #f3f4f6;
+}
+
+.toggle-btn.active {
+	border-color: #7c3aed;
+	box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.15);
+}
+
+.filter-buttons {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: center;
+}
+
+.filter-btn {
+	padding: 8px 12px;
+	border: 1px solid #d1d5db;
+	border-radius: 999px;
+	background-color: white;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	font-weight: 500;
+	min-width: 92px;
+	font-size: 13px;
+}
+
+.filter-btn:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.filter-btn.active {
+	border-color: #2563eb;
+	background-color: #2563eb;
+	color: white;
+}
+
+.filter-btn.show-all {
+	background-color: #22c55e;
+	border-color: #22c55e;
+	color: white;
+	font-weight: 600;
+}
+
+.filter-btn.show-all:hover {
+	background-color: #16a34a;
+	border-color: #16a34a;
+}
+
+.filter-group {
+	display: none;
+	align-items: center;
+	gap: 8px;
+	justify-content: center;
+}
+
+.filter-group.open {
+	display: flex;
+}
+
+.filter-group label {
+	font-weight: 600;
+	color: #374151;
+	font-size: 13px;
+}
+
+#subjectFilter {
+	min-width: 160px;
+	padding: 6px 10px;
+	border: 1px solid #d1d5db;
+	border-radius: 8px;
+	background: #fff;
+	font-size: 13px;
+}
+
+#gradeFilterButtons {
+	display: none;
+}
+
+#gradeFilterButtons.open {
+	display: flex;
+}
+
+/* Desktop Schedule */
+.schedule-container {
+	padding: 16px;
+	overflow: hidden;
+	background: #ffffff;
+	position: relative;
+	display: flex;
+	justify-content: center;
+	align-items: flex-start;
+}
+
+.fit-scale-wrapper {
+	position: relative;
+	width: 100%;
+	overflow: hidden;
+	padding-right: 8px;
+	padding-bottom: 8px;
+	display: flex;
+	justify-content: center;
+}
+
+.fit-scale-inner {
+	display: inline-block;
+	transform-origin: top center;
+}
+
+.schedule-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	background-color: white;
+	table-layout: fixed;
+}
+
+.schedule-table th,
+.schedule-table td {
+	border: 1px solid #e5e7eb;
+	padding: 4px 4px;
+	text-align: center;
+	vertical-align: middle;
+	position: relative;
+	font-size: 0.8em;
+	height: 50px;
+	min-height: 50px;
+}
+
+.day-gap {
+	width: 12px;
+	min-width: 12px;
+	max-width: 12px;
+	background: #f6f7fb;
+	border: none !important;
+	padding: 0 !important;
+	pointer-events: none;
+	user-select: none;
+}
+
+.schedule-table tbody tr:nth-child(odd) {
+	background-color: #ffffff;
+}
+
+/* Zeit-Spalte feste Breite */
+.schedule-table th:first-child,
+.schedule-table td:first-child {
+	width: 60px;
+	min-width: 60px;
+	max-width: 60px;
+	background: #f3f4f6;
+	padding: 2px 2px;
+}
+
+/* Einheitliche Spaltenbreiten für alle Schulstufen */
+.schedule-table th:not(:first-child):not(.day-gap),
+.schedule-table td:not(:first-child):not(.day-gap) {
+	width: calc((100% - 60px - 48px) / 20); /* 100% minus Zeit-Spalte minus 4 Day-Gaps, geteilt durch 20 Schulstufen-Spalten */
+}
+
+.time-cell .period-number {
+	display: block;
+	font-weight: 700;
+	font-size: 1.0em;
+}
+
+.time-cell .period-time {
+	display: block;
+	font-size: 0.7em;
+	color: #6b7280;
+	font-weight: 600;
+	line-height: 1.1;
+}
+
+.schedule-table th {
+	background-color: #f3f4f6;
+	font-weight: 700;
+	color: #374151;
+	position: sticky;
+	top: 0;
+	z-index: 10;
+}
+
+.time-column {
+	background-color: #eef2f7;
+	font-weight: 700;
+	position: sticky;
+	left: 0;
+	z-index: 5;
+}
+
+.day-header {
+	background-color: #111827;
+	color: white;
+	font-weight: 700;
+	text-align: center;
+	border-bottom: 2px solid #000;
+	font-size: 1.0em;
+	height: 35px;
+	padding: 4px 2px;
+}
+
+.grade-header {
+	background-color: #4b5563;
+	color: white;
+	font-weight: 600;
+	text-align: center;
+	font-size: 0.85em;
+	height: 30px;
+	padding: 2px 2px;
+}
+
+/* Tagesabstände via .day-gap, keine zusätzlichen Trennlinien nötig */
+
+/* Lesson Cards */
+.schedule-cell,
+.mobile-schedule-cell {
+	cursor: pointer;
+	border-radius: 8px;
+	padding: 0;
+	background-clip: padding-box;
+}
+
+.schedule-cell:hover,
+.mobile-schedule-cell:hover {
+	box-shadow: inset 0 0 0 9999px rgba(255, 255, 255, 0.06);
+}
+
+.lesson {
+	display: flex;
+	flex-direction: column;
+	gap: 6px;
+	text-align: left;
+}
+
+/* Geteilte Stunden (BSPM|BSPK) - untereinander zentriert */
+.split-lesson {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	height: 100%;
+	justify-content: center;
+	align-items: center;
+	text-align: center;
+	padding: 4px 6px;
+}
+
+.split-section {
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+	text-align: center;
+	position: relative;
+	width: 100%;
+}
+
+.split-section:not(:last-child) {
+	border-bottom: 1px solid rgba(0, 0, 0, 0.2);
+	padding-bottom: 2px;
+	margin-bottom: 2px;
+}
+
+.lesson-top {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+/* Für geteilte Stunden - zentrierte Darstellung */
+.split-section .lesson-top {
+	gap: 2px;
+	justify-content: center;
+}
+
+.split-section .subject-tag {
+	font-size: 0.85em;
+	font-weight: 800;
+}
+
+.split-section .teacher-badge {
+	font-size: 0.65em;
+	padding: 1px 4px;
+}
+
+.split-section .grade-badge {
+	font-size: 0.65em;
+	padding: 1px 4px;
+}
+
+/* Wochen-Kennzeichnung für BBO (g/u) */
+.week-indicator {
+	display: flex;
+	justify-content: center;
+	gap: 4px;
+	margin-top: 2px;
+}
+
+.week-badge {
+	font-size: 0.7em;
+	font-weight: 900;
+	padding: 1px 4px;
+	border-radius: 3px;
+	background: rgba(0, 0, 0, 0.1);
+	border: 1px solid rgba(0, 0, 0, 0.2);
+	color: #000;
+	min-width: 12px;
+	text-align: center;
+}
+
+/* Halbe Zellen für BBO */
+.half-cell {
+	position: relative;
+}
+
+.half-cell::after {
+	content: '';
+	position: absolute;
+	left: 50%;
+	top: 2px;
+	bottom: 2px;
+	width: 1px;
+	background: rgba(0, 0, 0, 0.3);
+	z-index: 1;
+}
+
+.subject-tag {
+	font-weight: 800;
+	letter-spacing: 0.2px;
+}
+
+.teacher-badge {
+	font-size: 0.72em;
+	font-weight: 700;
+	background: rgba(255, 255, 255, 0.35);
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	padding: 2px 6px;
+	border-radius: 999px;
+	backdrop-filter: blur(2px);
+}
+
+.grade-badges {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+}
+
+.grade-badge {
+	font-size: 0.72em;
+	font-weight: 700;
+	padding: 2px 6px;
+	border-radius: 6px;
+	background: rgba(255, 255, 255, 0.55);
+	border: 1px solid rgba(0, 0, 0, 0.08);
+	color: inherit;
+}
+
+.grade-display { display: none; }
+
+.empty-cell {
+	background-color: #f9fafb;
+	color: #6b7280;
+	height: 50px;
+	min-height: 50px;
+}
+
+/* Highlight/Filter States */
+.schedule-cell.filtered,
+.mobile-schedule-cell.filtered {
+	opacity: 0.35;
+	filter: grayscale(35%);
+}
+
+.schedule-cell.highlighted,
+.mobile-schedule-cell.highlighted {
+	outline: 2px solid rgba(0,0,0,0.15);
+	outline-offset: -2px;
+}
+
+/* Deutlich stärkere Hervorhebung */
+.schedule-cell.now,
+.mobile-schedule-cell.now {
+	outline: 4px solid #2563eb;
+	outline-offset: -2px;
+	box-shadow: 0 0 0 6px rgba(37,99,235,0.22), inset 0 0 0 9999px rgba(255,255,255,0.1);
+}
+
+.time-cell.now {
+	background: #dbeafe;
+	color: #1e3a8a;
+	border-color: #60a5fa !important;
+	box-shadow: inset 0 0 0 9999px rgba(219,234,254,0.6);
+}
+
+/* Lehrer-Farben (alle Texte schwarz) */
+.teacher-1 { background-color: #ff69b4; color: #000; }
+.teacher-2 { background-color: #90ee90; color: #000; }
+.teacher-3 { background-color: #ffd700; color: #000; }
+.teacher-4 { background-color: #228b22; color: #000; }
+.teacher-5 { background-color: #dc143c; color: #000; }
+.teacher-6 { background-color: #f5deb3; color: #000; }
+.teacher-7 { background-color: #9370db; color: #000; }
+.teacher-8 { background-color: #87ceeb; color: #000; }
+.teacher-9 { background-color: #8b4513; color: #000; }
+.teacher-10 { background-color: #40e0d0; color: #000; }
+
+/* Mobile */
+.mobile-sync-indicator {
+	display: none !important;
+	justify-content: center;
+	padding: 8px 16px;
+	background-color: #f9fafb;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.mobile-sync-indicator .sync-indicator {
+	position: static;
+	font-size: 11px;
+	padding: 3px 6px;
+}
+
+.mobile-day-navigation {
+	display: none;
+	padding: 12px 16px;
+	background-color: #f9fafb;
+	border-bottom: 1px solid #e5e7eb;
+}
+
+.day-tabs {
+	display: flex;
+	gap: 6px;
+	justify-content: center;
+}
+
+.day-tab {
+	padding: 6px 10px;
+	border: 1px solid #d1d5db;
+	border-radius: 999px;
+	background-color: white;
+	cursor: pointer;
+	transition: all 0.2s ease;
+	font-weight: 600;
+	min-width: 38px;
+	text-align: center;
+	font-size: 12px;
+}
+
+.day-tab:hover {
+	transform: translateY(-1px);
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+}
+
+.day-tab.active {
+	border-color: #2563eb;
+	background-color: #2563eb;
+	color: white;
+}
+
+.mobile-schedule-container {
+	display: none;
+	padding: 12px 16px;
+}
+
+.mobile-day-title {
+	text-align: center;
+	font-size: 1.2em;
+	font-weight: 700;
+	margin-bottom: 12px;
+	color: #111827;
+}
+
+.mobile-schedule-table {
+	width: 100%;
+	border-collapse: separate;
+	border-spacing: 0;
+	background-color: white;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.mobile-schedule-table th,
+.mobile-schedule-table td {
+	border: 1px solid #e5e7eb;
+	padding: 10px 8px;
+	text-align: center;
+	vertical-align: middle;
+	font-size: 0.85em;
+}
+
+.mobile-schedule-table th {
+	background-color: #f3f4f6;
+	font-weight: 700;
+	color: #374151;
+}
+
+.mobile-time-column {
+	background-color: #eef2f7;
+	font-weight: 700;
+	width: 100px;
+	font-size: 1.0em;
+}
+
+.mobile-grade-header {
+	background-color: #4b5563;
+	color: white;
+	font-weight: 600;
+	font-size: 0.95em;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+	.container {
+		max-width: 100vw;
+		margin: 0;
+		border-radius: 0;
+	}
+
+	h1 {
+		font-size: 1.1em;
+		padding: 10px 12px;
+		padding-right: 120px; /* Platz für Header-Controls */
+	}
+
+	.header-controls {
+		top: 6px;
+		right: 6px;
+		gap: 4px;
+	}
+
+	.week-display {
+		font-size: 10px;
+		padding: 3px 6px;
+		gap: 3px;
+	}
+
+	.header-toggle {
+		width: 22px;
+		height: 22px;
+		font-size: 10px;
+	}
+
+	.filter-buttons {
+		display: flex;
+		flex-wrap: wrap;
+		overflow-x: auto;
+		overflow-y: auto;
+		gap: 10px;
+		justify-content: center;
+		padding: 8px 12px;
+		max-height: 200px;
+		-webkit-overflow-scrolling: touch;
+		/* Bessere Scroll-Indikatoren für mobile */
+		scrollbar-width: thin;
+		scrollbar-color: #cbd5e1 transparent;
+	}
+	
+	.filter-buttons::-webkit-scrollbar {
+		height: 4px;
+		width: 4px;
+	}
+	
+	.filter-buttons::-webkit-scrollbar-track {
+		background: transparent;
+	}
+	
+	.filter-buttons::-webkit-scrollbar-thumb {
+		background: #cbd5e1;
+		border-radius: 2px;
+	}
+			
+	.filter-btn {
+		flex-shrink: 0;
+		min-width: 100px;
+		padding: 12px 14px;
+		font-size: 14px;
+		height: 44px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	/* Desktop Sync-Indikator ausblenden */
+	.filter-section .sync-indicator { display: none; }
+
+	/* Mobile Sync-Indikator einblenden */
+	.mobile-sync-indicator { display: flex !important; }
+
+	/* Desktop Tabelle ausblenden */
+	.schedule-container { display: none; }
+
+	/* Mobile Navigation einblenden */
+	.mobile-day-navigation { display: block; }
+
+	/* Mobile Schedule Container einblenden */
+	.mobile-schedule-container { display: block; }
+
+	.mobile-schedule-table th,
+	.mobile-schedule-table td {
+		padding: 8px 6px;
+		font-size: 0.8em;
+	}
+
+	.mobile-time-column { width: 80px; }
+}
+
+@media (max-width: 480px) {
+	body { padding: 10px; }
+
+	/* Desktop Sync-Indikator ausblenden */
+	.filter-section .sync-indicator { display: none; }
+
+	/* Mobile Sync-Indikator einblenden */
+	.mobile-sync-indicator { display: flex !important; }
+
+	h1 { 
+		font-size: 1em; 
+		padding: 10px; 
+		padding-right: 110px; /* Platz für Header-Controls */
+	}
+
+	.header-controls {
+		top: 5px;
+		right: 5px;
+		gap: 3px;
+	}
+
+	.week-display {
+		font-size: 9px;
+		padding: 2px 5px;
+		gap: 2px;
+	}
+
+	.header-toggle {
+		width: 20px;
+		height: 20px;
+		font-size: 9px;
+	}
+
+	.filter-buttons { 
+		gap: 6px; 
+		padding: 0 6px; 
+		flex-wrap: wrap;
+		justify-content: center;
+		max-height: 160px;
+		overflow-y: auto;
+	}
+
+	.filter-btn {
+		min-width: 90px;
+		padding: 14px 16px;
+		font-size: 15px;
+		height: 46px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.day-tabs { gap: 8px; }
+
+	.day-tab { 
+		padding: 12px 16px; 
+		min-width: 70px; 
+		font-size: 14px;
+		font-weight: 700;
+		height: 42px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.mobile-schedule-table th,
+	.mobile-schedule-table td { padding: 6px 4px; font-size: 0.75em; }
+
+	.mobile-time-column { width: 70px; }
+} 
+
+/* Lehrerleiste – klein, eckig, zentriert, Farbstreifen links je Lehrer */
+#filterButtons {
+	flex-wrap: wrap;
+	overflow-x: auto;
+	gap: 6px;
+	padding: 8px 10px;
+	background: #ffffff;
+	border: 1px solid #e5e7eb;
+	border-radius: 10px;
+	box-shadow: 0 1px 1px rgba(0,0,0,0.04);
+	scrollbar-width: thin;
+	scrollbar-color: #cbd5e1 transparent;
+	justify-content: center;
+	max-height: 120px;
+	overflow-y: auto;
+}
+
+#filterButtons::-webkit-scrollbar { 
+	height: 8px; 
+	width: 8px; 
+}
+#filterButtons::-webkit-scrollbar-track { background: transparent; }
+#filterButtons::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 999px; }
+
+#filterButtons .filter-btn {
+	min-width: 74px;
+	height: 28px;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	padding: 4px 8px 4px 10px;
+	font-size: 12px;
+}
+
+#filterButtons .filter-btn.teacher-chip {
+	border-radius: 4px;
+	position: relative;
+	border-color: var(--chip-color, #d1d5db);
+}
+
+#filterButtons .filter-btn.teacher-chip::before {
+	content: '';
+	position: absolute;
+	left: 0; top: 0; bottom: 0;
+	width: 8px;
+	background: var(--chip-color, #e5e7eb);
+	border-top-left-radius: 4px;
+	border-bottom-left-radius: 4px;
+}
+
+/* Lehrer- und Schulstufen-Badges komplett ausgeblendet */
+.lesson .teacher-badge { display: none; }
+.lesson .grade-badges { display: none; } 
+
+.sup-summary {
+	padding: 12px 16px;
+	border-top: 1px solid #e5e7eb;
+	background: #fff;
+}
+.sup-summary-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.sup-summary h4 { font-size: 14px; margin: 0; color: #111827; }
+.sup-summary .summary-actions { display: flex; gap: 8px; }
+.sup-summary .summary-btn { padding: 4px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; font-size: 12px; cursor: pointer; }
+.sup-summary .summary-btn.primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+.sup-summary .sup-item { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; font-size: 13px; padding: 6px 8px; border: 1px solid #e5e7eb; border-radius: 8px; margin: 6px 0; background: #fafafa; }
+.sup-summary .tag { padding: 2px 6px; border-radius: 999px; background: #e5e7eb; color: #111827; font-weight: 700; font-size: 11px; }
+.sup-summary .sep { color: #6b7280; }
+.sup-summary .sup-item .sup-btn { padding: 4px 8px; border-radius: 6px; font-size: 12px; }
+
+.sup-summary-day {
+	margin-top: 12px;
+}
+.sup-summary-day h5 {
+	font-size: 13px;
+	font-weight: 800;
+	color: #111827;
+	margin: 6px 0;
+}
+.sup-grid {
+	display: grid;
+	grid-template-columns: 110px 120px 140px 140px 1fr 1fr 100px;
+	gap: 6px 10px;
+	align-items: center;
+}
+.sup-grid.header { font-weight: 700; color: #374151; }
+.sup-grid .cell { font-size: 13px; padding: 6px 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; }
+.sup-grid .cell.actions { background: transparent; border: none; padding: 0; display: flex; gap: 6px; }
+
+/* Canceled Darstellung */
+.canceled-cell { background: #e5e7eb !important; color: #374151 !important; }
+.cancel-badge { display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 999px; background: #ef4444; color: #fff; font-size: 10px; font-weight: 800; vertical-align: middle; }
+
+/* Print Styles */
+@media print {
+	.header-controls, .filter-section, .mobile-day-navigation, .schedule-container, .mobile-schedule-container, .view-controls, .sup-panel { display: none !important; }
+	.sup-summary { display: block; page-break-inside: avoid; }
+}
+
+@media print {
+	body.print-sup-only .container > *:not(h1):not(.sup-summary) { display: none !important; }
+	body.print-sup-only h1 { margin-bottom: 8px; }
+}
+
+/* Draggable SUP Panel */
+.sup-panel { cursor: default; }
+.sup-panel .drag-handle { cursor: move; user-select: none; padding-bottom: 6px; display: flex; justify-content: space-between; align-items: center; }
+.sup-panel .drag-handle .title { font-weight: 700; }
+.sup-panel .drag-handle .close { border: none; background: transparent; cursor: pointer; font-size: 16px; line-height: 1; padding: 2px 6px; } 
