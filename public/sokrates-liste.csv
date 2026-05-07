@@ -1,0 +1,53 @@
+Gegenstand;Klasse(n);Gruppe;Stunden;ErgStunden;Schulstufen;LehrerIn
+PG_BSP;1a;Bewegung und Sport Knaben 1/2;3;0;05,06;Zz_Planung_318162 01
+PG_BSP;1a;Bewegung und Sport 5SS;1;0;05;Nagl Tanja (90391614) (Leitung)
+PG_BSP;1a+2a;Bewegung und Sport Mädchen;3;0;05,06, 07, 08;Nagl Tanja (90391614) (Leitung)
+PG_BSP;2a;Bewegung und Sport Knaben 3/4;3;0;07,08;Schlegel Georg (90387538)
+PG_BUB;1a;PG_BU 1/2;2;0;05,06;Kolbinger Benedikt (90567068)
+PG_BUB;2a;;1;0;07;Hackl Simone (90661183)
+PG_BUB;2a;;0;2;08;Kolbinger Benedikt (90567068)
+PG_CH;2a;;0;2;08;Zz_Planung_318162 02
+PG_D;1a;;0;4;06;Hackl Simone (90661183)
+PG_D;1a;;4;0;05;Hackl Simone (90661183)
+PG_D;2a;;4;0;07;Kolbinger Benedikt (90567068)
+PG_D;2a;;0;4;08;Kolbinger Benedikt (90567068)
+PG_DGB;1a;DGB 1/2;1;0;05,06;Nagl Tanja (90391614) (Leitung)
+PG_DGB;2a;DGB 3/4;1;0;07,08;Schlegel Georg (90387538)
+PG_E;1a;;0;4;06;Kopp Christian (90381907)
+PG_E;1a;;4;0;05;Kopp Christian (90381907)
+PG_E;2a;;0;4;08;Varga Mario (90450657)
+PG_E;2a;;4;0;07;Varga Mario (90450657)
+PG_EH;1a;;0;1.5;06;Hackl Simone (90661183)
+PG_EH;2a;;1.5;0;07;Hackl Simone (90661183)
+PG_GPB;1a;;0;1;06;Zz_Planung_318162 01
+PG_GPB;2a;PG_GPB 3/4;2;0;07,08;Varga Mario (90450657)
+PG_GWB;1a;;2;0;05;Kopp Christian (90381907)
+PG_GWB;1a;;0;1;06;Kopp Christian (90381907)
+PG_GWB;2a;PG_GWB 3/4;2;0;07,08;Kopp Christian (90381907)
+PG_GZ;2a;;1;0;07;Zz_Planung_318162 01
+PG_GZ;2a;;0;1;08;Zz_Planung_318162 01
+PG_KGE;1a;PG_KGE 1/2;2;0;05,06;Zz_Planung_318162 01
+PG_KGE;2a;;0;1;08;Varga Mario (90450657)
+PG_KGE;2a;;2;0;07;Zz_Planung_318162 01
+PG_M;1a;;0;4;06;Zz_Planung_318162 02
+PG_M;1a;;4;0;05;Zz_Planung_318162 02
+PG_M;2a;;0;4;08;Zz_Planung_318162 01
+PG_M;2a;;4;0;07;Zz_Planung_318162 01
+PG_MU;1a;PG_MU 1/2;2;0;05, 06;Zz_Planung_318162 01
+PG_MU;2a;PG_MU 3/4;1;0;07;Zz_Planung_318162 01
+PG_PH;1a;;0;1;06;Zz_Planung_318162 02
+PG_PH;2a;;2;0;07;Zz_Planung_318162 02
+PG_PH;2a;;0;1;08;Zz_Planung_318162 02
+PG_REL;1a;PG_REL_RRK_1;2;0;06,07;Simon Maximilian (90568039)
+PG_REL;2a;PG_REL_RRK_2;2;0;07,08;Simon Maximilian (90568039)
+PG_TD;1a;;2;0;05;Kopp Christian (90381907)
+PG_TD;1a;;0;2;06;Kopp Christian (90381907)
+PG_TD;2a;;0;2;08;Kopp Christian (90381907)
+PG_TD;2a;;2;0;07;Kopp Christian (90381907)
+VÜ_BBO;2a;;0;0.5;07;Varga Mario (90450657)
+VÜ_BBO;2a;;0.5;0;08;Varga Mario (90450657)
+FÖ_FÖ;1a;FÖ_FÖ;5;0;05;N. N.
+FÖ_FÖ;1a+2a;FÖ M1-4;1;0;05,06,07,08;Zz_Planung_318162 01
+FÖ_FÖ;1a+2a;FÖ E1-4;1;0;05,06,07,08;Kopp Christian (90381907)
+FÖ_FÖ;1a+2a;FÖ D1-4;1;0;05,06,07,08;Kolbinger Benedikt (90567068)
+KU_VS-NaSt;1a+2a;VS_Nahtstelle;0.5;0;;Nagl Tanja (90391614) (Leitung)

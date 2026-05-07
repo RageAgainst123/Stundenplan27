@@ -1,47 +1,107 @@
-# Svelte + TS + Vite
+# Stundenplan MS SiG
 
-This template should help get you started developing with Svelte and TypeScript in Vite.
+Eine Browser-App für Stundenplan-Erstellung an einer kleinen Mittelschule mit Mehrstufenklassen, mit eigenem Constraint-Solver auf WebAssembly-Basis und Drag-&-Drop-Editor.
 
-## Recommended IDE Setup
+**Stack:** Vite · TypeScript · Svelte 5 · MiniZinc-JS (WASM Solver) · sveltednd
 
-[VS Code](https://code.visualstudio.com/) + [Svelte](https://marketplace.visualstudio.com/items?itemName=svelte.svelte-vscode).
+## Features
 
-## Need an official Svelte framework?
+- **CSV-Import** des Sokrates-Exports „Liste" als Startbasis (Lehrer, Fächer, ~50 Lehreinheiten in einem Klick)
+- **Editor** für Lehrer (mit Farb-Picker und Verfügbarkeits-Mini-Raster), Fächer und Lehreinheiten — alles im Browser, alles änderbar
+- **Mehrstufen-Modell:** Schulstufen 5–8 als Stundenplan-Spalten, Mehrstufen-Kopplungen (5+6, 7+8) und klassenübergreifende Gruppen werden korrekt abgebildet
+- **Constraint-Solver** im Browser via MiniZinc-WASM: harte Regeln (Lehrer/Klasse nicht doppelt, Verfügbarkeit, Pinning, Wochen-Pattern) werden erfüllt
+- **Drag-&-Drop**: Lehreinheiten von Sidebar in Slots ziehen, Live-Konfliktwarnungen, Pin-Toggle
+- **Filter:** farbige Lehrer-Chips, Schulstufen-Toggles, Fach-Dropdown — wie das alte Vorbild
+- **Wochen-G/U-Logik** für 2-wöchige Fächer (BBO, EH)
+- **JSON-Backup**: Export & Import des kompletten Plans als Datei
 
-Check out [SvelteKit](https://github.com/sveltejs/kit#readme), which is also powered by Vite. Deploy anywhere with its serverless-first approach and adapt to various platforms, with out of the box support for TypeScript, SCSS, and Less, and easily-added support for mdsvex, GraphQL, PostCSS, Tailwind CSS, and more.
+## Schnellstart
 
-## Technical considerations
-
-**Why use this over SvelteKit?**
-
-- It brings its own routing solution which might not be preferable for some users.
-- It is first and foremost a framework that just happens to use Vite under the hood, not a Vite app.
-
-This template contains as little as possible to get started with Vite + TypeScript + Svelte, while taking into account the developer experience with regards to HMR and intellisense. It demonstrates capabilities on par with the other `create-vite` templates and is a good starting point for beginners dipping their toes into a Vite + Svelte project.
-
-Should you later need the extended capabilities and extensibility provided by SvelteKit, the template has been structured similarly to SvelteKit so that it is easy to migrate.
-
-**Why `global.d.ts` instead of `compilerOptions.types` inside `jsconfig.json` or `tsconfig.json`?**
-
-Setting `compilerOptions.types` shuts out all other types not explicitly listed in the configuration. Using triple-slash references keeps the default TypeScript setting of accepting type information from the entire workspace, while also adding `svelte` and `vite/client` type information.
-
-**Why include `.vscode/extensions.json`?**
-
-Other templates indirectly recommend extensions via the README, but this file allows VS Code to prompt the user to install the recommended extension upon opening the project.
-
-**Why enable `allowJs` in the TS template?**
-
-While `allowJs: false` would indeed prevent the use of `.js` files in the project, it does not prevent the use of JavaScript syntax in `.svelte` files. In addition, it would force `checkJs: false`, bringing the worst of both worlds: not being able to guarantee the entire codebase is TypeScript, and also having worse typechecking for the existing JavaScript. In addition, there are valid use cases in which a mixed codebase may be relevant.
-
-**Why is HMR not preserving my local component state?**
-
-HMR state preservation comes with a number of gotchas! It has been disabled by default in both `svelte-hmr` and `@sveltejs/vite-plugin-svelte` due to its often surprising behavior. You can read the details [here](https://github.com/rixo/svelte-hmr#svelte-hmr).
-
-If you have state that's important to retain within a component, consider creating an external store which would not be replaced by HMR.
-
-```ts
-// store.ts
-// An extremely simple external store
-import { writable } from 'svelte/store'
-export default writable(0)
+```bash
+npm install
+npm run dev          # Dev-Server auf Port 5173
+npm test             # Vitest (CSV-Parser, encode/decode)
+npm run build        # Production-Build nach dist/
 ```
+
+## Schul-Modellierung (zentral)
+
+An der MS SiG gibt es organisatorisch zwei Klassen:
+- **1a** = Schulstufen 5 + 6
+- **2a** = Schulstufen 7 + 8
+
+Beide sind Mehrstufenklassen, werden aber meist getrennt unterrichtet. Der Stundenplan zeigt deshalb 4 Spalten (5./6./7./8. SSt.). Die Achse für Solver und Anzeige ist die **Schulstufe**, die Klasse(n)-Information aus der CSV ist Metadaten.
+
+Spec-Beispiele aus der CSV:
+
+| CSV-Zeile | grades | Belegt im Raster |
+|---|---|---|
+| `PG_M;1a;;4;0;05;Hackl Simone…` | `[5]` | nur Spalte 5. SSt. |
+| `PG_BSP;1a;Knaben 1/2;3;0;05,06;…` | `[5,6]` | Spalten 5+6 zusammengezogen |
+| `PG_BSP;1a+2a;Mädchen;3;0;05,06,07,08;…` | `[5,6,7,8]` | alle 4 Spalten |
+| `PG_REL;1a;PG_REL_RRK_1;2;0;06,07;…` | `[6,7]` | klassenübergreifend |
+
+`Stunden` und `ErgStunden` werden für den Generator als gleichwertig behandelt (`count = Stunden + ErgStunden`). Die G/U-Wochen-Logik wird **manuell im Editor** gesetzt (Feld `weekPattern`), nicht aus der CSV abgeleitet.
+
+## Workflow
+
+1. **Setup** (Tab „Import / Export"): CSV hochladen → Vorschau-Diff bestätigen.
+2. **Stammdaten verfeinern:** Tab „Lehrer" (Farben, Verfügbarkeiten), „Fächer" (Hauptfach-Flag), „Lehreinheiten" (Wochen-Pattern für BBO/EH manuell setzen).
+3. **Plan bauen** (Tab „Stundenplan"): fixe Stunden per Drag&Drop in Slots ziehen → „Plan generieren" → Solver platziert den Rest.
+4. **Feinjustierung:** Stunden verschieben, pinnen, regenerieren.
+5. **Backup** als JSON speichern.
+
+## Architektur
+
+```
+src/
+├── App.svelte                       # Tab-Navigation
+├── lib/
+│   ├── types.ts                     # Datenmodell (Teacher, Subject, LessonSpec, …)
+│   ├── store.svelte.ts              # Reactive Store mit localStorage-Persistierung
+│   ├── persistence.ts               # localStorage + JSON Im-/Export
+│   ├── now.ts                       # Period/Week-Helpers (KW, G/U)
+│   ├── schedule-helpers.ts          # placementsAt, conflictCheck, unplacedSpecs
+│   ├── import/
+│   │   ├── csv.ts                   # Sokrates-Liste-Parser
+│   │   ├── csv.test.ts              # 21 Tests gegen echte Liste.csv
+│   │   ├── subject-names.ts         # Code → Klartext + Hauptfach-Default
+│   │   └── __fixtures__/sokrates-liste.csv
+│   └── solver/
+│       ├── model.mzn                # MiniZinc-Schulmodell (harte Constraints)
+│       ├── encode.ts                # ScheduleDoc → DZN
+│       ├── decode.ts                # Solver-Output → PlacedLesson[]
+│       ├── encode.test.ts           # 14 Tests
+│       └── service.ts               # Browser-seitiger Solver-Aufruf
+└── components/
+    ├── ImportExport.svelte
+    ├── TeacherList.svelte
+    ├── AvailabilityGrid.svelte
+    ├── SubjectList.svelte
+    ├── SpecList.svelte
+    ├── ScheduleGrid.svelte
+    ├── LessonCell.svelte
+    ├── GenerateButton.svelte
+    └── RulesPanel.svelte
+```
+
+## Status
+
+- ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 35 Tests grün, `npm run build` sauber.
+- ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt; weiche Constraints (Score-Funktion) als nächste Iteration.
+- ⚠️ **Browser-Smoke-Test:** Solver findet zuverlässig Lösungen (116 Lehreinheiten in <2s), CSV-Import + Editor + Solver-Pipeline funktionieren bis zum Store. Die Reactivity zwischen Store-Update nach Solve und DOM-Render hat eine Schwachstelle, die im nächsten Iterations-Schritt vertieft werden muss (siehe Code-Kommentar in `ScheduleGrid.svelte` — `placementMap` $derived.by).
+- 🔜 **Phase 6** (Print-Layout, GitHub-Pages-Deploy, Polish) — ausstehend.
+
+## Bekannte Punkte zum Vertiefen
+
+1. **Reactivity-Bug nach Solver-Run** — Store enthält 116 placed, DOM rendert nur 4. Vermutlich braucht es entweder eine Restrukturierung von `placementsAt` zu einem reinen $derived oder eine Force-Update-Strategie nach dem Solver-Run.
+2. **Tab-Switch-Render im Dev-Server** — HMR im Vite-Dev-Server kann mehrere onclick-Listener akkumulieren. Production-Build (`npm run build && npm run preview`) ist davon nicht betroffen.
+3. **Weiche Constraints** — `model.mzn` enthält bisher nur harte Regeln. RulesPanel-Werte sind UI-fertig, müssen noch in MiniZinc-Penalty-Variablen übersetzt werden.
+
+## Tests laufen lassen
+
+```bash
+npm test
+```
+
+35 Unit-Tests gegen den CSV-Parser (echte Liste.csv) und Solver-Encode/Decode-Pipeline.
