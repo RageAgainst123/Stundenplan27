@@ -1,5 +1,16 @@
 # Stundenplan MS SiG — Claude-Session-Notizen
 
+> **Bevor du arbeitest:** Lies kurz `docs/CONTEXT.md` (wer & wo) und `docs/REQUIREMENTS.md`
+> (was als nächstes & was Out-of-Scope). Bei Architektur-Fragen: `docs/decisions/`.
+
+## Auto-Imports
+
+Folgende Dateien werden mit dieser CLAUDE.md geladen:
+
+- @docs/CONTEXT.md
+- @docs/REQUIREMENTS.md
+- @docs/decisions/README.md
+
 ## Was diese App tut (1 Satz)
 
 Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklassen (5./6./7./8. SSt.), lokal-only mit MiniZinc-WASM-Solver, Sokrates-CSV-Import und Drag&Drop-Editor.
@@ -97,4 +108,12 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 
 
 ## Plan-Datei für Detail-Recherche
 
-`C:\Users\Geo\.claude\plans\https-rageagainst123-github-io-std-stund-temporal-oasis.md` enthält die ausführliche Phasen-Doku inklusive aller Recherche-Ergebnisse.
+Lokal (gitignored, nur auf Geos Rechner): `~/.claude/plans/https-rageagainst123-github-io-std-stund-temporal-oasis.md` — enthält die ausführliche Phasen-Doku.
+
+Im Repo (für alle Sessions verfügbar):
+
+- `README.md` — User-fassbares Was-und-Warum
+- `CHANGELOG.md` — Was wann gebaut wurde
+- `docs/CONTEXT.md` — Wer (MS SiG, Geo, Solo-Tool) und Schul-Spezifika
+- `docs/REQUIREMENTS.md` — Done / Phase 7 / Vision / Out of Scope + Glossar
+- `docs/decisions/` — ADRs zu Stack, Solver-Wahl, State-Pattern, Slot-Modell, …

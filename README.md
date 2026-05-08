@@ -132,6 +132,14 @@ npm test
 
 54 Unit-Tests: Block-Pattern-Helpers, CSV-Parser (echte Liste.csv), Solver-Encode/Decode-Pipeline.
 
+## Dokumentation
+
+- [CLAUDE.md](./CLAUDE.md) — Stolperfallen, Konventionen, Befehle für AI-Sessions
+- [CHANGELOG.md](./CHANGELOG.md) — Versions-Historie
+- [docs/CONTEXT.md](./docs/CONTEXT.md) — Schul-Kontext (MS SiG, Mehrstufen-Modell, Erfolgsmaßstab)
+- [docs/REQUIREMENTS.md](./docs/REQUIREMENTS.md) — Done / Phase 7 / Vision / Out-of-Scope + Glossar
+- [docs/decisions/](./docs/decisions/) — Architektur-Entscheidungen (ADRs)
+
 ## Lizenz
 
 [MIT](./LICENSE) — Copyright © 2026 Geo Schlegel.
