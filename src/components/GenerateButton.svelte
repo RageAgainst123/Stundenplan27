@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
-	import { startSolve, type SolveSession, type SolvePhase } from '../lib/solver/service';
+	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent } from '../lib/solver/service';
 	import type { PlacedLesson } from '../lib/types';
 	import type { RelaxationInfo, SolverOutput } from '../lib/solver/decode';
 	const store = useStore();
@@ -18,6 +18,10 @@
 	let result = $state<SolverOutput | null>(null);
 	let relaxation = $state<RelaxationInfo | null>(null);
 	let plansApplied = $state<number>(0);
+	let logEntries = $state<SolveLogEvent[]>([]);
+	let logOpen = $state<boolean>(false);
+	// Last DZN snapshot (kept after session ends, for debug download)
+	let lastDzn = $state<string>('');
 
 	const busy = $derived(session !== null);
 
@@ -50,6 +54,46 @@
 		result = null;
 		relaxation = null;
 		plansApplied = 0;
+		logEntries = [];
+	}
+
+	function fmtMs(ms: number): string {
+		const s = Math.floor(ms / 1000);
+		const cs = Math.floor((ms % 1000) / 100);
+		return `${s.toString().padStart(2, '0')}.${cs}s`;
+	}
+
+	function formatLog(entries: SolveLogEvent[]): string {
+		const lines = entries.map(e => {
+			const lvl = e.level.toUpperCase().padEnd(5);
+			const t = fmtMs(e.tElapsedMs).padStart(7);
+			const data = e.data && Object.keys(e.data).length > 0
+				? ' ' + Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')
+				: '';
+			return `[${t}] ${lvl} ${e.message}${data}`;
+		});
+		return lines.join('\n');
+	}
+
+	async function copyLog(): Promise<void> {
+		const text = formatLog(logEntries);
+		try {
+			await navigator.clipboard.writeText(text);
+		} catch (e) {
+			console.warn('Clipboard write failed', e);
+		}
+	}
+
+	function downloadDzn(): void {
+		const dzn = session?.getDzn() || lastDzn;
+		if (!dzn) return;
+		const blob = new Blob([dzn], { type: 'text/plain;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `stundenplan-${new Date().toISOString().replace(/[:.]/g, '-')}.dzn`;
+		a.click();
+		URL.revokeObjectURL(url);
 	}
 
 	function startTicker(): void {
@@ -92,12 +136,22 @@
 			applyPlacements(sol.placed);
 			plansApplied++;
 		});
+		s.on('log', ev => {
+			// Cap log to avoid runaway memory; keep first 50 + last 950 if needed.
+			if (logEntries.length >= 1000) {
+				logEntries = [...logEntries.slice(0, 50), ...logEntries.slice(-949), ev];
+			} else {
+				logEntries = [...logEntries, ev];
+			}
+		});
 		s.on('done', d => {
 			result = d.final;
 			if (d.final.relaxation) relaxation = d.final.relaxation;
 			if (d.final.status === 'SAT') {
 				applyPlacements(d.final.placed);
 			}
+			// Snapshot DZN so the user can still download it after the run ends.
+			lastDzn = s.getDzn();
 			session = null;
 			stopTicker();
 		});
@@ -249,6 +303,24 @@
 			<span class="err">✗ {result.status}: {result.message ?? 'Solver-Fehler'}</span>
 		{/if}
 	{/if}
+
+	{#if logEntries.length > 0 || lastDzn}
+		<div class="debug-panel">
+			<div class="debug-header">
+				<button class="debug-toggle" onclick={() => (logOpen = !logOpen)} aria-expanded={logOpen}>
+					{logOpen ? '▼' : '▶'} Solver-Log ({logEntries.length})
+				</button>
+				<div class="debug-actions">
+					<button class="btn small" onclick={copyLog} disabled={logEntries.length === 0} title="Log als Text in die Zwischenablage kopieren">📋 Log kopieren</button>
+					<button class="btn small" onclick={downloadDzn} disabled={!lastDzn && !session} title="DZN-Datei herunterladen für externe Solver-Analyse">🔬 DZN herunterladen</button>
+				</div>
+			</div>
+			{#if logOpen}
+				<pre class="log-view">{#each logEntries as e (e.tElapsedMs + '|' + e.message)}<span class="log-line log-{e.level}">[{fmtMs(e.tElapsedMs).padStart(7)}] {e.level.toUpperCase().padEnd(5)} {e.message}{#if e.data && Object.keys(e.data).length > 0} {Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}{/if}</span>
+{/each}</pre>
+			{/if}
+		</div>
+	{/if}
 </div>
 
 <style>
@@ -367,5 +439,70 @@
 	.btn.small {
 		padding: 4px 10px;
 		font-size: 12px;
+	}
+	.debug-panel {
+		flex-basis: 100%;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		margin-top: 6px;
+		padding: 8px 10px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		font-size: 12px;
+	}
+	.debug-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.debug-toggle {
+		background: none;
+		border: 0;
+		font: inherit;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 2px 4px;
+		color: var(--text);
+	}
+	.debug-toggle:hover {
+		color: var(--accent);
+	}
+	.debug-actions {
+		display: flex;
+		gap: 6px;
+	}
+	.log-view {
+		font-family: var(--mono);
+		font-size: 11px;
+		line-height: 1.4;
+		max-height: 360px;
+		overflow: auto;
+		margin: 0;
+		padding: 8px;
+		background: #1f1f1f;
+		color: #ddd;
+		border-radius: 4px;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+	.log-line {
+		display: block;
+	}
+	.log-line.log-error {
+		color: #ff6b6b;
+	}
+	.log-line.log-warn {
+		color: #ffb84d;
+	}
+	.log-line.log-stat {
+		color: #87ceeb;
+	}
+	.log-line.log-phase {
+		color: #b9f8a0;
+		font-weight: 600;
 	}
 </style>

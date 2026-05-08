@@ -57,6 +57,19 @@ export interface SolveDoneEvent {
 	totalElapsedMs: number;
 }
 
+/** A single line in the solver log shown to the user. */
+export interface SolveLogEvent {
+	/** Wall-clock ms since the session started. */
+	tElapsedMs: number;
+	/** Severity. `info` is the default; `warn` highlights potential issues;
+	 *  `error` is a failed run; `stat` is solver statistics; `phase` is a
+	 *  phase or relaxation transition. */
+	level: 'info' | 'warn' | 'error' | 'stat' | 'phase';
+	message: string;
+	/** Optional structured payload — currently used for solver statistics. */
+	data?: Record<string, unknown>;
+}
+
 type EventMap = {
 	phase: SolvePhase;
 	progress: SolveProgressEvent;
@@ -64,11 +77,14 @@ type EventMap = {
 	relaxation: RelaxationInfo;
 	done: SolveDoneEvent;
 	error: Error;
+	log: SolveLogEvent;
 };
 
 export interface SolveSession {
 	abort(): void;
 	on<K extends keyof EventMap>(event: K, cb: (e: EventMap[K]) => void): () => void;
+	/** The DZN string from the most recent encode, useful for debugging. */
+	getDzn(): string;
 }
 
 export interface StartSolveOptions {
@@ -397,7 +413,8 @@ function runSolverStreaming(
 	mode: 'satisfy' | 'optimize',
 	onSolution: (s: SolveSolutionEvent) => void,
 	tStartMs: number,
-	phaseTag: SolvePhase
+	phaseTag: SolvePhase,
+	onLog?: (log: SolveLogEvent) => void
 ): StreamHandle {
 	const dzn = (enc.dataJson as any).__dzn as string;
 
@@ -406,6 +423,10 @@ function runSolverStreaming(
 		job: null,
 		cancelled: false
 	};
+
+	function log(level: SolveLogEvent['level'], message: string, data?: Record<string, unknown>): void {
+		onLog?.({ tElapsedMs: Date.now() - tStartMs, level, message, data });
+	}
 
 	const finished = (async (): Promise<SolverOutput> => {
 		try {
@@ -416,16 +437,22 @@ function runSolverStreaming(
 
 			const solverOpts: Record<string, unknown> = {
 				solver: 'gecode',
-				'time-limit': timeoutMs
+				'time-limit': timeoutMs,
+				statistics: true,
+				'output-time': true
 			};
 			// In optimize mode, ask the solver to emit each better solution.
 			if (mode === 'optimize') {
 				solverOpts['all-solutions'] = true;
 			}
+			log('phase', `Solver-Lauf startet (${mode}, Time-Limit ${Math.round(timeoutMs / 1000)} s)`);
+
 			const job = model.solve({ options: solverOpts });
 			state.job = job as unknown as { cancel?(): void };
 
 			let lastSolutionOutput: string | null = null;
+			let solutionCount = 0;
+			let lastStats: Record<string, unknown> = {};
 
 			(job as any).on?.('solution', (sol: any) => {
 				const out = sol.output?.json ?? sol.output?.default ?? sol;
@@ -434,20 +461,54 @@ function runSolverStreaming(
 				try {
 					const decoded = decode(raw, enc.instances);
 					if (decoded.status === 'SAT') {
+						solutionCount++;
 						onSolution({
 							placed: decoded.placed,
 							score: decoded.penalties?.total ?? null,
 							tElapsedMs: Date.now() - tStartMs,
 							phase: phaseTag
 						});
+						log('info', `Lösung ${solutionCount} gefunden${decoded.penalties ? ` (Score ${decoded.penalties.total})` : ''}`);
 					}
 				} catch {
-					// ignore parse errors on intermediate solutions; final result is what matters
+					// ignore parse errors on intermediate solutions
 				}
+			});
+
+			(job as any).on?.('statistics', (s: any) => {
+				if (s?.statistics) {
+					lastStats = { ...lastStats, ...s.statistics };
+				}
+			});
+
+			(job as any).on?.('status', (s: any) => {
+				log('phase', `Solver-Status: ${s?.status ?? 'unknown'}`);
+			});
+
+			(job as any).on?.('warning', (w: any) => {
+				const msg = w?.message ?? w?.what ?? JSON.stringify(w);
+				log('warn', `MiniZinc-Warnung: ${msg}`);
+			});
+
+			(job as any).on?.('error', (e: any) => {
+				const msg = e?.message ?? e?.what ?? JSON.stringify(e);
+				log('error', `MiniZinc-Fehler: ${msg}`);
+			});
+
+			(job as any).on?.('trace', (t: any) => {
+				if (t?.message) log('info', `Trace: ${t.message}`);
 			});
 
 			const result = await job;
 			const status = String(result.status ?? 'UNKNOWN');
+
+			// Compact key statistics for the user-facing log.
+			const interestingKeys = ['failures', 'propagations', 'nodes', 'peakDepth', 'solveTime', 'flatTime', 'objective', 'restarts'];
+			const compact: Record<string, unknown> = {};
+			for (const k of interestingKeys) {
+				if (lastStats[k] !== undefined) compact[k] = lastStats[k];
+			}
+			log('stat', `Lauf beendet (${status}, ${solutionCount} Lösungen)`, compact);
 
 			if (status === 'UNSATISFIABLE') {
 				return { status: 'UNSAT', placed: [], unplaced: enc.instances.map(i => i.specId) };
@@ -464,6 +525,11 @@ function runSolverStreaming(
 			const msg = e instanceof Error ? e.message
 				: (typeof e === 'object' && e !== null) ? JSON.stringify(e)
 				: String(e);
+			if (state.cancelled) {
+				log('phase', 'Lauf abgebrochen');
+			} else {
+				log('error', `Solver-Exception: ${msg}`);
+			}
 			return {
 				status: state.cancelled ? 'TIMEOUT' : 'ERROR',
 				placed: [],
@@ -504,9 +570,14 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 	let aborted = false;
 	let activeStream: StreamHandle | null = null;
 	let bestSolution: SolveSolutionEvent | null = null;
+	let lastDzn: string = '';
 
 	function emit<K extends keyof EventMap>(event: K, e: EventMap[K]): void {
 		emitter.emit(event, e);
+	}
+
+	function emitLog(level: SolveLogEvent['level'], message: string, data?: Record<string, unknown>): void {
+		emit('log', { tElapsedMs: Date.now() - tStart, level, message, data });
 	}
 
 	function trackSolution(s: SolveSolutionEvent): void {
@@ -521,10 +592,14 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 	const session: SolveSession = {
 		abort(): void {
 			aborted = true;
+			emitLog('phase', 'Benutzer hat abgebrochen');
 			activeStream?.cancel();
 		},
 		on<K extends keyof EventMap>(event: K, cb: (e: EventMap[K]) => void): () => void {
 			return emitter.on(event as string, cb as (e: unknown) => void);
+		},
+		getDzn(): string {
+			return lastDzn;
 		}
 	};
 
@@ -536,8 +611,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 		try {
 			// Pre-flight: same as the legacy solve(). If a fatal hint is found,
 			// emit error+done and stop.
+			emitLog('phase', 'Session startet — encode + pre-flight');
 			const enc = encode(doc);
+			lastDzn = (enc.dataJson as any).__dzn as string;
+			emitLog('info', `Modell: L=${enc.L} Lessons, T=${enc.T} Lehrer, S=${enc.S} Fächer, NSLOTS=${enc.D * enc.P * enc.G}`);
+
 			if (enc.L === 0) {
+				emitLog('error', 'Keine Lehreinheiten vorhanden — Abbruch.');
 				emit('done', {
 					final: {
 						status: 'ERROR',
@@ -550,7 +630,11 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				return;
 			}
 
-			const fatal = diagnose(doc).find(h => h.severity === 'error');
+			const allHints = diagnose(doc);
+			for (const h of allHints) {
+				emitLog(h.severity === 'error' ? 'error' : 'warn', `Diagnose: ${h.message}`);
+			}
+			const fatal = allHints.find(h => h.severity === 'error');
 			if (fatal) {
 				emit('done', {
 					final: {
@@ -566,6 +650,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 
 			// ----- Phase A: SATISFY -----
 			emit('phase', 'satisfy');
+			emitLog('phase', 'Phase A: Erste valide Lösung suchen');
 			emit('progress', {
 				phase: 'satisfy',
 				phaseLabel: 'Phase 1/2: Erste valide Lösung suchen',
@@ -581,11 +666,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				'satisfy',
 				trackSolution,
 				tStart,
-				'satisfy'
+				'satisfy',
+				ev => emit('log', ev)
 			);
 			activeStream = streamA;
 			let resA = await streamA.finished;
 			activeStream = null;
+			emitLog('info', `Phase A abgeschlossen: ${resA.status}`);
 			if (aborted) {
 				emit('done', { final: finalFromBest(bestSolution, resA, enc), totalElapsedMs: Date.now() - tStart });
 				return;
@@ -593,7 +680,12 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 
 			// If Phase A is UNSAT, walk the relaxation chain.
 			if (resA.status === 'UNSAT') {
-				const relaxResult = await relaxationChain(doc, relaxMs, emit, () => aborted, () => activeStream, h => { activeStream = h; }, trackSolution, tStart);
+				emitLog('phase', 'Phase A UNSAT — starte Lockerungs-Kette');
+				const relaxResult = await relaxationChain(
+					doc, relaxMs, emit, () => aborted,
+					() => activeStream, h => { activeStream = h; },
+					trackSolution, tStart, emitLog
+				);
 				if (aborted) {
 					emit('done', { final: finalFromBest(bestSolution, relaxResult, enc), totalElapsedMs: Date.now() - tStart });
 					return;
@@ -613,6 +705,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 
 			// ----- Phase B: OPTIMIZE (anytime) -----
 			emit('phase', 'optimize');
+			emitLog('phase', 'Phase B: Optimieren (anytime)');
 			const tBStart = Date.now() - tStart;
 			emit('progress', {
 				phase: 'optimize',
@@ -629,11 +722,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				'optimize',
 				trackSolution,
 				tStart,
-				'optimize'
+				'optimize',
+				ev => emit('log', ev)
 			);
 			activeStream = streamB;
 			const resB = await streamB.finished;
 			activeStream = null;
+			emitLog('info', `Phase B abgeschlossen: ${resB.status}`);
 
 			// Final = either the optimize result, or — if the user aborted — the
 			// best solution we tracked so far via streaming events.
@@ -692,8 +787,10 @@ async function relaxationChain(
 	getStream: () => StreamHandle | null,
 	setStream: (h: StreamHandle | null) => void,
 	onSolution: (s: SolveSolutionEvent) => void,
-	tStart: number
+	tStart: number,
+	emitLog: (level: SolveLogEvent['level'], message: string, data?: Record<string, unknown>) => void
 ): Promise<SolverOutput> {
+	void getStream; // unused; setStream is enough for cancel propagation
 	const originalMinDaily = doc.constraints?.minDailySlotsPerGrade ?? 0;
 	const originalMustStartP1 = doc.constraints?.mustStartFirstPeriod?.enabled ?? false;
 	const { doc: blocksRelaxedDoc, relaxedSpecIds } = relaxStrictBlocks(doc);
@@ -717,11 +814,16 @@ async function relaxationChain(
 			phaseIndex: 1,
 			phaseCount: 2
 		});
+		emitLog('phase', `Lockerungs-Stufe: ${label}`);
 		const enc = encode(d);
-		const stream = runSolverStreaming(enc, timeoutMs, 'satisfy', onSolution, tStart, 'relax');
+		const stream = runSolverStreaming(
+			enc, timeoutMs, 'satisfy', onSolution, tStart, 'relax',
+			ev => emit('log', ev)
+		);
 		setStream(stream);
 		const r = await stream.finished;
 		setStream(null);
+		emitLog('info', `Lockerungs-Lauf Ergebnis: ${r.status}`);
 		if (isAborted()) return r;
 		if (r.status === 'SAT') {
 			const inf = mkInfo();
@@ -731,29 +833,32 @@ async function relaxationChain(
 	}
 
 	if (hasBlocks) {
-		const r = await tryRound(blocksRelaxedDoc, 'Lockere Block-Pattern…', () => info({}));
+		const r = await tryRound(blocksRelaxedDoc, `Lockere Block-Pattern (${relaxedSpecIds.length} Specs auf Auto)`, () => info({}));
 		if (r) return r;
 		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
+	} else {
+		emitLog('info', 'Keine strikten Block-Pattern vorhanden — Stufe übersprungen');
 	}
 	const base = hasBlocks ? blocksRelaxedDoc : doc;
 	if (originalMinDaily > 3) {
-		const r = await tryRound(relaxMinDailySlots(base, 3), 'Mindest-Tagespensum auf 3 senken…', () => info({ minDaily: 3 }));
+		const r = await tryRound(relaxMinDailySlots(base, 3), 'Mindest-Tagespensum 4 → 3', () => info({ minDaily: 3 }));
 		if (r) return r;
 		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
 	}
 	if (originalMinDaily > 0) {
-		const r = await tryRound(relaxMinDailySlots(base, 0), 'Mindest-Tagespensum deaktivieren…', () => info({ minDaily: 0 }));
+		const r = await tryRound(relaxMinDailySlots(base, 0), 'Mindest-Tagespensum deaktivieren', () => info({ minDaily: 0 }));
 		if (r) return r;
 		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
 	}
 	if (originalMustStartP1) {
-		const r = await tryRound(disableStartInP1(relaxMinDailySlots(base, 0)), '„Beginn in P1"-Regel deaktivieren…', () => info({ minDaily: originalMinDaily > 0 ? 0 : null, startP1: true }));
+		const r = await tryRound(disableStartInP1(relaxMinDailySlots(base, 0)), '„Beginn in P1"-Regel deaktivieren', () => info({ minDaily: originalMinDaily > 0 ? 0 : null, startP1: true }));
 		if (r) return r;
 	}
 
 	const hints = diagnose(doc);
 	const top = bestHint(hints);
 	const detail = top ? `\n\nWahrscheinlichste Ursache: ${top.message}` : '';
+	emitLog('error', 'Alle Lockerungs-Stufen erschöpft — UNSAT bleibt');
 	return {
 		status: 'UNSAT',
 		placed: [],
