@@ -88,18 +88,19 @@ export interface SolveSession {
 }
 
 export interface StartSolveOptions {
-	/** Time limit for the satisfy phase (Phase A). Default 90_000.
-	 *  Phase 10 fix: was 15_000 — too short for L=129+ models with the
-	 *  full hard-constraint stack. Real UNSAT vs. timeout-without-proof
-	 *  becomes meaningful only with enough search time. */
+	/** Time limit for the satisfy phase (Phase A). Default 300_000 (5 min).
+	 *  User-Intent: "Solver darf gerne lange laufen, Hauptsache gutes Ergebnis."
+	 *  5 Minuten reichen für realistische Konfigs immer; bei UNSAT-Verdacht
+	 *  haben wir genug Daten um zu wissen dass es wirklich UNSAT ist. */
 	satisfyTimeoutMs?: number;
-	/** Time limit for the optimize phase (Phase B). Default 180_000.
-	 *  Phase 10 fix: was 60_000 — anytime optimization needs a longer
-	 *  window to traverse the solution space and find better minima. */
+	/** Time limit for the optimize phase (Phase B). Default 1_800_000 (30 min).
+	 *  Anytime optimization: User sieht live den Score sinken und kann
+	 *  jederzeit abbrechen. Gecode wird in 30 min die meisten brauchbaren
+	 *  Optimierungen gefunden haben. */
 	optimizeTimeoutMs?: number;
-	/** Per-relaxation-step time limit. Default 60_000.
-	 *  Phase 10 fix: was 30_000 — relaxation rounds also benefit from
-	 *  enough time to either prove SAT or hit a real UNSAT. */
+	/** Per-relaxation-step time limit. Default 300_000 (5 min).
+	 *  Bei echtem UNSAT muss jede Lockerungs-Stufe genug Zeit haben um
+	 *  entweder zu beweisen oder eine Lösung zu finden. */
 	relaxTimeoutMs?: number;
 	/** Currently always `false` — variants run on-demand via runVariant(). */
 	enableVariants?: boolean;
@@ -236,7 +237,7 @@ function disableStartInP1(doc: ScheduleDoc): ScheduleDoc {
 
 export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<SolverOutput> {
 	const enc = encode(doc);
-	const timeoutMs = opts.timeoutMs ?? 90_000;
+	const timeoutMs = opts.timeoutMs ?? 300_000; // 5 min
 
 	if (enc.L === 0) {
 		return {
@@ -598,9 +599,9 @@ function runSolverStreaming(
 export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): SolveSession {
 	const emitter = new Emitter();
 	const tStart = Date.now();
-	const satisfyMs = opts.satisfyTimeoutMs ?? 90_000;
-	const optimizeMs = opts.optimizeTimeoutMs ?? 180_000;
-	const relaxMs = opts.relaxTimeoutMs ?? 60_000;
+	const satisfyMs = opts.satisfyTimeoutMs ?? 300_000;     // 5 min
+	const optimizeMs = opts.optimizeTimeoutMs ?? 1_800_000; // 30 min
+	const relaxMs = opts.relaxTimeoutMs ?? 300_000;         // 5 min
 
 	let aborted = false;
 	let activeStream: StreamHandle | null = null;

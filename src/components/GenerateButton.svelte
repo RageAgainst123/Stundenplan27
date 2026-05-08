@@ -63,6 +63,15 @@
 		return `${s.toString().padStart(2, '0')}.${cs}s`;
 	}
 
+	/** Format a duration as "Xs" if < 60 s, "Mm Ss" otherwise. */
+	function fmtDuration(ms: number): string {
+		const totalSec = Math.max(0, Math.round(ms / 1000));
+		if (totalSec < 60) return `${totalSec} s`;
+		const m = Math.floor(totalSec / 60);
+		const s = totalSec % 60;
+		return s === 0 ? `${m} min` : `${m} min ${s} s`;
+	}
+
 	function formatLog(entries: SolveLogEvent[]): string {
 		const lines = entries.map(e => {
 			const lvl = e.level.toUpperCase().padEnd(5);
@@ -111,13 +120,12 @@
 		reset();
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
-			// Phase 10 fix: längere Zeitbudgets damit der Solver echte
-			// Lösungen finden kann statt UNKNOWN zu hissen. UNKNOWN ist
-			// kein UNSAT — die Lockerungs-Kette wird bei UNKNOWN nicht
-			// ausgelöst (siehe service.ts).
-			satisfyTimeoutMs: 90_000,
-			optimizeTimeoutMs: 180_000,
-			relaxTimeoutMs: 60_000
+			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
+			// gerne mehrere Minuten laufen — Anytime-Modus heißt der User
+			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
+			satisfyTimeoutMs: 300_000,    // 5 min  — erste valide Lösung
+			optimizeTimeoutMs: 1_800_000, // 30 min — Optimierung anytime
+			relaxTimeoutMs: 300_000       // 5 min  — pro Lockerungs-Stufe
 		});
 		session = s;
 
@@ -222,7 +230,7 @@
 		<div class="progress-block" role="status" aria-live="polite">
 			<div class="phase-line">
 				<strong>{phaseLabel || 'Initialisierung…'}</strong>
-				<span class="muted small">— {Math.round(tElapsed / 1000)} s / {Math.round(tLimit / 1000)} s • Rest ~{remainingSec} s</span>
+				<span class="muted small">— {fmtDuration(tElapsed)} / {fmtDuration(tLimit)} • Rest ~{fmtDuration(tLimit - tElapsed)}</span>
 			</div>
 			<div class="bar"><div class="bar-fill" style:width="{progressPercent}%"></div></div>
 			{#if scoreHistory.length > 0}
@@ -236,11 +244,15 @@
 					{/if}
 				</div>
 			{:else}
-				<div class="muted small">Erste Lösung wird gesucht…</div>
+				<div class="muted small">Erste Lösung wird gesucht — kann bei großen Plänen einige Minuten dauern.</div>
 			{/if}
 			{#if convergenceHint}
 				<div class="hint-line">ℹ {convergenceHint}</div>
 			{/if}
+			<div class="muted small">
+				💡 Lass den Solver gerne lange laufen — er liefert kontinuierlich bessere Lösungen.
+				Sobald du zufrieden bist, klick auf Abbrechen.
+			</div>
 			<button class="btn small abort" onclick={abort}>⏹ Abbrechen — beste bisherige Lösung übernehmen</button>
 		</div>
 	{/if}
