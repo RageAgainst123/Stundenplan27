@@ -1,6 +1,6 @@
 // Map MiniZinc solver output back into PlacedLesson[].
 import type { PlacedLesson } from '../types';
-import { dayPeriodFromSlot, type LessonInstance } from './encode';
+import { dpgFromSlot, type LessonInstance } from './encode';
 
 export interface SolverOutput {
 	status: 'SAT' | 'UNSAT' | 'TIMEOUT' | 'ERROR';
@@ -45,11 +45,11 @@ export function decode(
 			unplaced.push(instances[i].specId);
 			continue;
 		}
-		const dp = dayPeriodFromSlot(slot1);
+		const dpg = dpgFromSlot(slot1);
 		placed.push({
 			specId: instances[i].specId,
-			day: dp.day,
-			period: dp.period,
+			day: dpg.day,
+			period: dpg.period,
 			pinned: options.keepPinnedFlag ? instances[i].pinned : instances[i].pinned
 		});
 	}

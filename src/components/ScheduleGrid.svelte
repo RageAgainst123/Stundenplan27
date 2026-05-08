@@ -426,27 +426,6 @@
 		background: transparent !important;
 		border: 0 !important;
 	}
-	.cell {
-		min-height: 50px;
-		height: 50px;
-		vertical-align: top;
-		background: white;
-	}
-	.cell.now {
-		background: rgba(255, 215, 0, 0.18);
-		box-shadow: inset 0 0 0 2px gold;
-	}
-	.placed {
-		height: 100%;
-		min-height: 50px;
-		cursor: grab;
-	}
-	.placed:active {
-		cursor: grabbing;
-	}
-	.placed.filtered {
-		opacity: 0.18;
-	}
 	:global(.drag-over) {
 		background: var(--accent-bg) !important;
 		box-shadow: inset 0 0 0 2px var(--accent);

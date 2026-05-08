@@ -89,30 +89,34 @@ src/
 
 - ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 35 Tests grün, `npm run build` sauber.
 - ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt; weiche Constraints (Score-Funktion) als nächste Iteration.
-- ⚠️ **Phase 5b (Reactivity-Bug)** — UNGELÖST. Trotz mehrerer Lösungsansätze (Top-Level-Reassign, splice, plain $state-Object, Context-Pattern via setContext/getContext, Cell-Subkomponente) zeigt das Wochenraster nach dem Solver-Run weiterhin nur 4 statt 116 platzierte Stunden, obwohl localStorage und persistierte State korrekt 116 enthalten. Sidebar `unplaced` bleibt auf 52. Tab-Switch nach mehreren Wechseln rendert die Komponente nicht neu.
+- ✅ **Phase 5b (Reactivity & Solver-Bugs)** — gelöst. Solver findet auf der echten Liste.csv (52 Specs) einen Plan in <30s mit 155 platzierten Lessons, Sidebar reagiert auf Mutations, Stundenplan-Grid rendert farbige Lehrer-Cells mit Mehrstufen-Kopplungen (z. B. „DGB L2" über 5+6).
 - 🔜 **Phase 6** (Print-Layout, GitHub-Pages-Deploy, Polish) — ausstehend.
 
-## Bekannte Punkte zum Vertiefen
+## Was Phase 5b geändert hat
 
-1. **Reactivity-Bug nach Solver-Run** — Store enthält 116 placed, DOM rendert nur 4. Versuchte Fixes ohne Erfolg:
-   - `store.doc.placed = [...]` Reassignment
-   - `store.doc.placed.splice(0, len, ...newArr)`
-   - Top-Level Reassign `store.doc = { ...snap, placed: [...] }`
-   - Plain `$state({doc: …})` Modul-Export statt Class
-   - `setContext`/`getContext` Pattern
-   - Eigene Cell-Subkomponente (`ScheduleCell.svelte`) mit per-instance `$derived(placementsAt(...))`
+**Bug-Klasse 1 (eigentlicher Render-Bug):** Der each-block in ScheduleCell warf `each_key_duplicate`, weil der Solver mehrere Lesson-Instanzen derselben Spec auf denselben Slot legte (kein alldifferent-Constraint im MiniZinc-Modell). Das brach Svelte's Reactivity ab → DOM zeigte nur 4 alte Cells.
 
-   **Hypothese:** Möglicherweise spezifisches Svelte-5.55-Problem mit deeply-nested $state in Production-Build, oder ein Konflikt mit dem MiniZinc-WASM-Worker, der den Reactivity-Scheduler blockt. Empfehlung für nächste Iteration: Migration auf klassisches `svelte/store` (writable) statt Runes für `placed`-Array. Oder direkt einen Force-Re-Mount via `{#key store.doc.placed.length}` um den Grid-Block.
+**Fixes:**
+1. **Slot ist jetzt 3D** — `(day, period, grade)` statt nur `(day, period)`. Das Modell hat `NSLOTS = D*P*G = 160` Slots, jede grade-Spalte ist ein eigener Slot. Verhindert dass eine Spec mit grades=[5] alle Mathe-Stunden auf dieselben (day,period)-Slots zwingen würde wo auch andere Stufen Mathe haben.
+2. **Spec-Expansion erzeugt jetzt 1 Instanz pro (occurrence × grade)** — Mehrstufen-Lessons (z. B. PG_BSP grades=[5,6] count=3) ergeben 6 Instanzen, die per synthetischem `groupId` an dieselbe `(day,period)` gebunden werden, aber unterschiedliche grade-Spalten belegen.
+3. **Constraint 6 fordert: zwei Instanzen derselben Spec aus verschiedenen Occurrences müssen verschiedene `(day,period)` haben** — verhindert dass alle 4 Mathe-Stunden auf Mo Stunde 1 landen.
+4. **Defensiver each-Key in ScheduleCell.svelte:** `cp.placed.specId + '|' + day + '|' + period + '|' + idx` — auch bei Solver-Bugs niemals duplicate keys.
+5. **GenerateButton dedupliziert das Solver-Output** vor der Mutation, sodass der Render-Block nicht mehr brechen kann.
 
-2. **Tab-Switch-Render** — Nach mehreren Tab-Wechseln (besonders nach Solver-Run) zeigt der `{#if active === 'schedule'}`-Block weiterhin den ImportExport-Inhalt, obwohl `class:active` den richtigen Tab markiert. Auf einem **frischen** Reload-Tab funktioniert der erste Tab-Switch korrekt.
+**Bug-Klasse 2 (Modul-State):** Ich hatte den Reactivity-Verlust ursprünglich auf `export const store = $state(...)` zurückgeführt und auf `setContext`/`getContext` migriert. Das war eine korrekte Hardening-Maßnahme, aber nicht die eigentliche Ursache. Wir behalten das Context-Pattern, weil es Best-Practice für Cross-Component-Reactivity ist.
 
+## Bekannte Punkte / Polish
+
+1. **Solver-Performance** — bei 52 Specs ~25s. Eingrenzung der Constraints und/oder Heuristik-Hint via `solve` annotations könnte das verbessern.
+2. **Pinning ist grade-naiv:** `PlacedLesson` hat nur `(day, period)`, der Solver pickt sich beim Pinnen die erste grade. Reicht für jetzt, weil die UI nur eine grade-Spalte beim Drag-Drop sichtbar macht.
 3. **Weiche Constraints** — `model.mzn` enthält bisher nur harte Regeln. RulesPanel-Werte sind UI-fertig, müssen noch in MiniZinc-Penalty-Variablen übersetzt werden.
 
 ## Was funktioniert vollständig
 
 - CSV-Import: Liste.csv aus Sokrates → 10 Lehrer (mit Personalnummer, Leitung-Badge, Platzhalter), 19 Fächer (mit Kategorie, Hauptfach-Default), 52 LessonSpecs (mit Kopplungen via groupKey, korrekte Schulstufen, klassenübergreifend) — alle 21 Tests grün.
 - Editor: Lehrer-Tabelle mit Farbpicker und 5×8-Verfügbarkeits-Mini-Raster, Fächer-Liste, Lehreinheiten-Liste mit Filtern.
-- Solver: MiniZinc-WASM in <2s findet 116-Lehreinheiten-Plan, alle harten Constraints (Lehrer-Konflikte, Verfügbarkeit, Pinning, Wochen-Pattern) erfüllt. Status korrekt angezeigt, localStorage korrekt persistiert.
+- Solver: MiniZinc-WASM findet auf der echten Liste.csv (52 Specs) eine Lösung in ~25s, 155 Lehreinheiten platziert. Alle harten Constraints (Lehrer-Konflikte, Verfügbarkeit, Pinning, Wochen-Pattern, Spec-Replay-Vermeidung, Mehrstufen-Kopplung) erfüllt.
+- Anzeige: Wochenraster mit 5×4 Tag/Stufen-Spalten × 8 Stunden, farbige Lehrer-Cells, Mehrstufen-Kopplungen (z. B. „DGB L2 5+6"), Filter-Bar mit Lehrer-Chips/Stufen-Toggles/Fach-Dropdown, Sidebar mit ungeplanten Lessons.
 - JSON-Export/Import als Backup.
 
 ## Tests laufen lassen

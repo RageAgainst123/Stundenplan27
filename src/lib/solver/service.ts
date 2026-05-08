@@ -87,11 +87,14 @@ export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<
 
 		return decode(rawOutput, enc.instances);
 	} catch (e) {
+		const msg = e instanceof Error ? e.message
+			: (typeof e === 'object' && e !== null) ? JSON.stringify(e)
+			: String(e);
 		return {
 			status: 'ERROR',
 			placed: [],
 			unplaced: enc.instances.map(i => i.specId),
-			message: e instanceof Error ? e.message : String(e)
+			message: msg
 		};
 	}
 }

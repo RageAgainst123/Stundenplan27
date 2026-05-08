@@ -68,7 +68,7 @@
 		}
 	}}
 >
-	{#each cellPlacements as cp (cp.placed.specId + '-' + grade)}
+	{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + idx)}
 		{@const teacher = teacherById(cp.spec.teacher)}
 		{@const visible = isHighlighted(cp.spec, grade)}
 		<div

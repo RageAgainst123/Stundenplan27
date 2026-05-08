@@ -105,11 +105,11 @@ describe('encode', () => {
 		const doc = makeDoc();
 		const enc = encode(doc);
 		const dzn = (enc.dataJson as any).__dzn as string;
-		// teacher 2 (Lehrer B) is blocked at slot 1 (Mo period 1)
-		// row 2 starts after the first " | " separator; first cell is "true"
+		// teacher 2 (Lehrer B) is blocked at (Mo, period 1)
 		expect(dzn).toContain('teacher_blocked');
-		// Quick smoke: there is at least one "true" in teacher_blocked
-		expect(dzn.match(/teacher_blocked\s*=\s*\[\|[^|]*\|\s*true/)).toBeTruthy();
+		expect(dzn).toContain('array3d');
+		// At least one "true" appears in the teacher_blocked literal
+		expect(dzn.match(/teacher_blocked[^;]*true/s)).toBeTruthy();
 	});
 
 	it('encodes pinning via pin_slot', () => {

@@ -1,10 +1,11 @@
 // Encode a ScheduleDoc into MiniZinc data + a flat list of lesson instances.
 // The instance list is needed to map the solver's `assign` array back into PlacedLessons.
 
-import { DAYS, GRADES, PERIODS, type Day, type Period, type ScheduleDoc } from '../types';
+import { DAYS, GRADES, PERIODS, type Day, type Period, type GradeLevel, type ScheduleDoc } from '../types';
 
 export interface LessonInstance {
 	specId: string;
+	specIndex1: number;            // 1-based spec id (instances of same spec share this)
 	indexWithinSpec: number;       // 0..count-1
 	teacherIndex1: number;         // 1-based, matches MiniZinc array indices
 	gradesSet: number[];           // 1-based grade indices (5→1, 6→2, 7→3, 8→4)
@@ -27,8 +28,32 @@ export interface SolverInput {
 
 const DAY_TO_IDX0: Record<Day, number> = { Mo: 0, Di: 1, Mi: 2, Do: 3, Fr: 4 };
 
+/**
+ * Slot index for (day, period, grade) in the 3D model.
+ * 1-based, in 1..D*P*G.
+ */
+export function slotFromDPG(day: Day, period: Period, grade: GradeLevel, P = PERIODS.length, G = GRADES.length): number {
+	const d = DAY_TO_IDX0[day];
+	const p = period - 1;
+	const g = grade - 5; // 5→0
+	return d * (P * G) + p * G + g + 1;
+}
+
+export function dpgFromSlot(slot1: number, P = PERIODS.length, G = GRADES.length): { day: Day; period: Period; grade: GradeLevel } {
+	const idx0 = slot1 - 1;
+	const dIdx = Math.floor(idx0 / (P * G));
+	const pIdx = Math.floor(idx0 / G) % P;
+	const gIdx = idx0 % G;
+	return {
+		day: DAYS[dIdx] as Day,
+		period: (pIdx + 1) as Period,
+		grade: (gIdx + 5) as GradeLevel
+	};
+}
+
+// Backwards-compatible aliases (still used by some helpers)
 export function slotFromDayPeriod(day: Day, period: Period, P = PERIODS.length): number {
-	return DAY_TO_IDX0[day] * P + period; // 1..NSLOTS
+	return DAY_TO_IDX0[day] * P + period;
 }
 
 export function dayPeriodFromSlot(slot1: number, P = PERIODS.length): { day: Day; period: Period } {
@@ -50,7 +75,6 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	const groupMap = new Map<string, number>();
 	let nextGroupId = 1;
 	function getGroupId(spec: { groupKey?: string; pairedWith?: string[] }): number {
-		// Either explicit groupKey or pairedWith creates a coupling; use groupKey if present.
 		if (spec.groupKey && spec.groupKey.trim()) {
 			let id = groupMap.get(spec.groupKey);
 			if (!id) {
@@ -64,64 +88,95 @@ export function encode(doc: ScheduleDoc): SolverInput {
 
 	const weekToId: Record<string, number> = { every: 0, even: 1, odd: 2 };
 
-	// Pre-index pinnings: spec.id → ordered list of pinned slot1 values (one per occurrence)
+	// Pre-index pinnings: spec.id → ordered list of pinned slot1 values (one per occurrence).
+	// Pin grade defaults to the first grade of the spec (PlacedLesson has only day/period).
+	const specById = new Map(doc.specs.map(s => [s.id, s]));
 	const pinsBySpec = new Map<string, number[]>();
 	for (const p of doc.placed) {
 		if (!p.pinned) continue;
+		const spec = specById.get(p.specId);
+		if (!spec || spec.grades.length === 0) continue;
 		const arr = pinsBySpec.get(p.specId) ?? [];
-		arr.push(slotFromDayPeriod(p.day, p.period));
+		arr.push(slotFromDPG(p.day, p.period, spec.grades[0] as GradeLevel));
 		pinsBySpec.set(p.specId, arr);
 	}
 
+	// Each LessonSpec expands into one instance per (occurrence × grade). Specs with
+	// |grades|>1 represent classes taught together at the same (day,period) — so for
+	// every "occurrence" (count) we emit one instance per grade, all sharing the same
+	// occurrence index so they can be coupled to a common (day,period) at solve time.
 	const instances: LessonInstance[] = [];
+	let specCounter = 0;
+	let autoGroupCounter = 1_000_000; // synthetic group ids for grade-coupling
 	for (const spec of doc.specs) {
 		const tIdx1 = teacherIdx.get(spec.teacher);
-		if (!tIdx1) continue; // orphaned teacher reference, skip
-		const gradesSet = spec.grades.map(g => g - 4); // 5→1, 6→2, 7→3, 8→4
-		const groupId = getGroupId(spec);
+		if (!tIdx1) continue;
+		specCounter++;
+		const groupIdBase = getGroupId(spec);
 		const weekId = weekToId[spec.weekPattern] ?? 0;
 		const pins = pinsBySpec.get(spec.id) ?? [];
-		// Round count to integer (half-periods are a Sokrates artifact; the MVP solver
-		// works in whole periods. Half-period support: future extension via 0.5-grain).
 		const count = Math.round(spec.count);
-		for (let i = 0; i < count; i++) {
-			const pin = pins[i];
-			instances.push({
-				specId: spec.id,
-				indexWithinSpec: i,
-				teacherIndex1: tIdx1,
-				gradesSet,
-				groupId,
-				weekId,
-				pinned: pin !== undefined,
-				pinSlot1: pin
-			});
+
+		// Each occurrence: emit one instance per grade. All grades in one occurrence
+		// share a synthetic group_id so they MUST land on the same (day,period).
+		for (let occ = 0; occ < count; occ++) {
+			// Build a stable group id for this occurrence: reuse spec's groupKey base if
+			// any, OR mint a fresh synthetic id for each occurrence.
+			const occGroupId = groupIdBase > 0 ? groupIdBase : autoGroupCounter++;
+			const pin = pins[occ];
+			for (const grade of spec.grades) {
+				const gradesSet = [grade - 4]; // single-element set: this instance occupies this grade
+				instances.push({
+					specId: spec.id,
+					specIndex1: specCounter,
+					indexWithinSpec: occ,
+					teacherIndex1: tIdx1,
+					gradesSet,
+					groupId: occGroupId,
+					weekId,
+					pinned: pin !== undefined,
+					pinSlot1: pin
+				});
+			}
 		}
 	}
 
 	const L = instances.length;
-	const NSLOTS = D * P;
 
-	// teacher_blocked[T, NSLOTS] flat row-major
-	const teacherBlocked: boolean[][] = [];
+	// teacher_blocked[T, D, P] — true means blocked for whole (day,period)
+	const teacherBlocked3D: boolean[][][] = [];
 	for (let t = 0; t < T; t++) {
 		const teacher = doc.teachers[t];
-		const row: boolean[] = new Array(NSLOTS).fill(false);
-		for (const u of teacher.unavailable) {
-			const s = slotFromDayPeriod(u.day, u.period) - 1;
-			if (s >= 0 && s < NSLOTS) row[s] = true;
+		const days: boolean[][] = [];
+		for (let d = 0; d < D; d++) {
+			const periods: boolean[] = new Array(P).fill(false);
+			days.push(periods);
 		}
-		teacherBlocked.push(row);
+		for (const u of teacher.unavailable) {
+			const dIdx = DAY_TO_IDX0[u.day];
+			const pIdx = u.period - 1;
+			if (days[dIdx]) days[dIdx][pIdx] = true;
+		}
+		teacherBlocked3D.push(days);
 	}
 
-	// MiniZinc 2D array literal: [|t1s1, t1s2, ...| t2s1, t2s2, ...|]
-	function mznBool2D(rows: boolean[][]): string {
-		if (rows.length === 0 || rows[0].length === 0) return 'array2d(1..0, 1..0, [])';
-		return (
-			'[| ' +
-			rows.map(r => r.map(b => (b ? 'true' : 'false')).join(', ')).join(' | ') +
-			' |]'
-		);
+	function mznBool3D(matrix: boolean[][][]): string {
+		// MiniZinc 3D array literal flattening: array3d(1..T, 1..D, 1..P, [...])
+		if (matrix.length === 0 || matrix[0].length === 0 || matrix[0][0].length === 0) {
+			return 'array3d(1..1, 1..1, 1..1, [false])';
+		}
+		const tn = matrix.length;
+		const dn = matrix[0].length;
+		const pn = matrix[0][0].length;
+		const flat: string[] = [];
+		for (let t = 0; t < tn; t++) {
+			for (let d = 0; d < dn; d++) {
+				for (let p = 0; p < pn; p++) {
+					flat.push(matrix[t][d][p] ? 'true' : 'false');
+				}
+			}
+		}
+		return `array3d(1..${tn}, 1..${dn}, 1..${pn}, [${flat.join(',')}])`;
 	}
 
 	function mznSet(values: number[]): string {
@@ -133,20 +188,16 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		P,
 		T: Math.max(T, 1),
 		G,
-		L: Math.max(L, 1),
-		// JSON encoding of arrays-of-set is awkward in MiniZinc JSON; we use DZN string instead.
+		L: Math.max(L, 1)
 	};
 
-	// Encode as DZN string for the parts that JSON would mangle (sets/2D arrays)
 	const lessonTeacher = instances.map(i => i.teacherIndex1).join(',') || '1';
-	const lessonGrades =
-		instances.map(i => mznSet(i.gradesSet)).join(',') || '{}';
+	const lessonGrades = instances.map(i => mznSet(i.gradesSet)).join(',') || '{1}';
 	const lessonGroup = instances.map(i => i.groupId).join(',') || '0';
 	const lessonWeek = instances.map(i => i.weekId).join(',') || '0';
-	const lessonPinned =
-		instances.map(i => (i.pinned ? 'true' : 'false')).join(',') || 'false';
-	const lessonPinSlot =
-		instances.map(i => i.pinSlot1 ?? 1).join(',') || '1';
+	const lessonSpecId = instances.map(i => i.specIndex1).join(',') || '1';
+	const lessonPinned = instances.map(i => (i.pinned ? 'true' : 'false')).join(',') || 'false';
+	const lessonPinSlot = instances.map(i => i.pinSlot1 ?? 1).join(',') || '1';
 
 	const dzn = [
 		`D = ${D};`,
@@ -155,12 +206,13 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		`G = ${G};`,
 		`L = ${Math.max(L, 1)};`,
 		L > 0 ? `lesson_teacher = [${lessonTeacher}];` : `lesson_teacher = [1];`,
-		L > 0 ? `lesson_grades = [${lessonGrades}];` : `lesson_grades = [{}];`,
+		L > 0 ? `lesson_grades = [${lessonGrades}];` : `lesson_grades = [{1}];`,
 		L > 0 ? `lesson_group = [${lessonGroup}];` : `lesson_group = [0];`,
 		L > 0 ? `lesson_week = [${lessonWeek}];` : `lesson_week = [0];`,
+		L > 0 ? `lesson_spec_id = [${lessonSpecId}];` : `lesson_spec_id = [1];`,
 		L > 0 ? `lesson_pinned = [${lessonPinned}];` : `lesson_pinned = [false];`,
 		L > 0 ? `lesson_pin_slot = [${lessonPinSlot}];` : `lesson_pin_slot = [1];`,
-		`teacher_blocked = ${mznBool2D(teacherBlocked.length > 0 ? teacherBlocked : [[false]])};`
+		`teacher_blocked = ${mznBool3D(teacherBlocked3D.length > 0 ? teacherBlocked3D : [[[false]]])};`
 	].join('\n');
 
 	(dataJson as any).__dzn = dzn;
