@@ -160,6 +160,65 @@
 		}
 	}
 
+	// ---- Coupling ops ----
+	function bulkCouple() {
+		const sel = store.doc.specs.filter(s => selectedIds.has(s.id));
+		if (sel.length < 2) {
+			alert('Bitte mindestens zwei Lehreinheiten auswählen.');
+			return;
+		}
+		// If they already share a non-empty groupKey, do nothing.
+		const existingKeys = new Set(sel.map(s => s.groupKey ?? ''));
+		const onlyKey = existingKeys.size === 1 ? [...existingKeys][0] : '';
+		// Soft validation: warn on count mismatch
+		const counts = Array.from(new Set(sel.map(s => s.count)));
+		if (counts.length > 1) {
+			const ok = confirm(
+				`Die ausgewählten Einheiten haben unterschiedliche Stundenzahlen (${counts.join(', ')}).\n` +
+				`Trotzdem koppeln? Der Solver bindet sie nur für die Anzahl gemeinsamer Stunden parallel.`
+			);
+			if (!ok) return;
+		}
+		// Decide on the group key:
+		const candidate =
+			(onlyKey ||
+				sel.find(s => s.groupKey)?.groupKey ||
+				`Kopplung ${new Date().toLocaleString('de-AT', { hour12: false }).replace(/[\s,:.]+/g, '-')}`);
+		const proposed = prompt(
+			`Gruppen-Name (oder Enter bestätigen):`,
+			candidate
+		);
+		if (proposed === null) return;
+		const finalKey = proposed.trim() || candidate;
+		for (const s of store.doc.specs) {
+			if (selectedIds.has(s.id)) s.groupKey = finalKey;
+		}
+	}
+
+	function bulkUncouple() {
+		const sel = store.doc.specs.filter(s => selectedIds.has(s.id));
+		const couplable = sel.filter(s => s.groupKey);
+		if (couplable.length === 0) {
+			alert('Keine der ausgewählten Lehreinheiten ist gekoppelt.');
+			return;
+		}
+		if (!confirm(`${couplable.length} Lehreinheiten entkoppeln?`)) return;
+		for (const s of store.doc.specs) {
+			if (selectedIds.has(s.id) && s.groupKey) s.groupKey = undefined;
+		}
+	}
+
+	function uncoupleSingle(specId: string) {
+		const spec = store.doc.specs.find(s => s.id === specId);
+		if (!spec || !spec.groupKey) return;
+		spec.groupKey = undefined;
+	}
+
+	// ---- Group analysis (for bulk-toolbar visibility) ----
+	const selectedSpecs = $derived(store.doc.specs.filter(s => selectedIds.has(s.id)));
+	const canCouple = $derived(selectedSpecs.length >= 2);
+	const canUncouple = $derived(selectedSpecs.some(s => s.groupKey));
+
 	// ---- Active stats for header ----
 	const activeCount = $derived(store.doc.specs.filter(s => s.includeInSolver).length);
 	const ignoredCount = $derived(store.doc.specs.filter(s => !s.includeInSolver).length);
@@ -195,6 +254,9 @@
 {#if selectedIds.size > 0}
 	<div class="bulk-toolbar">
 		<strong>{selectedIds.size}</strong> ausgewählt:
+		<button class="btn small primary" disabled={!canCouple} onclick={bulkCouple} title="Gemeinsamer Slot — Lehrer unterrichten zeitgleich">⛓ Koppeln</button>
+		<button class="btn small" disabled={!canUncouple} onclick={bulkUncouple} title="Kopplung auflösen">⛓̸ Entkoppeln</button>
+		<span class="separator"></span>
 		<button class="btn small" onclick={bulkDuplicate}>⎘ Duplizieren</button>
 		<button class="btn small" onclick={() => bulkSetSolver(true)}>Solver an</button>
 		<button class="btn small" onclick={() => bulkSetSolver(false)}>Solver aus</button>
@@ -203,6 +265,7 @@
 			{#each weekOptions as w}<option value={w.v}>{w.label}</option>{/each}
 		</select>
 		<button class="btn danger small" onclick={bulkDelete}>🗑 Löschen</button>
+		<span style="margin-left:auto"></span>
 		<button class="btn small" onclick={clearSelection}>Auswahl aufheben</button>
 	</div>
 {/if}
@@ -296,9 +359,12 @@
 					</td>
 					<td>
 						{#if s.groupKey}
-							<button class="group-tag" style:background={gColor} onclick={() => (filterGroup = filterGroup === s.groupKey ? '' : s.groupKey ?? '')} title="Klick: Gruppe filtern">
-								{s.groupKey}
-							</button>
+							<span class="group-tag-wrap">
+								<button class="group-tag" style:background={gColor} onclick={() => (filterGroup = filterGroup === s.groupKey ? '' : s.groupKey ?? '')} title="Klick: Gruppe filtern">
+									{s.groupKey}
+								</button>
+								<button class="group-tag-x" onclick={() => uncoupleSingle(s.id)} title="Aus Gruppe entfernen">×</button>
+							</span>
 						{:else}
 							<input type="text" bind:value={s.groupKey} placeholder="–" size="14" class="group-input" />
 						{/if}
@@ -496,6 +562,14 @@
 	.grade-chip input {
 		display: none;
 	}
+	.group-tag-wrap {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+	}
+	.group-tag-wrap:hover .group-tag-x {
+		visibility: visible;
+	}
 	.group-tag {
 		font-size: 11px;
 		padding: 3px 8px;
@@ -509,9 +583,35 @@
 		text-overflow: ellipsis;
 		white-space: nowrap;
 	}
+	.group-tag-x {
+		visibility: hidden;
+		width: 18px;
+		height: 18px;
+		border: 0;
+		background: rgba(0, 0, 0, 0.08);
+		border-radius: 50%;
+		font-size: 12px;
+		line-height: 1;
+		cursor: pointer;
+		color: var(--err);
+		font-weight: 700;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+	}
+	.group-tag-x:hover {
+		background: var(--err);
+		color: white;
+	}
 	.group-input {
 		font-size: 12px;
 		opacity: 0.6;
+	}
+	.separator {
+		width: 1px;
+		height: 18px;
+		background: rgba(0, 0, 0, 0.12);
+		margin: 0 4px;
 	}
 	.actions {
 		display: flex;

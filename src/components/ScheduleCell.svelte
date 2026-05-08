@@ -5,6 +5,7 @@
 	import type { DragDropState } from '@thisux/sveltednd';
 	import type { Day, GradeLevel, LessonSpec, Period, Teacher } from '../lib/types';
 	import { checkPlacementConflict } from '../lib/schedule-helpers';
+	import { groupColor } from '../lib/blocks';
 	import LessonCell from './LessonCell.svelte';
 
 	const store = useStore();
@@ -28,6 +29,20 @@
 	// Reactive read of placed array — Svelte 5 tracks this through the prop chain
 	// because the component re-evaluates whenever store.doc.placed changes.
 	const cellPlacements = $derived(placementsAt(store.doc, day, period, grade));
+
+	// If all placements in this cell share a non-empty groupKey → coupling background.
+	// (Note: depends on `PlacedLesson` exposing the correct grade column. Currently
+	// grades are inferred from spec.grades, so multi-grade lessons may register in
+	// multiple grade columns; the heuristic stays correct for genuinely coupled
+	// lessons since they share a groupKey.)
+	const couplingBg = $derived.by(() => {
+		if (cellPlacements.length < 2) return '';
+		const keys = cellPlacements.map(cp => cp.spec.groupKey ?? '');
+		if (keys.some(k => !k)) return '';
+		const uniq = new Set(keys);
+		if (uniq.size !== 1) return '';
+		return groupColor([...uniq][0]);
+	});
 
 	function handleDrop(state: DragDropState<DragPayload>) {
 		const { specId, fromCell } = state.draggedItem;
@@ -61,6 +76,8 @@
 <td
 	class="cell"
 	class:now={isNow}
+	class:coupled={couplingBg !== ''}
+	style:background={couplingBg || undefined}
 	use:droppable={{
 		container: `cell-${day}-${period}`,
 		callbacks: {
@@ -105,9 +122,14 @@
 		background: rgba(255, 215, 0, 0.18);
 		box-shadow: inset 0 0 0 2px gold;
 	}
+	td.cell.coupled {
+		box-shadow: inset 3px 0 0 rgba(0, 0, 0, 0.25);
+	}
+	td.cell.coupled .placed + .placed {
+		border-top: 1px dashed rgba(0, 0, 0, 0.25);
+	}
 	.placed {
-		height: 100%;
-		min-height: 50px;
+		min-height: 24px;
 		cursor: grab;
 	}
 	.placed:active {
