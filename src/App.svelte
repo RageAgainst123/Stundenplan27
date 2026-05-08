@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { store } from './lib/store.svelte';
+	import { initStore } from './lib/store.svelte';
+	const store = initStore();
 	import TeacherList from './components/TeacherList.svelte';
 	import SubjectList from './components/SubjectList.svelte';
 	import SpecList from './components/SpecList.svelte';
@@ -8,7 +9,7 @@
 	import ImportExport from './components/ImportExport.svelte';
 
 	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'rules' | 'import';
-	let active = $state<Tab>('import');
+	let active: Tab = $state('import');
 
 	const tabs: { id: Tab; label: string }[] = [
 		{ id: 'import', label: 'Import / Export' },
@@ -36,12 +37,7 @@
 
 <nav class="tabs">
 	{#each tabs as t (t.id)}
-		<button
-			type="button"
-			class="tab"
-			class:active={active === t.id}
-			onclick={() => (active = t.id)}
-		>
+		<button type="button" class="tab" class:active={active === t.id} onclick={() => (active = t.id)}>
 			{t.label}
 		</button>
 	{/each}

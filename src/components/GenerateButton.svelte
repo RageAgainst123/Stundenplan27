@@ -1,6 +1,7 @@
 <script lang="ts">
-	import { store } from '../lib/store.svelte';
+	import { useStore } from '../lib/store.svelte';
 	import { solve } from '../lib/solver/service';
+	const store = useStore();
 	import type { SolverOutput } from '../lib/solver/decode';
 
 	let busy = $state(false);
@@ -24,7 +25,7 @@
 				const additions = r.placed
 					.filter(p => !pinnedKeys.has(`${p.specId}|${p.day}|${p.period}`))
 					.map(p => ({ ...p, pinned: false }));
-				store.doc.placed.splice(0, store.doc.placed.length, ...pinnedKept, ...additions);
+				store.doc.placed = [...pinnedKept, ...additions];
 				store.persistNow();
 			}
 		} finally {

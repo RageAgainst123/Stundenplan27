@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { store } from '../lib/store.svelte';
+	import { useStore } from '../lib/store.svelte';
+	const store = useStore();
 	import { DAYS, PERIODS, type AvailabilityCell, type Day, type Period, type Teacher } from '../lib/types';
 	import AvailabilityGrid from './AvailabilityGrid.svelte';
 

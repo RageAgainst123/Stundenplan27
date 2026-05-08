@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { store } from '../lib/store.svelte';
+	import { useStore } from '../lib/store.svelte';
+	const store = useStore();
 	import type { GradeLevel, Subject, SubjectCategory } from '../lib/types';
 	import { GRADES } from '../lib/types';
 

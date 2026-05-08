@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { store } from '../lib/store.svelte';
+	import { useStore } from '../lib/store.svelte';
+	const store = useStore();
 	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES, type Day, type GradeLevel, type LessonSpec, type Period } from '../lib/types';
-	import { placementsAt, unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
+	import { unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
 	import LessonCell from './LessonCell.svelte';
+	import ScheduleCell from './ScheduleCell.svelte';
 	import GenerateButton from './GenerateButton.svelte';
 
 	// ---- Filter state ----
@@ -56,23 +58,7 @@
 		return unplacedSpecs(store.doc);
 	});
 
-	// Pre-computed lookup that reactively rebuilds whenever placed/specs/teachers change.
-	const placementMap = $derived.by(() => {
-		// Explicit reactive subscriptions
-		const placed = store.doc.placed;
-		const specs = store.doc.specs;
-		void placed.length;
-		void specs.length;
-		const map: Record<string, ReturnType<typeof placementsAt>> = {};
-		for (const day of DAYS) {
-			for (const period of PERIODS) {
-				for (const grade of GRADES) {
-					map[`${day}|${period}|${grade}`] = placementsAt(store.doc, day, period, grade);
-				}
-			}
-		}
-		return map;
-	});
+	// (Cell rendering moved to ScheduleCell.svelte for proper Svelte 5 reactivity scoping.)
 
 	// ---- Drag & Drop ----
 	interface DragPayload {
@@ -240,45 +226,17 @@
 							<span class="period-time">{DEFAULT_PERIOD_TIMES[pIdx]}</span>
 						</th>
 						{#each DAYS as day, dayIdx}
-							{#each GRADES as grade}
-								{@const cellPlacements = placementMap[`${day}|${period}|${grade}`] ?? []}
-								{@const isNow = nowState.day === day && nowState.period === period}
-								<td
-									class="cell"
-									class:now={isNow}
-									use:droppable={{
-										container: `cell-${day}-${period}`,
-										callbacks: {
-											onDrop: state => handleDropToCell(day, period, state as DragDropState<DragPayload>)
-										}
-									}}
-								>
-									{#each cellPlacements as cp (cp.placed.specId + '-' + grade)}
-										{@const teacher = teacherById(cp.spec.teacher)}
-										{@const visible = isHighlighted(cp.spec, grade)}
-										<div
-											class="placed"
-											class:filtered={!visible}
-											use:draggable={{
-												container: `cell-${day}-${period}`,
-												dragData: {
-													specId: cp.spec.id,
-													fromCell: { day, period }
-												} as DragPayload
-											}}
-										>
-											<LessonCell
-												spec={cp.spec}
-												teacher={teacher}
-												pinned={cp.placed.pinned}
-												weekParity={weekInfo.parity}
-												onTogglePin={() => togglePin(cp.spec.id, day, period)}
-												onRemove={() => removePlacement(cp.spec.id, day, period)}
-											/>
-										</div>
-									{/each}
-								</td>
-							{/each}
+								{#each GRADES as grade}
+									<ScheduleCell
+										day={day}
+										period={period}
+										grade={grade}
+										isNow={nowState.day === day && nowState.period === period}
+										isHighlighted={isHighlighted}
+										weekParity={weekInfo.parity}
+										teacherById={teacherById}
+									/>
+								{/each}
 							{#if dayIdx < DAYS.length - 1}<td class="day-gap"></td>{/if}
 						{/each}
 					</tr>

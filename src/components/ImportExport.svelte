@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { store } from '../lib/store.svelte';
+	import { useStore } from '../lib/store.svelte';
+	const store = useStore();
 	import { downloadAsJson, readJsonFile } from '../lib/persistence';
 	import { importCsv, type ImportResult } from '../lib/import/csv';
 	import { emptyDoc } from '../lib/types';

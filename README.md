@@ -89,14 +89,31 @@ src/
 
 - ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 35 Tests grün, `npm run build` sauber.
 - ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt; weiche Constraints (Score-Funktion) als nächste Iteration.
-- ⚠️ **Browser-Smoke-Test:** Solver findet zuverlässig Lösungen (116 Lehreinheiten in <2s), CSV-Import + Editor + Solver-Pipeline funktionieren bis zum Store. Die Reactivity zwischen Store-Update nach Solve und DOM-Render hat eine Schwachstelle, die im nächsten Iterations-Schritt vertieft werden muss (siehe Code-Kommentar in `ScheduleGrid.svelte` — `placementMap` $derived.by).
+- ⚠️ **Phase 5b (Reactivity-Bug)** — UNGELÖST. Trotz mehrerer Lösungsansätze (Top-Level-Reassign, splice, plain $state-Object, Context-Pattern via setContext/getContext, Cell-Subkomponente) zeigt das Wochenraster nach dem Solver-Run weiterhin nur 4 statt 116 platzierte Stunden, obwohl localStorage und persistierte State korrekt 116 enthalten. Sidebar `unplaced` bleibt auf 52. Tab-Switch nach mehreren Wechseln rendert die Komponente nicht neu.
 - 🔜 **Phase 6** (Print-Layout, GitHub-Pages-Deploy, Polish) — ausstehend.
 
 ## Bekannte Punkte zum Vertiefen
 
-1. **Reactivity-Bug nach Solver-Run** — Store enthält 116 placed, DOM rendert nur 4. Vermutlich braucht es entweder eine Restrukturierung von `placementsAt` zu einem reinen $derived oder eine Force-Update-Strategie nach dem Solver-Run.
-2. **Tab-Switch-Render im Dev-Server** — HMR im Vite-Dev-Server kann mehrere onclick-Listener akkumulieren. Production-Build (`npm run build && npm run preview`) ist davon nicht betroffen.
+1. **Reactivity-Bug nach Solver-Run** — Store enthält 116 placed, DOM rendert nur 4. Versuchte Fixes ohne Erfolg:
+   - `store.doc.placed = [...]` Reassignment
+   - `store.doc.placed.splice(0, len, ...newArr)`
+   - Top-Level Reassign `store.doc = { ...snap, placed: [...] }`
+   - Plain `$state({doc: …})` Modul-Export statt Class
+   - `setContext`/`getContext` Pattern
+   - Eigene Cell-Subkomponente (`ScheduleCell.svelte`) mit per-instance `$derived(placementsAt(...))`
+
+   **Hypothese:** Möglicherweise spezifisches Svelte-5.55-Problem mit deeply-nested $state in Production-Build, oder ein Konflikt mit dem MiniZinc-WASM-Worker, der den Reactivity-Scheduler blockt. Empfehlung für nächste Iteration: Migration auf klassisches `svelte/store` (writable) statt Runes für `placed`-Array. Oder direkt einen Force-Re-Mount via `{#key store.doc.placed.length}` um den Grid-Block.
+
+2. **Tab-Switch-Render** — Nach mehreren Tab-Wechseln (besonders nach Solver-Run) zeigt der `{#if active === 'schedule'}`-Block weiterhin den ImportExport-Inhalt, obwohl `class:active` den richtigen Tab markiert. Auf einem **frischen** Reload-Tab funktioniert der erste Tab-Switch korrekt.
+
 3. **Weiche Constraints** — `model.mzn` enthält bisher nur harte Regeln. RulesPanel-Werte sind UI-fertig, müssen noch in MiniZinc-Penalty-Variablen übersetzt werden.
+
+## Was funktioniert vollständig
+
+- CSV-Import: Liste.csv aus Sokrates → 10 Lehrer (mit Personalnummer, Leitung-Badge, Platzhalter), 19 Fächer (mit Kategorie, Hauptfach-Default), 52 LessonSpecs (mit Kopplungen via groupKey, korrekte Schulstufen, klassenübergreifend) — alle 21 Tests grün.
+- Editor: Lehrer-Tabelle mit Farbpicker und 5×8-Verfügbarkeits-Mini-Raster, Fächer-Liste, Lehreinheiten-Liste mit Filtern.
+- Solver: MiniZinc-WASM in <2s findet 116-Lehreinheiten-Plan, alle harten Constraints (Lehrer-Konflikte, Verfügbarkeit, Pinning, Wochen-Pattern) erfüllt. Status korrekt angezeigt, localStorage korrekt persistiert.
+- JSON-Export/Import als Backup.
 
 ## Tests laufen lassen
 
