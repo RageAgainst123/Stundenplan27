@@ -65,6 +65,10 @@
 		align-items: center;
 		gap: 12px;
 	}
+	.err {
+		white-space: pre-line;
+		max-width: 700px;
+	}
 	.ok {
 		color: var(--ok);
 		font-size: 13px;

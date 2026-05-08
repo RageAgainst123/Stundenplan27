@@ -50,6 +50,7 @@ array[LESSON] of set of GRADE: lesson_grades;
 array[LESSON] of int: lesson_group;       % 0 = no group; >0 = shared coupling key
 array[LESSON] of int: lesson_week;        % 0=every,1=even,2=odd
 array[LESSON] of int: lesson_spec_id;     % spec-id index — instances of same spec share this
+array[LESSON] of int: lesson_occ_idx;     % occurrence index 0..count-1 within the spec
 array[LESSON] of int: lesson_block_id;    % -1 = standalone, ≥0 = part of a block
 array[LESSON] of int: lesson_block_size;  % size of the block this instance belongs to (1=standalone)
 array[LESSON] of bool: lesson_pinned;
@@ -103,34 +104,48 @@ constraint forall (l1, l2 in LESSON where l1 < l2 /\
 );
 
 % 6) Distinct (day, period) for two instances of the same spec from DIFFERENT
-%    occurrences (= different occurrence groupId).
+%    occurrences. We use lesson_occ_idx (NOT lesson_group) because specs with an
+%    explicit groupKey share the same group_id across all occurrences — using
+%    group here would let multiple occurrences collapse onto the same slot.
 constraint forall (l1, l2 in LESSON where l1 < l2 /\
                   lesson_spec_id[l1] = lesson_spec_id[l2] /\
-                  lesson_group[l1] != lesson_group[l2]) (
+                  lesson_occ_idx[l1] != lesson_occ_idx[l2]) (
   not (dayOf(assign[l1]) = dayOf(assign[l2]) /\ periodOf(assign[l1]) = periodOf(assign[l2]))
 );
 
-% 7) Block-pattern: instances with the same block_id (same spec, same block) must
-%    sit on the same day, same grade, and be CONTIGUOUS in periods.
-%    We enforce: same day, same grade, |period_a - period_b| <= block_size - 1
-%    + the periods of one block must form a contiguous run.
-%    Pairwise: same day, same grade, abs period diff exactly 1 between adjacent
-%    instances of the block. We use weaker constraint:
-%    same day, same grade, periods within [min..min+block_size-1].
+% 7) Block-pattern: instances with the same block_id (same spec, same block)
+%    must sit on the same day and within the block's period range.
+%
+%    Note: For multi-grade specs, the encoder produces ONE instance per
+%    (block-position × grade). All those instances share the same block_id
+%    but have DIFFERENT grades. So we must NOT require gradeOf to be equal —
+%    that would make multi-grade blocks UNSAT (Phase 7A bug #1).
+%
+%    For block-siblings of the SAME grade-column (= same spec, same grade),
+%    their periods must form a contiguous run of length blockSize. We enforce
+%    pairwise: same day + |Δperiod| ≤ blockSize-1.
+%    For block-siblings on DIFFERENT grade columns (multi-grade parallel),
+%    they share day & period (enforced via groupId in constraint 4).
 constraint forall (l1, l2 in LESSON where l1 < l2 /\
                   lesson_block_id[l1] >= 0 /\
                   lesson_block_id[l1] = lesson_block_id[l2]) (
   dayOf(assign[l1]) = dayOf(assign[l2]) /\
-  gradeOf(assign[l1]) = gradeOf(assign[l2]) /\
   abs(periodOf(assign[l1]) - periodOf(assign[l2])) <= lesson_block_size[l1] - 1
 );
 
 % 8) Subject maxConsecutive: forbid a 3-run of the same subject in same day & grade
 %    when subject_max_consec[s] = 2.
+%    Phase 7A fix: ignore multi-grade siblings — two instances of the same
+%    occurrence (same spec, same group_id) represent ONE lesson taught to
+%    multiple grades, not two separate runs of the subject. Without this,
+%    a count=4 multi-grade Mathe spec would self-trigger the constraint.
 constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
                   lesson_subject[l1] = lesson_subject[l2] /\
                   lesson_subject[l2] = lesson_subject[l3] /\
-                  subject_max_consec[lesson_subject[l1]] = 2) (
+                  subject_max_consec[lesson_subject[l1]] = 2 /\
+                  not (lesson_spec_id[l1] = lesson_spec_id[l2] /\ lesson_occ_idx[l1] = lesson_occ_idx[l2]) /\
+                  not (lesson_spec_id[l2] = lesson_spec_id[l3] /\ lesson_occ_idx[l2] = lesson_occ_idx[l3]) /\
+                  not (lesson_spec_id[l1] = lesson_spec_id[l3] /\ lesson_occ_idx[l1] = lesson_occ_idx[l3])) (
   not (
     dayOf(assign[l1]) = dayOf(assign[l2]) /\ dayOf(assign[l2]) = dayOf(assign[l3]) /\
     gradeOf(assign[l1]) = gradeOf(assign[l2]) /\ gradeOf(assign[l2]) = gradeOf(assign[l3]) /\

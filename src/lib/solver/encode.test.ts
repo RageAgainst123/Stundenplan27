@@ -144,6 +144,138 @@ describe('encode', () => {
 	});
 });
 
+// ----- Phase 7A regression suite (multi-grade specs + pinning) -----
+
+import { slotFromDPG } from './encode';
+
+function makeMultiGradeDoc() {
+	const doc = emptyDoc('2026/27');
+	const t: Teacher = {
+		id: 'tREL',
+		name: 'Simon Maximilian',
+		shortNumber: 9,
+		color: '#a855f7',
+		subjects: ['REL'],
+		// Only Wednesday available (block all other days)
+		unavailable: [
+			{ day: 'Mo', period: 1 }, { day: 'Mo', period: 2 }, { day: 'Mo', period: 3 }, { day: 'Mo', period: 4 },
+			{ day: 'Mo', period: 5 }, { day: 'Mo', period: 6 }, { day: 'Mo', period: 7 }, { day: 'Mo', period: 8 },
+			{ day: 'Di', period: 1 }, { day: 'Di', period: 2 }, { day: 'Di', period: 3 }, { day: 'Di', period: 4 },
+			{ day: 'Di', period: 5 }, { day: 'Di', period: 6 }, { day: 'Di', period: 7 }, { day: 'Di', period: 8 },
+			{ day: 'Do', period: 1 }, { day: 'Do', period: 2 }, { day: 'Do', period: 3 }, { day: 'Do', period: 4 },
+			{ day: 'Do', period: 5 }, { day: 'Do', period: 6 }, { day: 'Do', period: 7 }, { day: 'Do', period: 8 },
+			{ day: 'Fr', period: 1 }, { day: 'Fr', period: 2 }, { day: 'Fr', period: 3 }, { day: 'Fr', period: 4 },
+			{ day: 'Fr', period: 5 }, { day: 'Fr', period: 6 }, { day: 'Fr', period: 7 }, { day: 'Fr', period: 8 }
+		]
+	};
+	doc.teachers.push(t);
+	const rel: Subject = {
+		code: 'REL',
+		name: 'Religion',
+		category: 'PG',
+		isMain: false,
+		hoursPerWeek: {},
+		maxConsecutive: 99
+	};
+	doc.subjects.push(rel);
+	// REL für 6+7 Schulstufe (cross-class wie in Sokrates)
+	const sREL67: LessonSpec = {
+		id: 'sREL67',
+		subject: 'REL',
+		teacher: 'tREL',
+		classes: ['1a', '2a'],
+		grades: [6, 7],
+		weekPattern: 'every',
+		count: 2,
+		blocks: [1, 1],
+		includeInSolver: true,
+		source: 'manual'
+	};
+	const sREL78: LessonSpec = {
+		id: 'sREL78',
+		subject: 'REL',
+		teacher: 'tREL',
+		classes: ['2a'],
+		grades: [7, 8],
+		weekPattern: 'every',
+		count: 2,
+		blocks: [1, 1],
+		includeInSolver: true,
+		source: 'manual'
+	};
+	doc.specs.push(sREL67, sREL78);
+	return doc;
+}
+
+describe('phase 7A: multi-grade pinning bug', () => {
+	it('a multi-grade spec with grades=[6,7] expands to 2 instances per occurrence', () => {
+		const doc = makeMultiGradeDoc();
+		const enc = encode(doc);
+		const sREL67Inst = enc.instances.filter(i => i.specId === 'sREL67');
+		// count=2, grades=[6,7] → 2 occurrences × 2 grades = 4 instances
+		expect(sREL67Inst).toHaveLength(4);
+	});
+
+	it('pinning a multi-grade spec produces a per-grade pin slot, not just grade[0]', () => {
+		const doc = makeMultiGradeDoc();
+		// Pin REL_67 on (Mi, 1)
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, pinned: true });
+		const enc = encode(doc);
+		const pinnedInst = enc.instances.filter(i => i.specId === 'sREL67' && i.pinned);
+		// At least one instance per grade should be pinned
+		expect(pinnedInst.length).toBeGreaterThanOrEqual(2);
+		// Each pinned instance should have a slot whose grade matches its own gradesSet
+		for (const inst of pinnedInst) {
+			expect(inst.pinSlot1).toBeGreaterThan(0);
+			const gradeFromSlot = ((inst.pinSlot1! - 1) % 4) + 1; // G=4
+			// gradesSet[0] is 1-based grade index (5→1 etc), should equal gradeFromSlot
+			expect(inst.gradesSet[0]).toBe(gradeFromSlot);
+		}
+	});
+
+	it('all pinned instances of a single (day,period) are gradeOf-consistent with their gradesSet', () => {
+		const doc = makeMultiGradeDoc();
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, pinned: true });
+		doc.placed.push({ specId: 'sREL78', day: 'Mi', period: 3, pinned: true });
+		const enc = encode(doc);
+		// For every pinned instance: pinSlot's grade must match the instance's lesson_grades
+		for (const inst of enc.instances.filter(i => i.pinned)) {
+			const gradeFromSlot = ((inst.pinSlot1! - 1) % 4) + 1;
+			expect(inst.gradesSet).toContain(gradeFromSlot);
+		}
+	});
+});
+
+describe('phase 7A: subject_max_consec edge case', () => {
+	it('subject without explicit maxConsecutive defaults to 99 (no run limit)', () => {
+		const doc = makeMultiGradeDoc();
+		const enc = encode(doc);
+		expect(enc.subjectMaxConsec.length).toBe(1);
+		expect(enc.subjectMaxConsec[0]).toBe(99);
+	});
+
+	it('main subject with maxConsecutive=2 emits 2 in DZN', () => {
+		const doc = emptyDoc();
+		doc.subjects.push({
+			code: 'M', name: 'Mathe', category: 'PG', isMain: true,
+			hoursPerWeek: {}, maxConsecutive: 2
+		});
+		doc.teachers.push({
+			id: 't', name: 'L', shortNumber: 1, color: '#000',
+			subjects: ['M'], unavailable: []
+		});
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't',
+			classes: ['1a'], grades: [5], weekPattern: 'every',
+			count: 4, blocks: [1,1,1,1], includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.subjectMaxConsec[0]).toBe(2);
+	});
+});
+
+void slotFromDPG;
+
 describe('decode', () => {
 	it('maps assign array back to PlacedLessons', () => {
 		const doc = makeDoc();

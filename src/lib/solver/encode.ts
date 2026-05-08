@@ -95,17 +95,24 @@ export function encode(doc: ScheduleDoc): SolverInput {
 
 	const weekToId: Record<string, number> = { every: 0, even: 1, odd: 2 };
 
-	// Pre-index pinnings: spec.id → ordered list of pinned slot1 values (one per occurrence).
-	// Pin grade defaults to the first grade of the spec (PlacedLesson has only day/period).
+	// Pre-index pinnings: spec.id → grade → ordered list of pinned slot1 values
+	// (one per occurrence). Multi-grade specs (e.g. grades=[6,7]) need a separate
+	// pin slot per grade column, since the slot is 3D (day, period, grade) and
+	// constraint 0 enforces gradeOf(assign[l]) ∈ lesson_grades[l]. If we re-used
+	// the same slot for all grades, the multi-grade siblings would each need to
+	// be in grade[0]'s column, contradicting their own grade assignment → UNSAT.
 	const specById = new Map(doc.specs.map(s => [s.id, s]));
-	const pinsBySpec = new Map<string, number[]>();
+	const pinsBySpecGrade = new Map<string, Map<GradeLevel, number[]>>();
 	for (const p of doc.placed) {
 		if (!p.pinned) continue;
 		const spec = specById.get(p.specId);
 		if (!spec || spec.grades.length === 0) continue;
-		const arr = pinsBySpec.get(p.specId) ?? [];
-		arr.push(slotFromDPG(p.day, p.period, spec.grades[0] as GradeLevel));
-		pinsBySpec.set(p.specId, arr);
+		if (!pinsBySpecGrade.has(p.specId)) pinsBySpecGrade.set(p.specId, new Map());
+		const byGrade = pinsBySpecGrade.get(p.specId)!;
+		for (const grade of spec.grades) {
+			if (!byGrade.has(grade)) byGrade.set(grade, []);
+			byGrade.get(grade)!.push(slotFromDPG(p.day, p.period, grade));
+		}
 	}
 
 	// Subject indexing for maxConsecutive
@@ -134,7 +141,7 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		specCounter++;
 		const groupIdBase = getGroupId(spec);
 		const weekId = weekToId[spec.weekPattern] ?? 0;
-		const pins = pinsBySpec.get(spec.id) ?? [];
+		const pinsByGrade = pinsBySpecGrade.get(spec.id);
 		const blocks = spec.blocks && spec.blocks.length > 0 ? spec.blocks : DEFAULT_BLOCK(spec.count);
 
 		// Walk through each block; each block becomes blockSize consecutive lesson positions.
@@ -145,9 +152,10 @@ export function encode(doc: ScheduleDoc): SolverInput {
 			const thisBlockId = blockSize > 1 ? nextBlockId++ : -1;
 			for (let pos = 0; pos < blockSize; pos++) {
 				const occGroupId = groupIdBase > 0 ? groupIdBase : autoGroupCounter++;
-				const pin = pins[occ];
 				for (const grade of spec.grades) {
 					const gradesSet = [grade - 4];
+					// Per-grade pin lookup: each grade column gets its own pin slot.
+					const pinForGrade = pinsByGrade?.get(grade)?.[occ];
 					instances.push({
 						specId: spec.id,
 						specIndex1: specCounter,
@@ -159,8 +167,8 @@ export function encode(doc: ScheduleDoc): SolverInput {
 						weekId,
 						blockId: thisBlockId,
 						blockSize: blockSize,
-						pinned: pin !== undefined,
-						pinSlot1: pin
+						pinned: pinForGrade !== undefined,
+						pinSlot1: pinForGrade
 					});
 				}
 				occ++;
@@ -225,6 +233,7 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	const lessonGroup = instances.map(i => i.groupId).join(',') || '0';
 	const lessonWeek = instances.map(i => i.weekId).join(',') || '0';
 	const lessonSpecId = instances.map(i => i.specIndex1).join(',') || '1';
+	const lessonOccIdx = instances.map(i => i.indexWithinSpec).join(',') || '0';
 	const lessonBlockId = instances.map(i => i.blockId).join(',') || '-1';
 	const lessonBlockSize = instances.map(i => i.blockSize).join(',') || '1';
 	const lessonPinned = instances.map(i => (i.pinned ? 'true' : 'false')).join(',') || 'false';
@@ -244,6 +253,7 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		L > 0 ? `lesson_group = [${lessonGroup}];` : `lesson_group = [0];`,
 		L > 0 ? `lesson_week = [${lessonWeek}];` : `lesson_week = [0];`,
 		L > 0 ? `lesson_spec_id = [${lessonSpecId}];` : `lesson_spec_id = [1];`,
+		L > 0 ? `lesson_occ_idx = [${lessonOccIdx}];` : `lesson_occ_idx = [0];`,
 		L > 0 ? `lesson_block_id = [${lessonBlockId}];` : `lesson_block_id = [-1];`,
 		L > 0 ? `lesson_block_size = [${lessonBlockSize}];` : `lesson_block_size = [1];`,
 		L > 0 ? `lesson_pinned = [${lessonPinned}];` : `lesson_pinned = [false];`,

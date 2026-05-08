@@ -9,6 +9,7 @@ import minizincWasmURL from 'minizinc/minizinc.wasm?url';
 import minizincDataURL from 'minizinc/minizinc.data?url';
 import { encode } from './encode';
 import { decode, type SolverOutput } from './decode';
+import { diagnose, bestHint } from './diagnose';
 import type { ScheduleDoc } from '../types';
 import modelMzn from './model.mzn?raw';
 
@@ -44,6 +45,19 @@ export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<
 		};
 	}
 
+	// Pre-flight: detect obvious UNSAT-causing config errors before spending
+	// 25s on a doomed solver run.
+	const preflight = diagnose(doc);
+	const fatalHint = preflight.find(h => h.severity === 'error');
+	if (fatalHint) {
+		return {
+			status: 'ERROR',
+			placed: [],
+			unplaced: enc.instances.map(i => i.specId),
+			message: `Konfiguration nicht lösbar:\n\n${fatalHint.message}`
+		};
+	}
+
 	try {
 		opts.onProgress?.('init');
 		await ensureInit();
@@ -71,11 +85,17 @@ export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<
 		const status = String(result.status ?? 'UNKNOWN');
 
 		if (status === 'UNSATISFIABLE') {
+			// Try to give the user a concrete hint via pre-flight diagnostics.
+			const hints = diagnose(doc);
+			const top = bestHint(hints);
+			const detail = top
+				? `\n\nWahrscheinlichste Ursache: ${top.message}`
+				: '\n\nTipp: Constraints im Tab „Regeln" lockern, Pinnings entfernen, oder Lehrer-Verfügbarkeit erweitern.';
 			return {
 				status: 'UNSAT',
 				placed: [],
 				unplaced: enc.instances.map(i => i.specId),
-				message: 'Es gibt keinen Plan, der alle harten Regeln erfüllt.'
+				message: `Es gibt keinen Plan, der alle harten Regeln erfüllt.${detail}`
 			};
 		}
 

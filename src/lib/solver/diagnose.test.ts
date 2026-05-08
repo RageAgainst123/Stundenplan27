@@ -1,0 +1,148 @@
+import { describe, it, expect } from 'vitest';
+import { diagnose, bestHint } from './diagnose';
+import { emptyDoc, type LessonSpec, type Subject, type Teacher } from '../types';
+
+function teacher(id: string, name: string, unavailable: { day: 'Mo'|'Di'|'Mi'|'Do'|'Fr'; period: 1|2|3|4|5|6|7|8 }[] = []): Teacher {
+	return { id, name, shortNumber: 1, color: '#000', subjects: [], unavailable };
+}
+
+function subject(code: string, isMain = false): Subject {
+	return { code, name: code, category: 'PG', isMain, hoursPerWeek: {}, maxConsecutive: 99 };
+}
+
+function spec(id: string, sub: string, t: string, grades: number[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
+	return {
+		id, subject: sub, teacher: t, classes: ['1a'], grades: grades as any,
+		weekPattern: 'every', count, blocks: Array(count).fill(1),
+		includeInSolver: opts.includeInSolver ?? true,
+		groupKey: opts.groupKey,
+		source: 'manual'
+	};
+}
+
+describe('diagnose: teacher overload', () => {
+	it('reports error when teacher has more hours than available slots', () => {
+		const doc = emptyDoc();
+		// Teacher with all weekdays (Mo,Di,Mi,Do) blocked → only Fr (8 slots)
+		doc.teachers.push(teacher('t1', 'Overloaded', [
+			...['Mo','Di','Mi','Do'].flatMap(d =>
+				[1,2,3,4,5,6,7,8].map(p => ({ day: d as any, period: p as any }))
+			)
+		]));
+		doc.subjects.push(subject('M'));
+		// 12 hours assigned but only 8 available
+		doc.specs.push(spec('s1', 'M', 't1', [5], 12));
+		const hints = diagnose(doc);
+		const error = hints.find(h => h.severity === 'error');
+		expect(error).toBeTruthy();
+		expect(error!.message).toContain('Overloaded');
+		expect(error!.message).toMatch(/12.*Wochenstunden.*8.*Slots/);
+	});
+
+	it('reports error when teacher has zero available slots but specs assigned', () => {
+		const doc = emptyDoc();
+		const allSlots = ['Mo','Di','Mi','Do','Fr'].flatMap(d =>
+			[1,2,3,4,5,6,7,8].map(p => ({ day: d as any, period: p as any }))
+		);
+		doc.teachers.push(teacher('t1', 'Blocked', allSlots));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 1));
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.severity === 'error' && h.message.includes('keine verfügbaren Slots'))).toBe(true);
+	});
+});
+
+describe('diagnose: pin conflicts', () => {
+	it('reports error when teacher pinned twice in same slot without group', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'), subject('D'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 1));
+		doc.specs.push(spec('s2', 'D', 't1', [5], 1));
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, pinned: true });
+		const hints = diagnose(doc);
+		const conflict = hints.find(h => h.severity === 'error' && h.message.includes('mehrfach gepinnt'));
+		expect(conflict).toBeTruthy();
+	});
+
+	it('does NOT report conflict when both pinned specs share the same groupKey', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'), subject('D'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 1, { groupKey: 'G' }));
+		doc.specs.push(spec('s2', 'D', 't1', [5], 1, { groupKey: 'G' }));
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, pinned: true });
+		const hints = diagnose(doc);
+		expect(hints.find(h => h.message.includes('mehrfach gepinnt'))).toBeUndefined();
+	});
+
+	it('reports error when pinned slot conflicts with teacher availability', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1', [{ day: 'Mo', period: 1 }]));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 1));
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
+		const hints = diagnose(doc);
+		const block = hints.find(h => h.severity === 'error' && h.message.includes('unverfügbar'));
+		expect(block).toBeTruthy();
+	});
+});
+
+describe('diagnose: spec validation', () => {
+	it('warns when spec has empty grades', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [], 1));
+		const hints = diagnose(doc);
+		expect(hints.find(h => h.message.includes('keine Schulstufen'))).toBeTruthy();
+	});
+
+	it('errors when spec references non-existent teacher', () => {
+		const doc = emptyDoc();
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 'tNONE', [5], 1));
+		const hints = diagnose(doc);
+		expect(hints.find(h => h.severity === 'error' && h.message.includes('nicht existierenden Lehrer'))).toBeTruthy();
+	});
+});
+
+describe('diagnose: bestHint', () => {
+	it('returns null for no hints', () => {
+		expect(bestHint([])).toBeNull();
+	});
+
+	it('prefers errors over warnings', () => {
+		const hints = [
+			{ severity: 'warn' as const, message: 'just a warning' },
+			{ severity: 'error' as const, message: 'real problem' }
+		];
+		expect(bestHint(hints)?.severity).toBe('error');
+	});
+});
+
+describe('diagnose: User-Phase-7A scenario', () => {
+	it('REL multi-grade pinned + Mittwochs-Lehrer should NOT trigger fatal hints', () => {
+		const doc = emptyDoc();
+		// Simon Maximilian, only Wednesday available (block all other days)
+		const blocked = ['Mo', 'Di', 'Do', 'Fr'].flatMap(d =>
+			[1, 2, 3, 4, 5, 6, 7, 8].map(p => ({ day: d as any, period: p as any }))
+		);
+		doc.teachers.push(teacher('tREL', 'Simon Maximilian', blocked as any));
+		doc.subjects.push(subject('REL'));
+		// REL für 6+7 und REL für 7+8, je 2 Stunden
+		doc.specs.push(spec('s67', 'REL', 'tREL', [6, 7], 2));
+		doc.specs.push(spec('s78', 'REL', 'tREL', [7, 8], 2));
+		// Pin them on Wednesday (4 hours total, teacher has 8 slots Mi → fits)
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 1, pinned: true });
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 2, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 3, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 4, pinned: true });
+		const hints = diagnose(doc);
+		// Should not fail pre-flight: 4 hours assigned, 8 available on Mi
+		const errors = hints.filter(h => h.severity === 'error');
+		expect(errors).toHaveLength(0);
+	});
+});
