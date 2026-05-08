@@ -405,7 +405,17 @@ var int: total_penalty =
   w_compact * pen_compact;
 
 % ---- Solve ----
-solve :: int_search([assign[l] | l in LESSON], first_fail, indomain_min, complete)
+% Phase 10 fix: Search heuristic upgraded from first_fail+indomain_min to
+% dom_w_deg (weighted-degree, learns from failures) + indomain_random with
+% Luby restarts. dom_w_deg consistently outperforms first_fail on dense
+% scheduling CSPs (Schulkann et al.); restarts escape unproductive subtrees.
+solve :: int_search(
+            [assign[l] | l in LESSON],
+            dom_w_deg,
+            indomain_random,
+            complete
+         )
+      :: restart_luby(250)
   minimize total_penalty;
 
 output [

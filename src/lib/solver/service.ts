@@ -140,7 +140,8 @@ async function runSolver(enc: SolverInput, timeoutMs: number, onProgress?: (s: s
 		const job = model.solve({
 			options: {
 				solver: 'gecode',
-				'time-limit': timeoutMs
+				'time-limit': timeoutMs,
+				'random-seed': 42
 			}
 		});
 
@@ -460,7 +461,10 @@ function runSolverStreaming(
 				solver: 'gecode',
 				'time-limit': timeoutMs,
 				statistics: true,
-				'output-time': true
+				'output-time': true,
+				// Phase 10: dom_w_deg + indomain_random + Luby restarts need a
+				// random seed; we use a fixed default so re-runs are reproducible.
+				'random-seed': 42
 			};
 			// In optimize mode, ask the solver to emit each better solution.
 			if (mode === 'optimize') {
