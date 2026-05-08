@@ -2,6 +2,8 @@
 
 Eine Browser-App für Stundenplan-Erstellung an einer kleinen Mittelschule mit Mehrstufenklassen, mit eigenem Constraint-Solver auf WebAssembly-Basis und Drag-&-Drop-Editor.
 
+**Live-Demo:** [rageagainst123.github.io/Stundenplan27](https://rageagainst123.github.io/Stundenplan27/)
+
 **Stack:** Vite · TypeScript · Svelte 5 · MiniZinc-JS (WASM Solver) · sveltednd
 
 ## Features
