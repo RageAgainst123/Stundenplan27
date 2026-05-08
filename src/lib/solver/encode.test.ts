@@ -276,6 +276,129 @@ describe('phase 7A: subject_max_consec edge case', () => {
 
 void slotFromDPG;
 
+// ----- Phase 7B-1: Auto-Block-Modus -----
+
+describe('phase 7B: auto-block mode', () => {
+	function autoModeDoc() {
+		const doc = emptyDoc('2026/27');
+		doc.teachers.push({
+			id: 't', name: 'L', shortNumber: 1, color: '#000',
+			subjects: ['M'], unavailable: []
+		});
+		doc.subjects.push({
+			code: 'M', name: 'Mathe', category: 'PG', isMain: true,
+			hoursPerWeek: {}, maxConsecutive: 2
+		});
+		return doc;
+	}
+
+	it('blocks=undefined → emits count flexible auto-mode instances with blockId=-1', () => {
+		const doc = autoModeDoc();
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 3, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.instances).toHaveLength(3);
+		for (const inst of enc.instances) {
+			expect(inst.autoMode).toBe(true);
+			expect(inst.blockId).toBe(-1);
+			expect(inst.blockSize).toBe(1);
+		}
+	});
+
+	it('blocks=[2,1] → strict mode, autoMode=false on every instance, blockId set on the doublet', () => {
+		const doc = autoModeDoc();
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 3, blocks: [2, 1],
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.instances).toHaveLength(3);
+		for (const inst of enc.instances) {
+			expect(inst.autoMode).toBe(false);
+		}
+		// Two instances form the doublet (blockId ≥ 0, blockSize=2),
+		// one is standalone (blockId=-1, blockSize=1)
+		const doublet = enc.instances.filter(i => i.blockId >= 0);
+		const standalone = enc.instances.filter(i => i.blockId < 0);
+		expect(doublet).toHaveLength(2);
+		expect(standalone).toHaveLength(1);
+		expect(doublet[0].blockId).toBe(doublet[1].blockId);
+		expect(doublet[0].blockSize).toBe(2);
+		expect(standalone[0].blockSize).toBe(1);
+	});
+
+	it('blocks=[1,1,1] → strict mode singles, autoMode=false', () => {
+		const doc = autoModeDoc();
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 3, blocks: [1, 1, 1],
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.instances).toHaveLength(3);
+		for (const inst of enc.instances) {
+			expect(inst.autoMode).toBe(false);
+			expect(inst.blockId).toBe(-1);
+			expect(inst.blockSize).toBe(1);
+		}
+	});
+
+	it('mixed doc (auto + strict specs) → each spec keeps its mode', () => {
+		const doc = autoModeDoc();
+		doc.subjects.push({
+			code: 'D', name: 'Deutsch', category: 'PG', isMain: true,
+			hoursPerWeek: {}, maxConsecutive: 2
+		});
+		doc.specs.push({
+			id: 'sAuto', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 3, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		doc.specs.push({
+			id: 'sStrict', subject: 'D', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 2, blocks: [2],
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		const auto = enc.instances.filter(i => i.specId === 'sAuto');
+		const strict = enc.instances.filter(i => i.specId === 'sStrict');
+		expect(auto.every(i => i.autoMode)).toBe(true);
+		expect(strict.every(i => !i.autoMode)).toBe(true);
+		expect(strict[0].blockSize).toBe(2);
+		expect(strict[0].blockId).toBe(strict[1].blockId);
+	});
+
+	it('emits lesson_auto[] in DZN with one bool per instance', () => {
+		const doc = autoModeDoc();
+		doc.specs.push({
+			id: 's1', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 2, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('lesson_auto');
+		// Two instances, both auto → expect "true,true" pattern
+		expect(dzn).toMatch(/lesson_auto = \[true,true\]/);
+	});
+
+	it('blocks=[] (empty array) is treated as auto mode', () => {
+		const doc = autoModeDoc();
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 2, blocks: [],
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.instances).toHaveLength(2);
+		expect(enc.instances.every(i => i.autoMode)).toBe(true);
+	});
+});
+
 describe('decode', () => {
 	it('maps assign array back to PlacedLessons', () => {
 		const doc = makeDoc();
@@ -287,6 +410,28 @@ describe('decode', () => {
 		expect(result.placed).toHaveLength(7);
 		expect(result.placed[0].day).toBe('Mo');
 		expect(result.placed[0].period).toBe(1);
+	});
+
+	it('parses penalty breakdown from solver output (Phase 7B)', () => {
+		const doc = makeDoc();
+		const enc = encode(doc);
+		const fakeOutput = JSON.stringify({
+			assign: [1, 2, 3, 4, 5, 6, 7],
+			penalties: { main_aft: 0, main_early: 12, main_run: 1, no_free: 3, compact: 2, total: 530 }
+		});
+		const result = decode(fakeOutput, enc.instances);
+		expect(result.status).toBe('SAT');
+		expect(result.penalties).toBeDefined();
+		expect(result.penalties!.total).toBe(530);
+		expect(result.penalties!.main_run).toBe(1);
+	});
+
+	it('omits penalties when solver output lacks them', () => {
+		const doc = makeDoc();
+		const enc = encode(doc);
+		const fakeOutput = JSON.stringify({ assign: [1, 2, 3, 4, 5, 6, 7] });
+		const result = decode(fakeOutput, enc.instances);
+		expect(result.penalties).toBeUndefined();
 	});
 
 	it('reports ERROR when output cannot be parsed', () => {

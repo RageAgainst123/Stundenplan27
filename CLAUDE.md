@@ -103,8 +103,10 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 
 - ✅ Phase 5b: Solver-3D + Reactivity-Fixes
 - ✅ Phase 5c: Block-Pattern + Solver-Ignore + Bulk-Edit + Reset
 - ✅ Phase 5d: Lehreinheiten-Kopplung-UX
-- ⚙️ Phase 6: Projekt-Hygiene + GitHub-Pages-Deploy (in progress)
-- 🔜 Phase 7: Soft-Constraints, Print-Layout, PlacedLesson.grade-Bugfix
+- ✅ Phase 6: Projekt-Hygiene + GitHub-Pages-Deploy
+- ✅ Phase 7A: Multi-Grade-UNSAT-Bugs gefixt + Pre-Flight-Diagnose
+- ✅ Phase 7B: Flexible Block-Patterns (Auto-Modus) + Soft-Constraints + Auto-Lockerung
+- 🔜 Phase 8: Print-Layout, PlacedLesson.grade-Bugfix, Performance-Tuning
 
 ## Plan-Datei für Detail-Recherche
 

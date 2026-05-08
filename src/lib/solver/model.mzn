@@ -53,11 +53,24 @@ array[LESSON] of int: lesson_spec_id;     % spec-id index — instances of same 
 array[LESSON] of int: lesson_occ_idx;     % occurrence index 0..count-1 within the spec
 array[LESSON] of int: lesson_block_id;    % -1 = standalone, ≥0 = part of a block
 array[LESSON] of int: lesson_block_size;  % size of the block this instance belongs to (1=standalone)
+array[LESSON] of bool: lesson_auto;       % Phase 7B: true = auto-mode (solver decides if pair becomes a double)
 array[LESSON] of bool: lesson_pinned;
 array[LESSON] of SLOT: lesson_pin_slot;
 
 % Subject-level maxConsecutive (e.g. Mathe = 2)
 array[SUBJECT] of int: subject_max_consec;
+
+% Phase 7B: Subject-level main-subject flag (for soft constraints)
+array[SUBJECT] of bool: subject_is_main;
+
+% Phase 7B: Soft-constraint weights (0 = disabled)
+int: w_no_free;          % keine Freistunden für Klassen
+int: w_main_aft;         % kein Hauptfach am Nachmittag
+int: afternoon_start;    % erste Periode die als Nachmittag zählt (z.B. 7)
+int: w_main_run;         % kein zu langer Hauptfach-Run
+int: max_consec_main;    % erlaubte max-Länge eines Hauptfach-Runs (z.B. 2)
+int: w_main_early;       % Hauptfach bevorzugt früh am Tag
+int: w_compact;          % Lehrer-Tage kompakt (wenig Freistunden im Lehrertag)
 
 % Teacher unavailability
 array[TEACHER, 1..D, 1..P] of bool: teacher_blocked;
@@ -155,9 +168,172 @@ constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
   )
 );
 
+% 9) Auto-Mode (Phase 7B): for specs where the user has NOT chosen an explicit
+%    block pattern, the solver may form AT MOST ONE double-period pair per spec
+%    (same day, same grade, |Δperiod|=1) and MUST NOT form 3-period runs.
+%
+%    Rationale: schools rarely teach the same subject for ≥3 consecutive
+%    periods. Strict patterns (like blocks=[1,1,1] or [2,1]) override this and
+%    skip the auto-mode logic — those instances have lesson_auto[l]=false.
+
+% 9a) No 3-period run within an auto-mode spec on the same day & grade.
+constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
+                  lesson_auto[l1] /\ lesson_auto[l2] /\ lesson_auto[l3] /\
+                  lesson_spec_id[l1] = lesson_spec_id[l2] /\
+                  lesson_spec_id[l2] = lesson_spec_id[l3] /\
+                  lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
+                  lesson_occ_idx[l2] != lesson_occ_idx[l3] /\
+                  lesson_occ_idx[l1] != lesson_occ_idx[l3]) (
+  not (
+    dayOf(assign[l1]) = dayOf(assign[l2]) /\ dayOf(assign[l2]) = dayOf(assign[l3]) /\
+    gradeOf(assign[l1]) = gradeOf(assign[l2]) /\ gradeOf(assign[l2]) = gradeOf(assign[l3]) /\
+    abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1 /\
+    abs(periodOf(assign[l2]) - periodOf(assign[l3])) = 1 /\
+    abs(periodOf(assign[l1]) - periodOf(assign[l3])) = 2
+  )
+);
+
+% 9b) At most ONE double-pair per spec in auto-mode.
+%     A "double pair" is two auto-mode instances of the same spec that share
+%     day & grade and sit on adjacent periods. We count those over each pair
+%     of distinct occurrences (l1<l2) and require sum ≤ 1 per spec.
+%
+%     For multi-grade specs, the SAME occurrence is duplicated across grade
+%     columns (different lessons sharing spec_id+occ_idx). Those grade-columns
+%     are bound to the same (day, period) via the groupId, so a pair on one
+%     grade implies the same pair on every grade — which would inflate the
+%     count to (#grades) and falsely fail. To count each pedagogical "double"
+%     exactly once, we restrict to instances in the SMALLEST grade column of
+%     the spec (gradeOf(assign[l]) = min(lesson_grades[l])).
+%
+%     Note: lesson_grades[l] is a singleton in the encoder, so min() = the
+%     grade. We additionally require both partners to be in the same grade —
+%     thanks to the singleton, this holds automatically when their grades
+%     are equal. We pick the lowest grade across each pair as a canonical
+%     witness.
+constraint forall (sp in 1..max(lesson_spec_id)) (
+  sum(l1, l2 in LESSON where l1 < l2 /\
+      lesson_spec_id[l1] = sp /\ lesson_spec_id[l2] = sp /\
+      lesson_auto[l1] /\ lesson_auto[l2] /\
+      lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
+      min(lesson_grades[l1]) = min(lesson_grades[l2]) /\
+      min(lesson_grades[l1]) = min([min(lesson_grades[ll]) | ll in LESSON where lesson_spec_id[ll] = sp])) (
+    bool2int(
+      dayOf(assign[l1]) = dayOf(assign[l2]) /\
+      gradeOf(assign[l1]) = gradeOf(assign[l2]) /\
+      abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
+    )
+  ) <= 1
+);
+
+% ---- Soft Constraints (Phase 7B) ------------------------------------
+%
+% Each penalty term is a sum of integer indicators times its weight.
+% A weight of 0 zeroes the term out (the toggle is off in the UI).
+%
+% Penalties are computed as par/var ints over the assign[] decision array.
+
+% Note: each penalty is wrapped in an `if weight > 0 then ... else 0 endif`
+% guard. When the user has the toggle off (weight=0), the var int reduces to a
+% literal 0 at compile time, which dramatically cuts solver work.
+
+% P1) "Hauptfach nicht am Nachmittag":
+%     count instances l where subject is_main AND periodOf(assign[l]) >= afternoon_start.
+var int: pen_main_aft =
+  if w_main_aft > 0 then
+    sum(l in LESSON where subject_is_main[lesson_subject[l]]) (
+      bool2int(periodOf(assign[l]) >= afternoon_start)
+    )
+  else 0 endif;
+
+% P2) "Hauptfach früh am Tag":
+%     for every main-subject lesson, add (period - 1). Earlier = lower penalty.
+var int: pen_main_early =
+  if w_main_early > 0 then
+    sum(l in LESSON where subject_is_main[lesson_subject[l]]) (
+      periodOf(assign[l]) - 1
+    )
+  else 0 endif;
+
+% P3) "Max N Hauptfächer in Folge" (approximation):
+%     pairwise count: for every pair of main-subject instances (l1<l2) that
+%     end up on the same (day, grade) on adjacent periods, add 1. This
+%     overcounts true 3+ runs but is the cheapest faithful approximation —
+%     the more clustered the main subjects, the higher the penalty.
+var int: pen_main_run =
+  if w_main_run > 0 then
+    sum(l1, l2 in LESSON where l1 < l2 /\
+        subject_is_main[lesson_subject[l1]] /\
+        subject_is_main[lesson_subject[l2]]) (
+      bool2int(
+        dayOf(assign[l1]) = dayOf(assign[l2]) /\
+        gradeOf(assign[l1]) = gradeOf(assign[l2]) /\
+        abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
+      )
+    )
+  else 0 endif;
+
+% P4) "Keine Freistunden für Klassen":
+%     A "free period" for a grade is a period p such that there exists at
+%     least one lesson on that day & grade in a period > p AND no lesson on
+%     that day & grade at period p.
+var int: pen_no_free =
+  if w_no_free > 0 then
+    sum(d in 1..D, g in 1..G, p in 1..P) (
+      bool2int(
+        not exists(l in LESSON) (
+          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) = p
+        ) /\
+        exists(l in LESSON) (
+          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) < p
+        ) /\
+        exists(l in LESSON) (
+          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) > p
+        )
+      )
+    )
+  else 0 endif;
+
+% P5) "Lehrer-Tage kompakt":
+%     same idea as P4 but per teacher: free periods sandwiched between
+%     occupied periods on the same day.
+var int: pen_compact =
+  if w_compact > 0 then
+    sum(t in 1..T, d in 1..D, p in 1..P) (
+      bool2int(
+        not exists(l in LESSON where lesson_teacher[l] = t) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) = p
+        ) /\
+        exists(l in LESSON where lesson_teacher[l] = t) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) < p
+        ) /\
+        exists(l in LESSON where lesson_teacher[l] = t) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) > p
+        )
+      )
+    )
+  else 0 endif;
+
+% Total weighted penalty
+var int: total_penalty =
+  w_main_aft * pen_main_aft +
+  w_main_early * pen_main_early +
+  w_main_run * pen_main_run +
+  w_no_free * pen_no_free +
+  w_compact * pen_compact;
+
 % ---- Solve ----
-solve satisfy;
+solve :: int_search([assign[l] | l in LESSON], first_fail, indomain_min, complete)
+  minimize total_penalty;
 
 output [
-  "{ \"assign\": [", join(",", [show(assign[l]) | l in LESSON]), "] }"
+  "{ \"assign\": [", join(",", [show(assign[l]) | l in LESSON]),
+  "], \"penalties\": { ",
+  "\"main_aft\": ", show(pen_main_aft), ", ",
+  "\"main_early\": ", show(pen_main_early), ", ",
+  "\"main_run\": ", show(pen_main_run), ", ",
+  "\"no_free\": ", show(pen_no_free), ", ",
+  "\"compact\": ", show(pen_compact), ", ",
+  "\"total\": ", show(total_penalty),
+  " } }"
 ];

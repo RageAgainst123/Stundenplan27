@@ -8,10 +8,46 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Geplant
-- GitHub-Pages-Deploy via CI
-- Soft-Constraints im MiniZinc-Modell (Penalty-Funktion aus RulesPanel)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe)
 - `PlacedLesson.grade`-Feld + Schema-Migration v1→v2
+- Performance-Tuning der Soft-Constraint-Penalties bei großer Liste
+
+## [0.7.0] - 2026-05-08 — Phase 7B: Flexible Block-Patterns + Soft-Constraints
+
+### Added
+- **Auto-Modus für Block-Pattern** (`LessonSpec.blocks` jetzt optional):
+  Bei leerem Pattern entscheidet der Solver — max. 1 Doppelstunde pro Spec,
+  niemals 3er-Run. Strikte Patterns wie `[2,1]` bleiben harte Vorgabe.
+  Siehe [ADR-0008](docs/decisions/0008-flexible-block-patterns.md).
+- **„Automatisch"-Option** in der Block-Pattern-Dropdown (oberster Eintrag,
+  kursiv-grau). Tooltip erklärt das Verhalten. Bulk-Action „Block-Pattern Auto"
+  setzt mehrere Specs gleichzeitig auf Auto.
+- **Soft-Constraints aus `RulesPanel`** fließen jetzt als gewichtete
+  Penalty-Zielfunktion in den Solver: `solve minimize total_penalty` statt
+  `solve satisfy`. Toggle aus = Gewicht 0 = Term entfällt zur Compile-Zeit.
+  Siehe [ADR-0009](docs/decisions/0009-soft-constraints-as-penalties.md).
+- **Score-Breakdown** in `GenerateButton`: ausklappbares `<details>` zeigt
+  jeden aktiven Penalty-Wert + Total nach erfolgreichem Run.
+- **Auto-Lockerung bei UNSAT**: Wenn der erste Solver-Lauf mit den
+  konfigurierten strikten Block-Patterns UNSAT liefert, läuft der Solver
+  automatisch ein zweites Mal mit allen Patterns auf Auto. UI zeigt eine
+  gelbe Warnung mit den betroffenen Specs.
+- MiniZinc-Suche jetzt mit Most-Constrained-Variable-Heuristik
+  (`first_fail + indomain_min`) — schneller bei großen Modellen.
+
+### Changed
+- CSV-Import setzt frische Specs nicht mehr auf `[1,1,…count]`, sondern auf
+  `blocks: undefined` (= Auto-Modus).
+- `persistence.ts`-Migration konvertiert das alte Default-Pattern aus
+  bestehenden localStorage-Plänen automatisch zu `undefined`. Vom User
+  explizit gesetzte Patterns wie `[2,1]` bleiben strikt erhalten.
+- `decode.ts` erweitert `SolverOutput` um `penalties`-Aufschlüsselung und
+  `relaxedSpecIds` für die Auto-Lockerungs-Anzeige.
+
+### Tests
+- 6 neue Tests für Auto-Mode-Encoding (auto / strict / mixed in einer Doc).
+- 2 neue Tests für Penalty-Decoding aus dem Solver-Output.
+- Total: 77 Tests (von 69 in 7A).
 
 ## [0.5.0] - 2026-05-08 — Phase 5d: Lehreinheiten-Kopplung
 

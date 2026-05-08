@@ -45,12 +45,27 @@
 - **JSON-Export/Import** als Backup (Schema-versioniert)
 
 ### Infrastruktur
-- 54 Unit-Tests (vitest) — Block-Pattern, CSV-Parser, Encode/Decode
+- 77 Unit-Tests (vitest) — Block-Pattern, CSV-Parser, Encode/Decode, Diagnose, Soft-Constraints
 - TypeScript strict, svelte-check sauber
 - GitHub Actions CI: test → build → deploy → live
 - MIT-Lizenz, Public-Repo
 
-## 🔜 Phase 7 — Nächste Iteration
+### Phase 7A — Solver-Robustheit
+- Pre-Flight-Diagnose mit `Hint[]`-Liste vor dem Solver-Lauf (Lehrer-Überlast,
+  Pinning-Konflikte, ungültige Specs).
+- Multi-Grade-Pinning per `pinsBySpecGrade`-Map korrekt expandiert.
+- Constraint 7 entkoppelt von `gradeOf`-Equality (Multi-Grade-Blocks SAT-bar).
+
+### Phase 7B — Flexible Block-Patterns + Soft-Constraints
+- **Auto-Modus** für `LessonSpec.blocks`: leer = Solver entscheidet (max 1
+  Doppelstunde, keine 3er). Explizites Pattern = strikter Override.
+- **Soft-Constraints** aus `RulesPanel` als gewichtete Penalty-Funktion;
+  `solve minimize total_penalty` mit `first_fail`-Suche.
+- **Auto-Lockerung**: bei UNSAT zweiter Lauf mit allen Patterns auf Auto.
+- **Score-Breakdown** im UI nach SAT-Run.
+- Migration alter localStorage-Pläne von `[1,1,…]` → `undefined`.
+
+## 🔜 Phase 8 — Nächste Iteration
 
 ### High-Prio
 1. **`PlacedLesson.grade`-Feld + Schema-Migration v1→v2.**
@@ -59,13 +74,7 @@
    Solver-Instanz eine PlacedLesson mit `grade`. Cosmetic, aber wichtig damit
    Drag & Drop später grade-bewusst wird.
 
-2. **Soft-Constraints im MiniZinc-Modell.**
-   `RulesPanel` hat schon UI für „keine Freistunden", „kein Hauptfach
-   nachmittags", „max 2× Hauptfach in Folge", „Doppelstunden zusammen halten",
-   „Lehrer-Tage kompakt". Diese Werte werden noch nicht an den Solver
-   übergeben. Implementierung: gewichtete Penalty-Variablen + `solve minimize`.
-
-3. **Print-Layout.**
+2. **Print-Layout.**
    `@media print` für:
    - A4 pro Lehrer (eine Seite, nur dessen Stunden farbig hervorgehoben)
    - A4 pro Schulstufe

@@ -2,11 +2,22 @@
 import type { PlacedLesson } from '../types';
 import { dpgFromSlot, type LessonInstance } from './encode';
 
+export interface PenaltyBreakdown {
+	main_aft: number;
+	main_early: number;
+	main_run: number;
+	no_free: number;
+	compact: number;
+	total: number;
+}
+
 export interface SolverOutput {
 	status: 'SAT' | 'UNSAT' | 'TIMEOUT' | 'ERROR';
 	placed: PlacedLesson[];
 	unplaced: string[];           // spec IDs that could not be placed
 	message?: string;
+	penalties?: PenaltyBreakdown; // Phase 7B: soft-constraint score breakdown
+	relaxedSpecIds?: string[];    // Phase 7B: specs whose strict block-pattern was relaxed to auto
 }
 
 export function decode(
@@ -17,7 +28,7 @@ export function decode(
 	if (!rawOutput) {
 		return { status: 'UNSAT', placed: [], unplaced: instances.map(i => i.specId) };
 	}
-	let parsed: { assign?: number[] };
+	let parsed: { assign?: number[]; penalties?: Partial<PenaltyBreakdown> };
 	try {
 		parsed = JSON.parse(rawOutput);
 	} catch (e) {
@@ -53,5 +64,16 @@ export function decode(
 			pinned: options.keepPinnedFlag ? instances[i].pinned : instances[i].pinned
 		});
 	}
-	return { status: 'SAT', placed, unplaced };
+	const out: SolverOutput = { status: 'SAT', placed, unplaced };
+	if (parsed.penalties) {
+		out.penalties = {
+			main_aft: parsed.penalties.main_aft ?? 0,
+			main_early: parsed.penalties.main_early ?? 0,
+			main_run: parsed.penalties.main_run ?? 0,
+			no_free: parsed.penalties.no_free ?? 0,
+			compact: parsed.penalties.compact ?? 0,
+			total: parsed.penalties.total ?? 0
+		};
+	}
+	return out;
 }

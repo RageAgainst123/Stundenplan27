@@ -237,7 +237,10 @@ export function importCsv(content: string): ImportResult {
 			weekPattern: 'every',
 			groupKey: row.groupKey || undefined,
 			count,
-			blocks: Array(Math.max(1, Math.round(count))).fill(1),
+			// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet,
+			// max 1 Doppelstunde pro Spec, keine 3er-Blöcke). Strikte Patterns
+			// nur wenn der User sie explizit setzt.
+			blocks: undefined,
 			includeInSolver: true,
 			source: 'csv'
 		});

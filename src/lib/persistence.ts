@@ -1,21 +1,32 @@
 // localStorage save/load + JSON file download/upload for backups.
-// Includes a forward-compatible migration that fills in defaults for fields
-// added after the initial schema (blocks, includeInSolver, maxConsecutive).
+// Includes forward-compatible migrations.
 
 import { SCHEMA_VERSION, type ScheduleDoc, type LessonSpec, type Subject } from './types';
-import { DEFAULT_BLOCK } from './blocks';
 
 const STORAGE_KEY = 'stundenplan27.doc';
 
 /**
  * Apply in-place migrations to a loaded doc. Runs on every load so that
  * older backups (or older localStorage state) get filled with defaults.
+ *
+ * Phase 7B migration: blocks that match the legacy default pattern
+ * (= count singles, e.g. [1,1,1,1] for count=4) are interpreted as
+ * "user never picked anything" and reset to undefined, which now means
+ * "automatic — solver decides". Explicit non-default patterns like
+ * [2,1] stay strict.
  */
 export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 	for (const spec of doc.specs ?? []) {
 		const s = spec as LessonSpec & { blocks?: number[]; includeInSolver?: boolean };
-		if (!Array.isArray(s.blocks) || s.blocks.length === 0) {
-			s.blocks = DEFAULT_BLOCK(s.count);
+		if (Array.isArray(s.blocks) && s.blocks.length > 0) {
+			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.round(s.count);
+			if (isLegacyAllSingles) {
+				// Legacy default — was implicit, now means "auto mode"
+				s.blocks = undefined;
+			}
+			// else: explicit pattern, keep
+		} else if (!Array.isArray(s.blocks) || s.blocks.length === 0) {
+			s.blocks = undefined;
 		}
 		if (typeof s.includeInSolver !== 'boolean') {
 			s.includeInSolver = true;

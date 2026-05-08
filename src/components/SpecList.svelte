@@ -3,7 +3,7 @@
 	const store = useStore();
 	import type { GradeLevel, LessonSpec, WeekPattern } from '../lib/types';
 	import { GRADES } from '../lib/types';
-	import { blockPresets, blockLabel, blockKey, parseBlockKey, groupColor, DEFAULT_BLOCK } from '../lib/blocks';
+	import { blockPresets, blockLabel, blockKey, parseBlockKey, groupColor } from '../lib/blocks';
 
 	let filterTeacher = $state<string>('');
 	let filterSubject = $state<string>('');
@@ -62,7 +62,8 @@
 			grades: [],
 			weekPattern: 'every',
 			count: 1,
-			blocks: [1],
+			// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet).
+			blocks: undefined,
 			includeInSolver: true,
 			source: 'manual'
 		};
@@ -103,18 +104,29 @@
 	}
 
 	// ---- Block-Pattern handling ----
+	const AUTO_KEY = 'auto';
+	function isAutoMode(s: LessonSpec): boolean {
+		return !s.blocks || s.blocks.length === 0;
+	}
 	function currentBlockKey(s: LessonSpec): string {
-		return blockKey(s.blocks ?? DEFAULT_BLOCK(s.count));
+		if (isAutoMode(s)) return AUTO_KEY;
+		return blockKey(s.blocks!);
 	}
 	function setBlockFromKey(s: LessonSpec, key: string) {
+		if (key === AUTO_KEY) {
+			s.blocks = undefined;
+			return;
+		}
 		const b = parseBlockKey(key);
 		if (b.length > 0) s.blocks = b;
 	}
 	function syncCount(s: LessonSpec) {
-		// When count changes, reset blocks to default if it doesn't sum correctly
+		// When count changes: if user has an explicit pattern that no longer
+		// sums to count, reset to Auto-Modus. Auto stays Auto.
+		if (isAutoMode(s)) return;
 		const sum = (s.blocks ?? []).reduce((a, c) => a + c, 0);
 		if (Math.abs(sum - s.count) > 0.001) {
-			s.blocks = DEFAULT_BLOCK(s.count);
+			s.blocks = undefined;
 		}
 	}
 
@@ -157,6 +169,11 @@
 	function bulkSetWeek(pattern: WeekPattern) {
 		for (const s of store.doc.specs) {
 			if (selectedIds.has(s.id)) s.weekPattern = pattern;
+		}
+	}
+	function bulkSetAutoBlocks() {
+		for (const s of store.doc.specs) {
+			if (selectedIds.has(s.id)) s.blocks = undefined;
 		}
 	}
 
@@ -260,6 +277,7 @@
 		<button class="btn small" onclick={bulkDuplicate}>⎘ Duplizieren</button>
 		<button class="btn small" onclick={() => bulkSetSolver(true)}>Solver an</button>
 		<button class="btn small" onclick={() => bulkSetSolver(false)}>Solver aus</button>
+		<button class="btn small" onclick={bulkSetAutoBlocks} title="Solver wählt Aufteilung selbst (max 1 Doppelstunde)">Block-Pattern Auto</button>
 		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v) bulkSetWeek(v as WeekPattern); (e.currentTarget as HTMLSelectElement).value = ''; }}>
 			<option value="">Wochen-Muster setzen…</option>
 			{#each weekOptions as w}<option value={w.v}>{w.label}</option>{/each}
@@ -346,11 +364,18 @@
 							value={currentBlockKey(s)}
 							onchange={(e) => setBlockFromKey(s, (e.currentTarget as HTMLSelectElement).value)}
 							class="block-select"
+							class:auto={isAutoMode(s)}
 						>
+							<option value={AUTO_KEY}>Automatisch</option>
 							{#each blockPresets(s.count) as preset (blockKey(preset))}
 								<option value={blockKey(preset)}>{blockLabel(preset)}</option>
 							{/each}
 						</select>
+						<span
+							class="info-icon"
+							title={"Automatisch: Der Solver wählt zwischen Einzelstunden und maximal einer Doppelstunde. Beispiel: bei 3 Stunden → entweder 3 Einzelne oder 1 Doppel + 1 Einzel an verschiedenen Tagen.\n\nFür eine bestimmte Aufteilung im Dropdown ein konkretes Pattern wählen."}
+							aria-label="Info zum Block-Pattern"
+						>ℹ</span>
 					</td>
 					<td>
 						<select bind:value={s.weekPattern}>
@@ -540,6 +565,28 @@
 	}
 	.block-select {
 		min-width: 110px;
+	}
+	.block-select.auto {
+		font-style: italic;
+		color: var(--text-muted);
+	}
+	.info-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		margin-left: 4px;
+		font-size: 11px;
+		color: var(--text-muted);
+		border-radius: 50%;
+		background: var(--bg-soft);
+		cursor: help;
+		user-select: none;
+	}
+	.info-icon:hover {
+		background: var(--accent-bg);
+		color: var(--accent);
 	}
 	.grades {
 		white-space: nowrap;
