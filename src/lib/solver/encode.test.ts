@@ -525,6 +525,21 @@ describe('phase 9: encoder DZN parameters', () => {
 		expect(dzn).toContain('w_any_aft = 0;');
 		expect(dzn).toContain('w_main_aft = 0;');
 	});
+
+	it('Phase 10: emits must_start_p1 = true by default', () => {
+		const doc = configuredDoc();
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('must_start_p1 = true;');
+	});
+
+	it('Phase 10: emits must_start_p1 = false when disabled', () => {
+		const doc = configuredDoc();
+		doc.constraints.mustStartFirstPeriod.enabled = false;
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('must_start_p1 = false;');
+	});
 });
 
 describe('decode', () => {

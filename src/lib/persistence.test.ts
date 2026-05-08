@@ -78,6 +78,23 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 	});
 });
 
+describe('migrateDoc — Phase 10 ConstraintConfig additions', () => {
+	it('adds mustStartFirstPeriod to old configs missing it', () => {
+		const doc = emptyDoc();
+		// simulate an old doc without the new field
+		delete (doc.constraints as any).mustStartFirstPeriod;
+		migrateDoc(doc);
+		expect(doc.constraints.mustStartFirstPeriod).toEqual({ enabled: true });
+	});
+
+	it('preserves an explicit mustStartFirstPeriod = false', () => {
+		const doc = emptyDoc();
+		doc.constraints.mustStartFirstPeriod = { enabled: false };
+		migrateDoc(doc);
+		expect(doc.constraints.mustStartFirstPeriod.enabled).toBe(false);
+	});
+});
+
 describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {
 	it('moves old groupKey to groupLabel, never to couplingId', () => {
 		const doc = emptyDoc() as any as ScheduleDoc;

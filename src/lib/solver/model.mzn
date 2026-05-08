@@ -26,6 +26,7 @@
 %   - Min daily slots per grade (Phase 9): each (day, grade) needs ≥ N lessons
 %   - Same-day cohesion (Phase 9): two instances of one spec on the same day
 %     must be consecutive (= a single double-period block, not split)
+%   - Must-start-P1 (Phase 10): if (day, grade) is active, P1 is occupied
 
 include "globals.mzn";
 
@@ -81,6 +82,10 @@ int: w_compact;          % Lehrer-Tage kompakt (wenig Freistunden im Lehrertag)
 
 % Phase 9: hard minimum of lesson slots per (day, grade). 0 = constraint off.
 int: min_daily_slots;
+
+% Phase 10: must P1 be active when the (day, grade) has any lesson at all?
+% true = enforce no-gap-at-start; false = allow late starts (auto-relax).
+bool: must_start_p1;
 
 % Teacher unavailability
 array[TEACHER, 1..D, 1..P] of bool: teacher_blocked;
@@ -276,6 +281,19 @@ constraint forall (d in 1..D, g in 1..G) (
     bool2int(dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g)
   ) >= min_daily_slots
 );
+
+% 12) Phase 10: Wenn an einem Tag in einer Stufe überhaupt etwas liegt,
+%     muss auch P1 belegt sein. Verhindert "Schule beginnt erst zur 4.
+%     Stunde". Mit must_start_p1=false ist das Constraint inaktiv
+%     (Auto-Lockerung).
+constraint must_start_p1 ->
+  forall (d in 1..D, g in 1..G) (
+    (exists(l in LESSON) (dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g))
+    ->
+    (exists(l in LESSON) (
+      dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) = 1
+    ))
+  );
 
 % ---- Soft Constraints (Phase 7B) ------------------------------------
 %

@@ -8,9 +8,51 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 ## [Unreleased]
 
 ### Geplant
+- Phase 10-4: Variantenmodus (3 Pläne mit verschiedenen Heuristiken
+  generieren und vergleichen)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe)
 - Performance-Tuning der Soft-Constraint-Penalties bei großer Liste
 - `pairedWith`-Feld entfernen (redundant zu `couplingId`)
+
+## [0.10.0] - 2026-05-08 — Phase 10: Anytime-Solver + Streaming-UI
+
+### Added
+- **Hartes Constraint „Beginn in P1"**: wenn eine Stufe an einem Tag
+  überhaupt unterrichtet wird, muss P1 belegt sein. Verhindert „Schule
+  beginnt erst in der 4. Stunde". Konfigurierbar via
+  `ConstraintConfig.mustStartFirstPeriod.enabled`.
+- **Streaming `SolveSession`** (`startSolve(doc, opts)` neben dem
+  bestehenden `solve()`): liefert Live-Events für Phasen, Fortschritt,
+  jede gefundene Zwischenlösung, Lockerungen, Fertigstellung. Mit
+  `abort()` jederzeit unterbrechbar — die letzte gestreamte Lösung
+  wird übernommen.
+- **Live-Streaming-UI im GenerateButton**:
+  - Progress-Bar mit Restzeit
+  - aktueller bester Score und SVG-Sparkline der Score-History
+  - Convergence-Hint („letzte Verbesserung vor X s")
+  - Abbrechen-Button — beste bisher gefundene Lösung bleibt im Plan
+  - Plan im Grid wird **live** mit jeder besseren Lösung aktualisiert
+- **Strukturierte `RelaxationInfo`** in `SolverOutput`. UI zeigt Banner
+  zuverlässig bei JEDER aktiven Lockerung (vorher nur bei Block-
+  Lockerung — Tagespensum-Reduktion war unsichtbar).
+- **5-stufige Auto-Lockerung** (war 3-stufig in Phase 9):
+  Blocks → minDaily 3 → minDaily 0 → mustStartP1 off → final UNSAT.
+- ADR-0012 dokumentiert die Designentscheidungen.
+
+### Fixed
+- **UI-Bug**: Tagespensum-Lockerung war im Banner nicht sichtbar.
+  Jetzt strukturiert über `RelaxationInfo` und mit klarer Liste der
+  aktiven Lockerungen.
+
+### Changed
+- `GenerateButton.svelte` verwandelt vom Single-Click-Button zum
+  Live-Dashboard mit Progress, Score-History und Abbrechen-Knopf.
+- Bestehender `solve(doc, opts)` bleibt für Tests, Logik unverändert
+  außer 5-stufiger Lockerung statt 3-stufiger.
+
+### Tests
+- 3 neue Tests (Constraint 12 emission, mustStartFirstPeriod migration,
+  startSolve pre-flight short-circuits). Total: 109 grün.
 
 ## [0.9.0] - 2026-05-08 — Phase 9: Tagesverteilung + Doppel/Einzel-Cohesion
 

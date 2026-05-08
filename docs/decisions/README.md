@@ -46,3 +46,4 @@ hängen daran?
 | [0009](0009-soft-constraints-as-penalties.md) | Soft-Constraints als gewichtete Penalty-Zielfunktion | 2026-05-08 |
 | [0010](0010-grouplabel-vs-couplingid.md) | groupLabel vs. couplingId — Trennung Stufen-Bezeichnung und Solver-Kopplung | 2026-05-08 |
 | [0011](0011-tagespensum-und-doppel-einzel.md) | Tagespensum + „Doppel ⇒ kein Einzel am gleichen Tag" | 2026-05-08 |
+| [0012](0012-anytime-multistage-solver-workflow.md) | Anytime Multi-Stage Solver Workflow | 2026-05-08 |

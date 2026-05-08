@@ -8,7 +8,7 @@ import minizincWorkerURL from 'minizinc/minizinc-worker.js?url';
 import minizincWasmURL from 'minizinc/minizinc.wasm?url';
 import minizincDataURL from 'minizinc/minizinc.data?url';
 import { encode, type SolverInput } from './encode';
-import { decode, type SolverOutput } from './decode';
+import { decode, type RelaxationInfo, type SolverOutput } from './decode';
 import { diagnose, bestHint } from './diagnose';
 import type { ScheduleDoc } from '../types';
 import modelMzn from './model.mzn?raw';
@@ -29,6 +29,75 @@ function ensureInit(): Promise<void> {
 export interface SolveOptions {
 	timeoutMs?: number;
 	onProgress?: (phase: string) => void;
+}
+
+// ===================== Phase 10: Streaming SolveSession =====================
+
+export type SolvePhase = 'init' | 'satisfy' | 'optimize' | 'relax' | 'variant';
+
+/** A single intermediate solution emitted during optimization. */
+export interface SolveSolutionEvent {
+	placed: import('../types').PlacedLesson[];
+	score: number | null;          // null until objective is known
+	tElapsedMs: number;
+	phase: SolvePhase;
+}
+
+export interface SolveProgressEvent {
+	phase: SolvePhase;
+	phaseLabel: string;            // human readable
+	tElapsedMs: number;
+	tLimitMs: number;              // 0 = no time limit
+	phaseIndex: number;            // 1, 2, 3...
+	phaseCount: number;
+}
+
+export interface SolveDoneEvent {
+	final: SolverOutput;
+	totalElapsedMs: number;
+}
+
+type EventMap = {
+	phase: SolvePhase;
+	progress: SolveProgressEvent;
+	solution: SolveSolutionEvent;
+	relaxation: RelaxationInfo;
+	done: SolveDoneEvent;
+	error: Error;
+};
+
+export interface SolveSession {
+	abort(): void;
+	on<K extends keyof EventMap>(event: K, cb: (e: EventMap[K]) => void): () => void;
+}
+
+export interface StartSolveOptions {
+	/** Time limit for the satisfy phase (Phase A). Default 15_000. */
+	satisfyTimeoutMs?: number;
+	/** Time limit for the optimize phase (Phase B). Default 60_000. */
+	optimizeTimeoutMs?: number;
+	/** Per-relaxation-step time limit. Default 30_000. */
+	relaxTimeoutMs?: number;
+	/** Currently always `false` — variants run on-demand via runVariant(). */
+	enableVariants?: boolean;
+}
+
+/** Internal: tiny event emitter (avoid Node EventEmitter dependency). */
+class Emitter {
+	private listeners = new Map<string, Set<(e: unknown) => void>>();
+	on(event: string, cb: (e: unknown) => void): () => void {
+		let set = this.listeners.get(event);
+		if (!set) { set = new Set(); this.listeners.set(event, set); }
+		set.add(cb);
+		return () => { set!.delete(cb); };
+	}
+	emit(event: string, e: unknown): void {
+		const set = this.listeners.get(event);
+		if (!set) return;
+		for (const cb of set) {
+			try { cb(e); } catch (err) { console.warn('SolveSession listener threw', err); }
+		}
+	}
 }
 
 // Single solver round: takes a SolverInput, runs MiniZinc, decodes.
@@ -117,6 +186,18 @@ function relaxMinDailySlots(doc: ScheduleDoc, newValue: number): ScheduleDoc {
 	};
 }
 
+// Phase 10: disable the hard "Beginn in P1"-constraint as a last-resort
+// relaxation step.
+function disableStartInP1(doc: ScheduleDoc): ScheduleDoc {
+	return {
+		...doc,
+		constraints: {
+			...doc.constraints,
+			mustStartFirstPeriod: { enabled: false }
+		}
+	};
+}
+
 export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<SolverOutput> {
 	const enc = encode(doc);
 	const timeoutMs = opts.timeoutMs ?? 30_000;
@@ -149,68 +230,126 @@ export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<
 	if (r1.status === 'SAT') return r1;
 
 	if (r1.status === 'UNSAT') {
-		// Phase 7B-4 + 9-4: tiered auto-relaxation.
-		//   Round 2: relax strict block patterns (auto-mode for everyone).
-		//   Round 3: also reduce min_daily_slots from 4 → 3.
-		//   Round 4: also disable min_daily_slots entirely (0).
+		// Phase 10: tiered auto-relaxation with structured RelaxationInfo.
+		//   Round 2: relax strict block patterns (auto-mode for everyone)
+		//   Round 3: also reduce min_daily_slots from 4 → 3
+		//   Round 4: also reduce min_daily_slots → 0
+		//   Round 5: also disable mustStartFirstPeriod (last-resort)
 		const originalMinDaily = doc.constraints?.minDailySlotsPerGrade ?? 0;
-		const { doc: relaxedDoc, relaxedSpecIds } = relaxStrictBlocks(doc);
+		const originalMustStartP1 = doc.constraints?.mustStartFirstPeriod?.enabled ?? false;
+
+		const { doc: blocksRelaxedDoc, relaxedSpecIds } = relaxStrictBlocks(doc);
 		const hasBlocksToRelax = relaxedSpecIds.length > 0;
 
-		const relaxNotes: string[] = [];
+		// Helper: build RelaxationInfo from current state.
+		function makeInfo(opts: {
+			minDaily?: number | null;
+			startP1Disabled?: boolean;
+		}): RelaxationInfo {
+			return {
+				blocksRelaxed: hasBlocksToRelax ? relaxedSpecIds : [],
+				minDailyReducedTo: opts.minDaily ?? null,
+				startInP1Disabled: !!opts.startP1Disabled
+			};
+		}
 
-		// Round 2 — only if there's actually something to relax.
-		if (hasBlocksToRelax) {
-			opts.onProgress?.('Lockere Block-Pattern und versuche es nochmal…');
-			const enc2 = encode(relaxedDoc);
-			const r2 = await runSolver(enc2, timeoutMs, opts.onProgress);
-			if (r2.status === 'SAT') {
-				const names = relaxedSpecIds
+		// Helper: human-readable summary for the message field.
+		function summarize(info: RelaxationInfo): string {
+			const parts: string[] = [];
+			if (info.blocksRelaxed.length > 0) {
+				const names = info.blocksRelaxed
 					.map(id => {
 						const s = doc.specs.find(x => x.id === id);
-						return s ? `${s.subject} (${s.classes.join('+') || s.grades.join('+')})` : id;
+						return s ? `${s.subject}` : id;
 					})
 					.slice(0, 5)
 					.join(', ');
-				const more = relaxedSpecIds.length > 5 ? ` und ${relaxedSpecIds.length - 5} weitere` : '';
-				return {
-					...r2,
-					relaxedSpecIds,
-					message: `Block-Pattern automatisch gelockert: ${names}${more}. Strikte Vorgaben waren unlösbar.`
-				};
+				const more = info.blocksRelaxed.length > 5 ? ` und ${info.blocksRelaxed.length - 5} weitere` : '';
+				parts.push(`Block-Pattern für ${names}${more} auf Auto gelockert`);
 			}
-			relaxNotes.push('Block-Pattern auf Auto');
+			if (info.minDailyReducedTo !== null) {
+				parts.push(
+					info.minDailyReducedTo === 0
+						? 'Mindest-Tagespensum deaktiviert'
+						: `Mindest-Tagespensum auf ${info.minDailyReducedTo} reduziert`
+				);
+			}
+			if (info.startInP1Disabled) {
+				parts.push('„Beginn in P1"-Regel deaktiviert');
+			}
+			return parts.length > 0
+				? `Lockerungen aktiv: ${parts.join('; ')}.`
+				: '';
 		}
 
-		// Round 3 — reduce min_daily_slots if it was active.
-		if (originalMinDaily >= 4) {
+		// Round 2 — relax strict blocks (only if there's actually something to relax).
+		if (hasBlocksToRelax) {
+			opts.onProgress?.('Lockere Block-Pattern und versuche es nochmal…');
+			const enc2 = encode(blocksRelaxedDoc);
+			const r2 = await runSolver(enc2, timeoutMs, opts.onProgress);
+			if (r2.status === 'SAT') {
+				const info = makeInfo({});
+				return {
+					...r2,
+					relaxation: info,
+					relaxedSpecIds: info.blocksRelaxed,
+					message: summarize(info)
+				};
+			}
+		}
+
+		const baseDoc = hasBlocksToRelax ? blocksRelaxedDoc : doc;
+
+		// Round 3 — reduce min_daily_slots to 3 (if it was higher).
+		if (originalMinDaily > 3) {
 			opts.onProgress?.('Lockere Mindest-Tagespensum auf 3…');
-			const docR3 = relaxMinDailySlots(hasBlocksToRelax ? relaxedDoc : doc, 3);
+			const docR3 = relaxMinDailySlots(baseDoc, 3);
 			const enc3 = encode(docR3);
 			const r3 = await runSolver(enc3, timeoutMs, opts.onProgress);
 			if (r3.status === 'SAT') {
-				relaxNotes.push('Mindest-Tagespensum auf 3 gesenkt');
+				const info = makeInfo({ minDaily: 3 });
 				return {
 					...r3,
-					relaxedSpecIds: hasBlocksToRelax ? relaxedSpecIds : undefined,
-					message: `Lockerungen aktiv: ${relaxNotes.join(', ')}. Strenge Konfig war unlösbar.`
+					relaxation: info,
+					relaxedSpecIds: info.blocksRelaxed,
+					message: summarize(info)
 				};
 			}
-			relaxNotes.push('Mindest-Tagespensum auf 3 (UNSAT)');
 		}
 
-		// Round 4 — disable min_daily entirely.
+		// Round 4 — disable min_daily entirely (if it was active at all).
 		if (originalMinDaily > 0) {
 			opts.onProgress?.('Deaktiviere Mindest-Tagespensum komplett…');
-			const docR4 = relaxMinDailySlots(hasBlocksToRelax ? relaxedDoc : doc, 0);
+			const docR4 = relaxMinDailySlots(baseDoc, 0);
 			const enc4 = encode(docR4);
 			const r4 = await runSolver(enc4, timeoutMs, opts.onProgress);
 			if (r4.status === 'SAT') {
-				relaxNotes.push('Mindest-Tagespensum deaktiviert');
+				const info = makeInfo({ minDaily: 0 });
 				return {
 					...r4,
-					relaxedSpecIds: hasBlocksToRelax ? relaxedSpecIds : undefined,
-					message: `Lockerungen aktiv: ${relaxNotes.join(', ')}. Strenge Konfig war unlösbar.`
+					relaxation: info,
+					relaxedSpecIds: info.blocksRelaxed,
+					message: summarize(info)
+				};
+			}
+		}
+
+		// Round 5 — also disable mustStartFirstPeriod (Phase 10 last-resort).
+		if (originalMustStartP1) {
+			opts.onProgress?.('Deaktiviere „Beginn in P1"-Regel…');
+			const docR5 = disableStartInP1(relaxMinDailySlots(baseDoc, 0));
+			const enc5 = encode(docR5);
+			const r5 = await runSolver(enc5, timeoutMs, opts.onProgress);
+			if (r5.status === 'SAT') {
+				const info = makeInfo({
+					minDaily: originalMinDaily > 0 ? 0 : null,
+					startP1Disabled: true
+				});
+				return {
+					...r5,
+					relaxation: info,
+					relaxedSpecIds: info.blocksRelaxed,
+					message: summarize(info)
 				};
 			}
 		}
@@ -231,4 +370,394 @@ export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<
 
 	// ERROR / TIMEOUT → return as-is
 	return r1;
+}
+
+// ===================== Phase 10: streaming runner =====================
+
+interface StreamHandle {
+	cancel(): void;
+	finished: Promise<SolverOutput>;
+}
+
+/**
+ * Runs MiniZinc in streaming mode: every intermediate solution that the
+ * solver finds is decoded and forwarded via `onSolution`. Returns a handle
+ * with a `cancel()` method that aborts the underlying solver job.
+ *
+ * @param enc           Pre-encoded solver input
+ * @param timeoutMs     Solver time limit (also passed to MiniZinc)
+ * @param mode          'satisfy' = first feasible solution, 'optimize' = anytime minimize
+ * @param onSolution    Called for each better solution (anytime)
+ * @param tStartMs      Wall-clock start time for tElapsedMs reporting
+ * @param phaseTag      Tag used in the SolveSolutionEvent
+ */
+function runSolverStreaming(
+	enc: SolverInput,
+	timeoutMs: number,
+	mode: 'satisfy' | 'optimize',
+	onSolution: (s: SolveSolutionEvent) => void,
+	tStartMs: number,
+	phaseTag: SolvePhase
+): StreamHandle {
+	const dzn = (enc.dataJson as any).__dzn as string;
+
+	// Mutable state shared between the cancel() method and the async job.
+	const state: { job: { cancel?(): void } | null; cancelled: boolean } = {
+		job: null,
+		cancelled: false
+	};
+
+	const finished = (async (): Promise<SolverOutput> => {
+		try {
+			await ensureInit();
+			const model = new MiniZinc.Model();
+			model.addString(modelMzn);
+			model.addDznString(dzn);
+
+			const solverOpts: Record<string, unknown> = {
+				solver: 'gecode',
+				'time-limit': timeoutMs
+			};
+			// In optimize mode, ask the solver to emit each better solution.
+			if (mode === 'optimize') {
+				solverOpts['all-solutions'] = true;
+			}
+			const job = model.solve({ options: solverOpts });
+			state.job = job as unknown as { cancel?(): void };
+
+			let lastSolutionOutput: string | null = null;
+
+			(job as any).on?.('solution', (sol: any) => {
+				const out = sol.output?.json ?? sol.output?.default ?? sol;
+				const raw = typeof out === 'string' ? out : JSON.stringify(out);
+				lastSolutionOutput = raw;
+				try {
+					const decoded = decode(raw, enc.instances);
+					if (decoded.status === 'SAT') {
+						onSolution({
+							placed: decoded.placed,
+							score: decoded.penalties?.total ?? null,
+							tElapsedMs: Date.now() - tStartMs,
+							phase: phaseTag
+						});
+					}
+				} catch {
+					// ignore parse errors on intermediate solutions; final result is what matters
+				}
+			});
+
+			const result = await job;
+			const status = String(result.status ?? 'UNKNOWN');
+
+			if (status === 'UNSATISFIABLE') {
+				return { status: 'UNSAT', placed: [], unplaced: enc.instances.map(i => i.specId) };
+			}
+
+			const rawOutput =
+				lastSolutionOutput ??
+				(result.solution
+					? JSON.stringify((result.solution as any).output ?? result.solution)
+					: null);
+
+			return decode(rawOutput, enc.instances);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message
+				: (typeof e === 'object' && e !== null) ? JSON.stringify(e)
+				: String(e);
+			return {
+				status: state.cancelled ? 'TIMEOUT' : 'ERROR',
+				placed: [],
+				unplaced: enc.instances.map(i => i.specId),
+				message: state.cancelled ? 'Vom Benutzer abgebrochen.' : msg
+			};
+		}
+	})();
+
+	return {
+		finished,
+		cancel(): void {
+			state.cancelled = true;
+			try { state.job?.cancel?.(); } catch { /* ignore */ }
+		}
+	};
+}
+
+/**
+ * Phase 10 streaming entry point. Runs Phase A (satisfy) then Phase B
+ * (optimize anytime), emits events for every better solution. The caller
+ * can `abort()` mid-flight; the best known solution stays available.
+ *
+ * Usage:
+ * ```ts
+ * const session = startSolve(doc, { optimizeTimeoutMs: 60_000 });
+ * session.on('solution', s => updateGrid(s.placed));
+ * session.on('done', d => showFinal(d.final));
+ * ```
+ */
+export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): SolveSession {
+	const emitter = new Emitter();
+	const tStart = Date.now();
+	const satisfyMs = opts.satisfyTimeoutMs ?? 15_000;
+	const optimizeMs = opts.optimizeTimeoutMs ?? 60_000;
+	const relaxMs = opts.relaxTimeoutMs ?? 30_000;
+
+	let aborted = false;
+	let activeStream: StreamHandle | null = null;
+	let bestSolution: SolveSolutionEvent | null = null;
+
+	function emit<K extends keyof EventMap>(event: K, e: EventMap[K]): void {
+		emitter.emit(event, e);
+	}
+
+	function trackSolution(s: SolveSolutionEvent): void {
+		if (bestSolution === null
+			|| s.score === null
+			|| (bestSolution.score !== null && s.score < bestSolution.score)) {
+			bestSolution = s;
+		}
+		emit('solution', s);
+	}
+
+	const session: SolveSession = {
+		abort(): void {
+			aborted = true;
+			activeStream?.cancel();
+		},
+		on<K extends keyof EventMap>(event: K, cb: (e: EventMap[K]) => void): () => void {
+			return emitter.on(event as string, cb as (e: unknown) => void);
+		}
+	};
+
+	// Defer the actual work via queueMicrotask so the caller has a chance
+	// to register listeners (`session.on(...)`) before any event fires.
+	queueMicrotask(() => { void runSession(); });
+
+	async function runSession(): Promise<void> {
+		try {
+			// Pre-flight: same as the legacy solve(). If a fatal hint is found,
+			// emit error+done and stop.
+			const enc = encode(doc);
+			if (enc.L === 0) {
+				emit('done', {
+					final: {
+						status: 'ERROR',
+						placed: [],
+						unplaced: [],
+						message: 'Keine Lehreinheiten vorhanden — nichts zu generieren.'
+					},
+					totalElapsedMs: Date.now() - tStart
+				});
+				return;
+			}
+
+			const fatal = diagnose(doc).find(h => h.severity === 'error');
+			if (fatal) {
+				emit('done', {
+					final: {
+						status: 'ERROR',
+						placed: [],
+						unplaced: enc.instances.map(i => i.specId),
+						message: `Konfiguration nicht lösbar:\n\n${fatal.message}`
+					},
+					totalElapsedMs: Date.now() - tStart
+				});
+				return;
+			}
+
+			// ----- Phase A: SATISFY -----
+			emit('phase', 'satisfy');
+			emit('progress', {
+				phase: 'satisfy',
+				phaseLabel: 'Phase 1/2: Erste valide Lösung suchen',
+				tElapsedMs: 0,
+				tLimitMs: satisfyMs,
+				phaseIndex: 1,
+				phaseCount: 2
+			});
+
+			const streamA = runSolverStreaming(
+				enc,
+				satisfyMs,
+				'satisfy',
+				trackSolution,
+				tStart,
+				'satisfy'
+			);
+			activeStream = streamA;
+			let resA = await streamA.finished;
+			activeStream = null;
+			if (aborted) {
+				emit('done', { final: finalFromBest(bestSolution, resA, enc), totalElapsedMs: Date.now() - tStart });
+				return;
+			}
+
+			// If Phase A is UNSAT, walk the relaxation chain.
+			if (resA.status === 'UNSAT') {
+				const relaxResult = await relaxationChain(doc, relaxMs, emit, () => aborted, () => activeStream, h => { activeStream = h; }, trackSolution, tStart);
+				if (aborted) {
+					emit('done', { final: finalFromBest(bestSolution, relaxResult, enc), totalElapsedMs: Date.now() - tStart });
+					return;
+				}
+				if (relaxResult.status !== 'SAT') {
+					emit('done', { final: relaxResult, totalElapsedMs: Date.now() - tStart });
+					return;
+				}
+				if (relaxResult.relaxation) emit('relaxation', relaxResult.relaxation);
+				resA = relaxResult;
+			}
+
+			if (resA.status !== 'SAT') {
+				emit('done', { final: resA, totalElapsedMs: Date.now() - tStart });
+				return;
+			}
+
+			// ----- Phase B: OPTIMIZE (anytime) -----
+			emit('phase', 'optimize');
+			const tBStart = Date.now() - tStart;
+			emit('progress', {
+				phase: 'optimize',
+				phaseLabel: 'Phase 2/2: Optimieren',
+				tElapsedMs: tBStart,
+				tLimitMs: optimizeMs,
+				phaseIndex: 2,
+				phaseCount: 2
+			});
+
+			const streamB = runSolverStreaming(
+				enc,
+				optimizeMs,
+				'optimize',
+				trackSolution,
+				tStart,
+				'optimize'
+			);
+			activeStream = streamB;
+			const resB = await streamB.finished;
+			activeStream = null;
+
+			// Final = either the optimize result, or — if the user aborted — the
+			// best solution we tracked so far via streaming events.
+			const final = aborted
+				? finalFromBest(bestSolution, resA, enc)
+				: (resB.status === 'SAT' ? resB : (resA as SolverOutput));
+
+			emit('done', { final, totalElapsedMs: Date.now() - tStart });
+		} catch (e) {
+			emit('error', e instanceof Error ? e : new Error(String(e)));
+			emit('done', {
+				final: {
+					status: 'ERROR',
+					placed: [],
+					unplaced: [],
+					message: e instanceof Error ? e.message : String(e)
+				},
+				totalElapsedMs: Date.now() - tStart
+			});
+		}
+	}
+
+	return session;
+}
+
+/** Build a final SolverOutput from the best streamed solution if available;
+ *  fall back to the given baseline. Used on abort. */
+function finalFromBest(
+	best: SolveSolutionEvent | null,
+	fallback: SolverOutput,
+	enc: SolverInput
+): SolverOutput {
+	if (!best) return fallback;
+	return {
+		status: 'SAT',
+		placed: best.placed,
+		unplaced: enc.instances
+			.map(i => i.specId)
+			.filter(id => !best.placed.some(p => p.specId === id)),
+		penalties: best.score !== null ? {
+			main_aft: 0, any_aft: 0, main_early: 0, main_run: 0,
+			no_free: 0, compact: 0, total: best.score
+		} : undefined,
+		message: `Vom Benutzer abgebrochen — beste bisher gefundene Lösung übernommen (Score ${best.score ?? '?'}).`
+	};
+}
+
+/** The relaxation chain from `solve()` extracted into a streaming-friendly
+ *  variant so the SolveSession can use it too. Returns the SolverOutput of
+ *  the first round that became SAT (or the final UNSAT). */
+async function relaxationChain(
+	doc: ScheduleDoc,
+	timeoutMs: number,
+	emit: <K extends keyof EventMap>(e: K, v: EventMap[K]) => void,
+	isAborted: () => boolean,
+	getStream: () => StreamHandle | null,
+	setStream: (h: StreamHandle | null) => void,
+	onSolution: (s: SolveSolutionEvent) => void,
+	tStart: number
+): Promise<SolverOutput> {
+	const originalMinDaily = doc.constraints?.minDailySlotsPerGrade ?? 0;
+	const originalMustStartP1 = doc.constraints?.mustStartFirstPeriod?.enabled ?? false;
+	const { doc: blocksRelaxedDoc, relaxedSpecIds } = relaxStrictBlocks(doc);
+	const hasBlocks = relaxedSpecIds.length > 0;
+
+	function info(o: { minDaily?: number | null; startP1?: boolean }): RelaxationInfo {
+		return {
+			blocksRelaxed: hasBlocks ? relaxedSpecIds : [],
+			minDailyReducedTo: o.minDaily ?? null,
+			startInP1Disabled: !!o.startP1
+		};
+	}
+
+	async function tryRound(d: ScheduleDoc, label: string, mkInfo: () => RelaxationInfo): Promise<SolverOutput | null> {
+		emit('phase', 'relax');
+		emit('progress', {
+			phase: 'relax',
+			phaseLabel: label,
+			tElapsedMs: Date.now() - tStart,
+			tLimitMs: timeoutMs,
+			phaseIndex: 1,
+			phaseCount: 2
+		});
+		const enc = encode(d);
+		const stream = runSolverStreaming(enc, timeoutMs, 'satisfy', onSolution, tStart, 'relax');
+		setStream(stream);
+		const r = await stream.finished;
+		setStream(null);
+		if (isAborted()) return r;
+		if (r.status === 'SAT') {
+			const inf = mkInfo();
+			return { ...r, relaxation: inf, relaxedSpecIds: inf.blocksRelaxed };
+		}
+		return null;
+	}
+
+	if (hasBlocks) {
+		const r = await tryRound(blocksRelaxedDoc, 'Lockere Block-Pattern…', () => info({}));
+		if (r) return r;
+		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
+	}
+	const base = hasBlocks ? blocksRelaxedDoc : doc;
+	if (originalMinDaily > 3) {
+		const r = await tryRound(relaxMinDailySlots(base, 3), 'Mindest-Tagespensum auf 3 senken…', () => info({ minDaily: 3 }));
+		if (r) return r;
+		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
+	}
+	if (originalMinDaily > 0) {
+		const r = await tryRound(relaxMinDailySlots(base, 0), 'Mindest-Tagespensum deaktivieren…', () => info({ minDaily: 0 }));
+		if (r) return r;
+		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
+	}
+	if (originalMustStartP1) {
+		const r = await tryRound(disableStartInP1(relaxMinDailySlots(base, 0)), '„Beginn in P1"-Regel deaktivieren…', () => info({ minDaily: originalMinDaily > 0 ? 0 : null, startP1: true }));
+		if (r) return r;
+	}
+
+	const hints = diagnose(doc);
+	const top = bestHint(hints);
+	const detail = top ? `\n\nWahrscheinlichste Ursache: ${top.message}` : '';
+	return {
+		status: 'UNSAT',
+		placed: [],
+		unplaced: doc.specs.map(s => s.id),
+		message: `Es gibt keinen Plan, der alle harten Regeln erfüllt.${detail}`
+	};
 }

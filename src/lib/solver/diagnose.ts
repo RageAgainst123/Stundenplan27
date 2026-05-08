@@ -89,6 +89,31 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		}
 	}
 
+	// 3d) Phase 10: mustStartFirstPeriod + Lehrer-Verfügbarkeit prüfen
+	//     Wenn die einzigen Lehrer einer Stufe an einem Tag P1 alle blockiert
+	//     haben, kann die Regel nicht erfüllt werden außer der Tag bleibt leer
+	//     (was wieder min_daily verletzen würde). Pragmatisch nur ein Soft-Hint.
+	if (doc.constraints?.mustStartFirstPeriod?.enabled && minDaily > 0) {
+		// Quick check: is at least one teacher available at every (day, P1)?
+		let anyDayMissing = false;
+		for (let dIdx = 0; dIdx < D; dIdx++) {
+			const dayName = DAYS[dIdx];
+			const someoneFreeP1 = doc.teachers.some(t =>
+				!(t.unavailable ?? []).some(u => u.day === dayName && u.period === 1)
+			);
+			if (!someoneFreeP1) {
+				anyDayMissing = true;
+				break;
+			}
+		}
+		if (anyDayMissing) {
+			hints.push({
+				severity: 'warn',
+				message: `An mindestens einem Wochentag ist kein Lehrer in der 1. Stunde verfügbar. Die Regel "Beginn in P1" kann an diesem Tag UNSAT auslösen — der Solver lockert dann automatisch.`
+			});
+		}
+	}
+
 	// 3c) Phase 9: Spec mit count > D und striktem Singles-Pattern → konfliktanfällig
 	for (const spec of doc.specs) {
 		if (spec.includeInSolver === false) continue;

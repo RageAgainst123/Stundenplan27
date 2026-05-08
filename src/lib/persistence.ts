@@ -70,11 +70,12 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		}
 	}
 
-	// Phase 9 additive migration: ConstraintConfig got two new fields.
+	// Phase 9 + 10 additive migration: ConstraintConfig new fields.
 	if (doc.constraints) {
 		const c = doc.constraints as ConstraintConfig & {
 			noMainSubjectAfternoon?: { applyToAllSubjects?: boolean; weightAllSubjects?: number };
 			minDailySlotsPerGrade?: number;
+			mustStartFirstPeriod?: { enabled?: boolean };
 		};
 		if (typeof c.minDailySlotsPerGrade !== 'number') {
 			c.minDailySlotsPerGrade = 4;
@@ -86,6 +87,9 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			if (typeof c.noMainSubjectAfternoon.weightAllSubjects !== 'number') {
 				c.noMainSubjectAfternoon.weightAllSubjects = 15;
 			}
+		}
+		if (!c.mustStartFirstPeriod || typeof c.mustStartFirstPeriod.enabled !== 'boolean') {
+			c.mustStartFirstPeriod = { enabled: true };
 		}
 	}
 

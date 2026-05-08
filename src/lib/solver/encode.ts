@@ -291,6 +291,8 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	const w_compact = c.compactTeacherDays.enabled ? Math.max(0, Math.round(c.compactTeacherDays.weight)) : 0;
 	// Phase 9: hard min-daily-slots per (day, grade). Capped at P.
 	const minDailySlots = Math.max(0, Math.min(P, Math.round(c.minDailySlotsPerGrade ?? 0)));
+	// Phase 10: must P1 be active when day is active?
+	const mustStartP1 = c.mustStartFirstPeriod?.enabled ?? true;
 
 	const dzn = [
 		`D = ${D};`,
@@ -322,6 +324,7 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		`w_main_early = ${w_mainEarly};`,
 		`w_compact = ${w_compact};`,
 		`min_daily_slots = ${minDailySlots};`,
+		`must_start_p1 = ${mustStartP1 ? 'true' : 'false'};`,
 		`teacher_blocked = ${mznBool3D(teacherBlocked3D.length > 0 ? teacherBlocked3D : [[[false]]])};`
 	].join('\n');
 

@@ -114,6 +114,12 @@ export interface ConstraintConfig {
 	 * grade must have ≥4 lessons every day at MS SiG.
 	 */
 	minDailySlotsPerGrade: number;
+	/**
+	 * Phase 10: when a (day, grade) is active (≥1 lesson), period 1 must be
+	 * one of the active periods. Prevents "school starts at the 4th period"
+	 * gaps at the day's beginning. Disabled in last-resort auto-relaxation.
+	 */
+	mustStartFirstPeriod: { enabled: boolean };
 }
 
 export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
@@ -129,7 +135,8 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	preferMainEarly: { enabled: true, weight: 10 },
 	preferDoubleLessonsContiguous: { enabled: true, weight: 20 },
 	compactTeacherDays: { enabled: true, weight: 15 },
-	minDailySlotsPerGrade: 4
+	minDailySlotsPerGrade: 4,
+	mustStartFirstPeriod: { enabled: true }
 };
 
 export interface ScheduleDoc {

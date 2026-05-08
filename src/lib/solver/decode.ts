@@ -12,13 +12,27 @@ export interface PenaltyBreakdown {
 	total: number;
 }
 
+/**
+ * Phase 10: structured information about which constraints were relaxed in
+ * the auto-fallback chain. Present iff at least one round of relaxation was
+ * needed to find a feasible solution. UI shows a banner per active flag so
+ * the user understands the strict config wasn't fully met.
+ */
+export interface RelaxationInfo {
+	blocksRelaxed: string[];          // spec IDs whose strict blocks were dropped
+	minDailyReducedTo: number | null; // null = original; else 3 or 0
+	startInP1Disabled: boolean;       // true = constraint 12 was disabled
+}
+
 export interface SolverOutput {
 	status: 'SAT' | 'UNSAT' | 'TIMEOUT' | 'ERROR';
 	placed: PlacedLesson[];
 	unplaced: string[];           // spec IDs that could not be placed
 	message?: string;
 	penalties?: PenaltyBreakdown; // Phase 7B: soft-constraint score breakdown
-	relaxedSpecIds?: string[];    // Phase 7B: specs whose strict block-pattern was relaxed to auto
+	relaxation?: RelaxationInfo;  // Phase 10: structured relaxation info
+	/** @deprecated Phase 10: use `relaxation.blocksRelaxed` instead. */
+	relaxedSpecIds?: string[];
 }
 
 export function decode(

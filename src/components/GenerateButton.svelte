@@ -1,62 +1,215 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
-	import { solve } from '../lib/solver/service';
+	import { startSolve, type SolveSession, type SolvePhase } from '../lib/solver/service';
+	import type { PlacedLesson } from '../lib/types';
+	import type { RelaxationInfo, SolverOutput } from '../lib/solver/decode';
 	const store = useStore();
-	import type { SolverOutput } from '../lib/solver/decode';
 
-	let busy = $state(false);
-	let phase = $state<string>('');
+	// ---- Run state ----
+	let session = $state<SolveSession | null>(null);
+	let phase = $state<SolvePhase | null>(null);
+	let phaseLabel = $state<string>('');
+	let tElapsed = $state<number>(0);
+	let tLimit = $state<number>(0);
+	let tickHandle: ReturnType<typeof setInterval> | null = null;
+	let scoreHistory = $state<{ t: number; score: number | null }[]>([]);
+	let bestScore = $state<number | null>(null);
+	let lastImprovementMs = $state<number>(0);
 	let result = $state<SolverOutput | null>(null);
+	let relaxation = $state<RelaxationInfo | null>(null);
+	let plansApplied = $state<number>(0);
 
-	async function generate() {
-		busy = true;
-		phase = 'starte…';
-		result = null;
-		try {
-			const r = await solve($state.snapshot(store.doc) as any, {
-				timeoutMs: 30_000,
-				onProgress: p => (phase = p)
-			});
-			result = r;
-			if (r.status === 'SAT') {
-				// Replace non-pinned placements with solver result, keep pinned ones intact.
-				const pinnedKept = store.doc.placed.filter(p => p.pinned);
-				// Phase 8 v2: dedup key includes grade — multi-grade specs emit
-				// one PlacedLesson per grade column on the same (day, period).
-				const pinnedKeys = new Set(
-					pinnedKept.map(p => `${p.specId}|${p.day}|${p.period}|${p.grade}`)
-				);
-				const seen = new Set<string>(pinnedKeys);
-				const additions: typeof r.placed = [];
-				for (const p of r.placed) {
-					const k = `${p.specId}|${p.day}|${p.period}|${p.grade}`;
-					if (seen.has(k)) continue;
-					seen.add(k);
-					additions.push({ ...p, pinned: false });
-				}
-				store.doc.placed = [...pinnedKept, ...additions];
-				store.persistNow();
-			}
-		} finally {
-			busy = false;
-			phase = '';
+	const busy = $derived(session !== null);
+
+	function applyPlacements(placed: PlacedLesson[]): void {
+		// Replace non-pinned placements; keep pinned ones intact.
+		const pinnedKept = store.doc.placed.filter(p => p.pinned);
+		const pinnedKeys = new Set(
+			pinnedKept.map(p => `${p.specId}|${p.day}|${p.period}|${p.grade}`)
+		);
+		const seen = new Set<string>(pinnedKeys);
+		const additions: PlacedLesson[] = [];
+		for (const p of placed) {
+			const k = `${p.specId}|${p.day}|${p.period}|${p.grade}`;
+			if (seen.has(k)) continue;
+			seen.add(k);
+			additions.push({ ...p, pinned: false });
 		}
+		store.doc.placed = [...pinnedKept, ...additions];
+		store.persistNow();
 	}
+
+	function reset(): void {
+		phase = null;
+		phaseLabel = '';
+		tElapsed = 0;
+		tLimit = 0;
+		scoreHistory = [];
+		bestScore = null;
+		lastImprovementMs = 0;
+		result = null;
+		relaxation = null;
+		plansApplied = 0;
+	}
+
+	function startTicker(): void {
+		if (tickHandle) clearInterval(tickHandle);
+		const t0 = Date.now();
+		tickHandle = setInterval(() => {
+			tElapsed = Date.now() - t0;
+		}, 250);
+	}
+	function stopTicker(): void {
+		if (tickHandle) { clearInterval(tickHandle); tickHandle = null; }
+	}
+
+	function generate(): void {
+		reset();
+		startTicker();
+		const s = startSolve($state.snapshot(store.doc) as any, {
+			satisfyTimeoutMs: 15_000,
+			optimizeTimeoutMs: 60_000,
+			relaxTimeoutMs: 30_000
+		});
+		session = s;
+
+		s.on('phase', p => { phase = p; });
+		s.on('progress', p => {
+			phaseLabel = p.phaseLabel;
+			tLimit = p.tLimitMs;
+		});
+		s.on('relaxation', r => { relaxation = r; });
+		s.on('solution', sol => {
+			scoreHistory = [...scoreHistory, { t: sol.tElapsedMs, score: sol.score }];
+			if (sol.score !== null && (bestScore === null || sol.score < bestScore)) {
+				bestScore = sol.score;
+				lastImprovementMs = sol.tElapsedMs;
+			} else if (bestScore === null) {
+				// Phase A satisfy gave us a feasible plan without an objective
+				lastImprovementMs = sol.tElapsedMs;
+			}
+			// Live-update the grid so the user sees progress
+			applyPlacements(sol.placed);
+			plansApplied++;
+		});
+		s.on('done', d => {
+			result = d.final;
+			if (d.final.relaxation) relaxation = d.final.relaxation;
+			if (d.final.status === 'SAT') {
+				applyPlacements(d.final.placed);
+			}
+			session = null;
+			stopTicker();
+		});
+		s.on('error', err => {
+			console.error('Solver error', err);
+		});
+	}
+
+	function abort(): void {
+		session?.abort();
+	}
+
+	// ---- Convergence hint ----
+	const convergenceHint = $derived.by(() => {
+		if (!session || phase !== 'optimize') return '';
+		const idleMs = tElapsed - lastImprovementMs;
+		if (idleMs > 8000 && tElapsed > 15000) {
+			return 'Letzte Verbesserung vor ' + Math.round(idleMs / 1000) + ' s — Solver scheint konvergiert. Abbrechen lohnt sich evtl.';
+		}
+		return '';
+	});
+
+	const progressPercent = $derived(
+		tLimit > 0 ? Math.min(100, Math.round((tElapsed / tLimit) * 100)) : 0
+	);
+
+	const remainingSec = $derived(
+		tLimit > 0 ? Math.max(0, Math.round((tLimit - tElapsed) / 1000)) : 0
+	);
+
+	const showRelaxBanner = $derived(
+		relaxation !== null && (
+			relaxation.blocksRelaxed.length > 0 ||
+			relaxation.minDailyReducedTo !== null ||
+			relaxation.startInP1Disabled
+		)
+	);
+
+	// ---- Score-history mini-graph ----
+	function buildPath(history: { t: number; score: number | null }[], w: number, h: number): string {
+		const pts = history.filter(p => p.score !== null) as { t: number; score: number }[];
+		if (pts.length === 0) return '';
+		const minScore = Math.min(...pts.map(p => p.score));
+		const maxScore = Math.max(...pts.map(p => p.score));
+		const range = maxScore - minScore || 1;
+		const tMin = pts[0].t;
+		const tMax = pts[pts.length - 1].t || 1;
+		const tRange = tMax - tMin || 1;
+		return pts.map((p, i) => {
+			const x = ((p.t - tMin) / tRange) * w;
+			const y = h - ((p.score - minScore) / range) * h;
+			return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
+		}).join(' ');
+	}
+	const sparkPath = $derived(buildPath(scoreHistory, 200, 30));
 </script>
 
 <div class="gen">
 	<button class="btn primary" onclick={generate} disabled={busy}>
-		{busy ? `Generiere… (${phase})` : 'Plan generieren'}
+		{busy ? 'Solver läuft…' : 'Plan generieren'}
 	</button>
 
-	{#if result}
+	{#if busy}
+		<div class="progress-block" role="status" aria-live="polite">
+			<div class="phase-line">
+				<strong>{phaseLabel || 'Initialisierung…'}</strong>
+				<span class="muted small">— {Math.round(tElapsed / 1000)} s / {Math.round(tLimit / 1000)} s • Rest ~{remainingSec} s</span>
+			</div>
+			<div class="bar"><div class="bar-fill" style:width="{progressPercent}%"></div></div>
+			{#if scoreHistory.length > 0}
+				<div class="live-score">
+					Aktueller Score: <strong>{bestScore ?? '–'}</strong>
+					<span class="muted small">({scoreHistory.length} Lösung{scoreHistory.length === 1 ? '' : 'en'} gefunden)</span>
+					{#if sparkPath}
+						<svg width="200" height="30" class="spark" aria-label="Score-Verlauf">
+							<path d={sparkPath} fill="none" stroke="var(--accent)" stroke-width="1.5" />
+						</svg>
+					{/if}
+				</div>
+			{:else}
+				<div class="muted small">Erste Lösung wird gesucht…</div>
+			{/if}
+			{#if convergenceHint}
+				<div class="hint-line">ℹ {convergenceHint}</div>
+			{/if}
+			<button class="btn small abort" onclick={abort}>⏹ Abbrechen — beste bisherige Lösung übernehmen</button>
+		</div>
+	{/if}
+
+	{#if !busy && result}
 		{#if result.status === 'SAT'}
 			<div class="result-block">
 				<span class="ok">
 					✓ Plan gefunden ({result.placed.length} Stunden platziert{#if result.unplaced.length}, {result.unplaced.length} nicht{/if}{#if result.penalties}, Score {result.penalties.total}{/if})
 				</span>
-				{#if result.relaxedSpecIds && result.relaxedSpecIds.length > 0}
-					<span class="warn">⚠ {result.message}</span>
+				{#if showRelaxBanner && relaxation}
+					<div class="warn">
+						<strong>⚠ Lockerungen aktiv</strong> – die strenge Konfig war unlösbar:
+						<ul class="relax-list">
+							{#if relaxation.blocksRelaxed.length > 0}
+								<li>Block-Pattern für {relaxation.blocksRelaxed.length} Lehreinheit(en) auf „Automatisch" gesetzt</li>
+							{/if}
+							{#if relaxation.minDailyReducedTo === 0}
+								<li>Mindest-Stunden pro Tag pro Stufe deaktiviert</li>
+							{:else if relaxation.minDailyReducedTo !== null}
+								<li>Mindest-Stunden pro Tag pro Stufe auf {relaxation.minDailyReducedTo} reduziert</li>
+							{/if}
+							{#if relaxation.startInP1Disabled}
+								<li>„Beginn in 1. Stunde"-Regel deaktiviert</li>
+							{/if}
+						</ul>
+					</div>
 				{/if}
 				{#if result.penalties && result.penalties.total > 0}
 					<details class="score-breakdown">
@@ -84,9 +237,14 @@
 						</ul>
 					</details>
 				{/if}
+				{#if result.message}
+					<span class="muted small">{result.message}</span>
+				{/if}
 			</div>
 		{:else if result.status === 'UNSAT'}
 			<span class="err">✗ Keine Lösung – {result.message}</span>
+		{:else if result.status === 'TIMEOUT'}
+			<span class="muted small">⏱ {result.message ?? 'Abgebrochen.'}</span>
 		{:else}
 			<span class="err">✗ {result.status}: {result.message ?? 'Solver-Fehler'}</span>
 		{/if}
@@ -107,25 +265,82 @@
 		font-size: 13px;
 		max-width: 700px;
 	}
+	.progress-block {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		font-size: 13px;
+		min-width: 320px;
+		max-width: 460px;
+		padding: 10px 12px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+	}
+	.phase-line {
+		display: flex;
+		align-items: baseline;
+		gap: 6px;
+		flex-wrap: wrap;
+	}
+	.bar {
+		width: 100%;
+		height: 6px;
+		background: var(--bg-panel);
+		border-radius: 3px;
+		overflow: hidden;
+	}
+	.bar-fill {
+		height: 100%;
+		background: var(--accent);
+		transition: width 0.25s linear;
+	}
+	.live-score {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.spark {
+		display: block;
+	}
+	.hint-line {
+		color: var(--text-muted);
+		font-size: 12px;
+		font-style: italic;
+	}
+	.abort {
+		align-self: flex-start;
+	}
 	.err {
 		white-space: pre-line;
 		max-width: 700px;
+		color: var(--err);
+		font-size: 13px;
 	}
 	.ok {
 		color: var(--ok);
 		font-size: 13px;
 	}
-	.err {
-		color: var(--err);
-		font-size: 13px;
+	.muted.small {
+		color: var(--text-muted);
+		font-size: 12px;
 	}
 	.warn {
 		color: #b45309;
 		background: #fef3c7;
-		padding: 4px 8px;
+		padding: 6px 10px;
 		border-radius: 4px;
 		font-size: 12px;
 		white-space: pre-line;
+	}
+	.relax-list {
+		margin: 4px 0 0 0;
+		padding-left: 18px;
+		list-style: disc;
+	}
+	.relax-list li {
+		margin: 2px 0;
 	}
 	.score-breakdown {
 		font-size: 12px;
@@ -148,5 +363,9 @@
 		padding-top: 4px;
 		margin-top: 4px;
 		color: var(--text);
+	}
+	.btn.small {
+		padding: 4px 10px;
+		font-size: 12px;
 	}
 </style>
