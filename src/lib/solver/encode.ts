@@ -280,10 +280,17 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	const w_noFree = c.noFreePeriodsForClass.enabled ? Math.max(0, Math.round(c.noFreePeriodsForClass.weight)) : 0;
 	const w_mainAft = c.noMainSubjectAfternoon.enabled ? Math.max(0, Math.round(c.noMainSubjectAfternoon.weight)) : 0;
 	const afternoonStart = Math.max(1, Math.min(P, Math.round(c.noMainSubjectAfternoon.afternoonStartsAtPeriod)));
+	// Phase 9: any-subject afternoon penalty.
+	const w_anyAft =
+		c.noMainSubjectAfternoon.enabled && c.noMainSubjectAfternoon.applyToAllSubjects
+			? Math.max(0, Math.round(c.noMainSubjectAfternoon.weightAllSubjects))
+			: 0;
 	const w_mainRun = c.maxConsecutiveMain.enabled ? Math.max(0, Math.round(c.maxConsecutiveMain.weight)) : 0;
 	const maxConsecMain = Math.max(1, Math.min(P, Math.round(c.maxConsecutiveMain.max)));
 	const w_mainEarly = c.preferMainEarly.enabled ? Math.max(0, Math.round(c.preferMainEarly.weight)) : 0;
 	const w_compact = c.compactTeacherDays.enabled ? Math.max(0, Math.round(c.compactTeacherDays.weight)) : 0;
+	// Phase 9: hard min-daily-slots per (day, grade). Capped at P.
+	const minDailySlots = Math.max(0, Math.min(P, Math.round(c.minDailySlotsPerGrade ?? 0)));
 
 	const dzn = [
 		`D = ${D};`,
@@ -308,11 +315,13 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		`subject_is_main = [${subjectIsMainArr}];`,
 		`w_no_free = ${w_noFree};`,
 		`w_main_aft = ${w_mainAft};`,
+		`w_any_aft = ${w_anyAft};`,
 		`afternoon_start = ${afternoonStart};`,
 		`w_main_run = ${w_mainRun};`,
 		`max_consec_main = ${maxConsecMain};`,
 		`w_main_early = ${w_mainEarly};`,
 		`w_compact = ${w_compact};`,
+		`min_daily_slots = ${minDailySlots};`,
 		`teacher_blocked = ${mznBool3D(teacherBlocked3D.length > 0 ? teacherBlocked3D : [[[false]]])};`
 	].join('\n');
 

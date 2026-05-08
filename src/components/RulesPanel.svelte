@@ -37,6 +37,22 @@
 		<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weight} disabled={!c.noMainSubjectAfternoon.enabled} />
 	</div>
 
+	<div class="rule sub">
+		<label class="lbl">
+			<input type="checkbox" bind:checked={c.noMainSubjectAfternoon.applyToAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled} />
+			↳ Auch Nebenfächer am Nachmittag vermeiden (schwächer als Hauptfächer)
+		</label>
+		<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weightAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled || !c.noMainSubjectAfternoon.applyToAllSubjects} />
+	</div>
+
+	<div class="rule">
+		<span class="lbl">
+			Mindest-Stunden pro Tag pro Schulstufe
+			<span class="hint" title="Hartes Constraint. Default 4 (= jeder Tag mindestens 4 Stunden pro Stufe). 0 deaktiviert die Regel. Bei UNSAT lockert der Solver automatisch auf 3, dann 0.">ℹ</span>
+		</span>
+		<input type="number" min="0" max="8" bind:value={c.minDailySlotsPerGrade} aria-label="Mindest-Stunden pro Tag pro Schulstufe" />
+	</div>
+
 	<div class="rule">
 		<label class="lbl">
 			<input type="checkbox" bind:checked={c.maxConsecutiveMain.enabled} />
@@ -124,5 +140,25 @@
 		border: 1px solid var(--border);
 		border-radius: 3px;
 		font-size: 13px;
+	}
+	.rule.sub {
+		padding-left: 32px;
+		background: var(--bg-soft);
+		font-size: 13px;
+		color: var(--text-muted);
+	}
+	.hint {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 16px;
+		height: 16px;
+		margin-left: 6px;
+		font-size: 11px;
+		color: var(--text-muted);
+		border-radius: 50%;
+		background: var(--bg-soft);
+		cursor: help;
+		user-select: none;
 	}
 </style>

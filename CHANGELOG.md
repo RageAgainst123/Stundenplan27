@@ -12,6 +12,38 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 - Performance-Tuning der Soft-Constraint-Penalties bei großer Liste
 - `pairedWith`-Feld entfernen (redundant zu `couplingId`)
 
+## [0.9.0] - 2026-05-08 — Phase 9: Tagesverteilung + Doppel/Einzel-Cohesion
+
+### Added
+- **Hartes Tagespensum**: jede Schulstufe braucht an jedem Wochentag mindestens
+  N Stunden (Default 4). `ConstraintConfig.minDailySlotsPerGrade`. UI-Feld in
+  `RulesPanel`. Verhindert dass der Solver Tage komplett auslässt.
+- **Hartes „Doppel ⇒ kein Einzel"** (Constraint 11 in `model.mzn`): zwei
+  Lesson-Instanzen derselben Spec am gleichen Tag müssen konsekutiv sein. Damit
+  ist eine Doppelstunde automatisch die einzige Belegung des Tages für die Spec.
+- **Soft-Constraint „Auch Nebenfächer am Nachmittag vermeiden"** mit eigenem
+  Gewicht (Default 15). Sub-Toggle unter „Hauptfach nicht am Nachmittag" im
+  RulesPanel.
+- **Dreistufige Auto-Lockerung**: bei UNSAT lockert `service.ts` automatisch
+  zuerst die Block-Patterns, dann das Tagespensum von 4 auf 3, dann auf 0.
+  UI meldet welche Lockerung aktiv war.
+- **Diagnose-Erweiterungen**: Pre-Flight warnt wenn Stufe weniger als
+  D × min_daily Wochenstunden hat oder wenn eine Spec count > D mit strikten
+  Singles hat.
+- ADR-0011 dokumentiert die Designentscheidungen.
+
+### Changed
+- `decode.SolverOutput.penalties` erweitert um `any_aft`.
+- `GenerateButton` Score-Breakdown zeigt zusätzlich „Stunden am Nachmittag
+  (alle Fächer)".
+- Phase-9-Migration in `persistence.ts` setzt für bestehende Pläne sinnvolle
+  Defaults (`minDailySlotsPerGrade: 4`, `applyToAllSubjects: true`,
+  `weightAllSubjects: 15`).
+
+### Tests
+- 8 neue Tests (DZN-Parameter-Emission + Diagnose-Erweiterungen + Penalty-
+  Decoding). Total: 102 grün.
+
 ## [0.8.0] - 2026-05-08 — Phase 8: Schema-Migrationen v1→v2→v3
 
 ### Added (v3)

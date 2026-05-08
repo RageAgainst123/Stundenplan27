@@ -107,7 +107,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 
 - ✅ Phase 7A: Multi-Grade-UNSAT-Bugs gefixt + Pre-Flight-Diagnose
 - ✅ Phase 7B: Flexible Block-Patterns (Auto-Modus) + Soft-Constraints + Auto-Lockerung
 - ✅ Phase 8: Schema v1→v2 (PlacedLesson.grade) + v2→v3 (groupLabel/couplingId-Trennung)
-- 🔜 Phase 9: Print-Layout, Performance-Tuning, pairedWith entfernen
+- ✅ Phase 9: Tagespensum + Doppel/Einzel-Cohesion + Nachmittag-für-alle + 3-stufige Auto-Lockerung
+- 🔜 Phase 10: Print-Layout, Performance-Tuning, pairedWith entfernen
 
 ## Plan-Datei für Detail-Recherche
 

@@ -68,6 +68,9 @@
 							{#if result.penalties.main_aft > 0}
 								<li>Hauptfächer am Nachmittag: <strong>{result.penalties.main_aft}</strong></li>
 							{/if}
+							{#if result.penalties.any_aft > 0}
+								<li>Stunden am Nachmittag (alle Fächer): <strong>{result.penalties.any_aft}</strong></li>
+							{/if}
 							{#if result.penalties.main_run > 0}
 								<li>Lange Hauptfach-Folgen: <strong>{result.penalties.main_run}</strong></li>
 							{/if}

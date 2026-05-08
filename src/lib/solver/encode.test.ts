@@ -468,6 +468,65 @@ describe('phase 7B: auto-block mode', () => {
 	});
 });
 
+// ----- Phase 9: Tagespensum + Doppel-Cohesion + Nachmittag-für-alle -----
+
+describe('phase 9: encoder DZN parameters', () => {
+	function configuredDoc() {
+		const doc = emptyDoc('2026/27');
+		doc.teachers.push({
+			id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: []
+		});
+		doc.subjects.push({
+			code: 'M', name: 'Mathe', category: 'PG', isMain: true, hoursPerWeek: {}
+		});
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 2, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		return doc;
+	}
+
+	it('emits min_daily_slots from constraints (default 4)', () => {
+		const doc = configuredDoc();
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('min_daily_slots = 4;');
+	});
+
+	it('emits min_daily_slots = 0 when constraint disabled', () => {
+		const doc = configuredDoc();
+		doc.constraints.minDailySlotsPerGrade = 0;
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('min_daily_slots = 0;');
+	});
+
+	it('emits w_any_aft when applyToAllSubjects is true', () => {
+		const doc = configuredDoc();
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('w_any_aft = 15;');
+	});
+
+	it('emits w_any_aft = 0 when applyToAllSubjects is false', () => {
+		const doc = configuredDoc();
+		doc.constraints.noMainSubjectAfternoon.applyToAllSubjects = false;
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('w_any_aft = 0;');
+	});
+
+	it('emits w_any_aft = 0 when entire afternoon constraint is disabled', () => {
+		const doc = configuredDoc();
+		doc.constraints.noMainSubjectAfternoon.enabled = false;
+		const enc = encode(doc);
+		const dzn = (enc.dataJson as any).__dzn as string;
+		expect(dzn).toContain('w_any_aft = 0;');
+		expect(dzn).toContain('w_main_aft = 0;');
+	});
+});
+
 describe('decode', () => {
 	it('maps assign array back to PlacedLessons', () => {
 		const doc = makeDoc();
@@ -481,18 +540,18 @@ describe('decode', () => {
 		expect(result.placed[0].period).toBe(1);
 	});
 
-	it('parses penalty breakdown from solver output (Phase 7B)', () => {
+	it('parses penalty breakdown from solver output (Phase 7B + 9)', () => {
 		const doc = makeDoc();
 		const enc = encode(doc);
 		const fakeOutput = JSON.stringify({
 			assign: [1, 2, 3, 4, 5, 6, 7],
-			penalties: { main_aft: 0, main_early: 12, main_run: 1, no_free: 3, compact: 2, total: 530 }
+			penalties: { main_aft: 0, any_aft: 4, main_early: 12, main_run: 1, no_free: 3, compact: 2, total: 590 }
 		});
 		const result = decode(fakeOutput, enc.instances);
 		expect(result.status).toBe('SAT');
 		expect(result.penalties).toBeDefined();
-		expect(result.penalties!.total).toBe(530);
-		expect(result.penalties!.main_run).toBe(1);
+		expect(result.penalties!.total).toBe(590);
+		expect(result.penalties!.any_aft).toBe(4);
 	});
 
 	it('omits penalties when solver output lacks them', () => {

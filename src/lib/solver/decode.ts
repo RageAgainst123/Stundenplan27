@@ -4,6 +4,7 @@ import { dpgFromSlot, type LessonInstance } from './encode';
 
 export interface PenaltyBreakdown {
 	main_aft: number;
+	any_aft: number;       // Phase 9: any-subject afternoon penalty
 	main_early: number;
 	main_run: number;
 	no_free: number;
@@ -73,6 +74,7 @@ export function decode(
 	if (parsed.penalties) {
 		out.penalties = {
 			main_aft: parsed.penalties.main_aft ?? 0,
+			any_aft: parsed.penalties.any_aft ?? 0,
 			main_early: parsed.penalties.main_early ?? 0,
 			main_run: parsed.penalties.main_run ?? 0,
 			no_free: parsed.penalties.no_free ?? 0,

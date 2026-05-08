@@ -75,6 +75,34 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		}
 	}
 
+	// 3b) Phase 9: Mindest-Tagespensum erfordert pro Stufe ≥ D × min_daily.
+	const minDaily = doc.constraints?.minDailySlotsPerGrade ?? 0;
+	if (minDaily > 0) {
+		const required = D * minDaily;
+		for (const [grade, load] of gradeLoad) {
+			if (load < required) {
+				hints.push({
+					severity: 'warn',
+					message: `Schulstufe ${grade}. SSt. hat nur ${load} Wochenstunden, für die Regel "≥${minDaily} Stunden pro Tag" wären mindestens ${required} nötig. Bei UNSAT lockert der Solver das Pensum automatisch.`
+				});
+			}
+		}
+	}
+
+	// 3c) Phase 9: Spec mit count > D und striktem Singles-Pattern → konfliktanfällig
+	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
+		const blocks = spec.blocks;
+		if (!blocks || blocks.length === 0) continue;
+		const allSingles = blocks.every(b => b === 1);
+		if (allSingles && blocks.length > D) {
+			hints.push({
+				severity: 'warn',
+				message: `Lehreinheit ${spec.subject} hat ${blocks.length} Einzelstunden bei nur ${D} Wochentagen. Mit dem "Doppel ⇒ kein Einzel am Tag"-Constraint ist das nicht erfüllbar. Block-Pattern auf Auto setzen oder Doppelstunden zulassen.`
+			});
+		}
+	}
+
 	// 4) Spec mit fehlendem Lehrer oder Subject
 	for (const spec of doc.specs) {
 		if (spec.includeInSolver === false) continue;

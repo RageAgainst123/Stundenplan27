@@ -23,6 +23,9 @@
 %   - Subject maxConsecutive: per (day, grade), no longer run of the same subject
 %     than the subject's max_consec value (currently we only enforce the common
 %     case max=2 — three of same subject in a row is forbidden)
+%   - Min daily slots per grade (Phase 9): each (day, grade) needs ≥ N lessons
+%   - Same-day cohesion (Phase 9): two instances of one spec on the same day
+%     must be consecutive (= a single double-period block, not split)
 
 include "globals.mzn";
 
@@ -69,11 +72,15 @@ array[SUBJECT] of bool: subject_is_main;
 % Phase 7B: Soft-constraint weights (0 = disabled)
 int: w_no_free;          % keine Freistunden für Klassen
 int: w_main_aft;         % kein Hauptfach am Nachmittag
+int: w_any_aft;          % Phase 9: alle Fächer am Nachmittag (schwach)
 int: afternoon_start;    % erste Periode die als Nachmittag zählt (z.B. 7)
 int: w_main_run;         % kein zu langer Hauptfach-Run
 int: max_consec_main;    % erlaubte max-Länge eines Hauptfach-Runs (z.B. 2)
 int: w_main_early;       % Hauptfach bevorzugt früh am Tag
 int: w_compact;          % Lehrer-Tage kompakt (wenig Freistunden im Lehrertag)
+
+% Phase 9: hard minimum of lesson slots per (day, grade). 0 = constraint off.
+int: min_daily_slots;
 
 % Teacher unavailability
 array[TEACHER, 1..D, 1..P] of bool: teacher_blocked;
@@ -242,6 +249,34 @@ constraint forall (sp in 1..max(lesson_spec_id)) (
   ) <= 1
 );
 
+% 11) Phase 9: Doppel + Einzel am gleichen Tag verbieten.
+%     Wenn zwei Lesson-Instanzen derselben Spec UND der selben Grade-Spalte
+%     aus VERSCHIEDENEN Occurrences am gleichen Tag landen, müssen sie auf
+%     direkt konsekutiven Perioden sein (= Doppelstunde). Das verhindert
+%     "Doppel an P5+P6 plus Einzel an P8" — pädagogisch falsch.
+%
+%     Multi-Grade-Geschwister derselben occurrence (gleiche occ_idx, andere
+%     grade) sind über Constraint 4b sowieso auf den selben Slot gezwungen
+%     und werden hier durch occ_idx-Filter ausgespart.
+constraint forall (l1, l2 in LESSON where l1 < l2 /\
+                  lesson_spec_id[l1] = lesson_spec_id[l2] /\
+                  lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
+                  gradeOf(assign[l1]) = gradeOf(assign[l2])) (
+  dayOf(assign[l1]) = dayOf(assign[l2])
+    -> abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
+);
+
+% 10) Phase 9: Mindest-Tagespensum pro Schulstufe.
+%     Jede Stufe braucht an jedem Wochentag mindestens `min_daily_slots`
+%     Lesson-Slots. Doppelstunden zählen als 2 Slots. Verhindert dass der
+%     Solver Tage komplett auslässt und alle Stunden auf wenige Tage packt.
+%     Bei min_daily_slots=0 ist das Constraint inaktiv (Auto-Lockerung).
+constraint forall (d in 1..D, g in 1..G) (
+  sum(l in LESSON) (
+    bool2int(dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g)
+  ) >= min_daily_slots
+);
+
 % ---- Soft Constraints (Phase 7B) ------------------------------------
 %
 % Each penalty term is a sum of integer indicators times its weight.
@@ -258,6 +293,18 @@ constraint forall (sp in 1..max(lesson_spec_id)) (
 var int: pen_main_aft =
   if w_main_aft > 0 then
     sum(l in LESSON where subject_is_main[lesson_subject[l]]) (
+      bool2int(periodOf(assign[l]) >= afternoon_start)
+    )
+  else 0 endif;
+
+% P1b) Phase 9: "Auch Nebenfächer von P7+P8 weghalten":
+%      ALL instances l where periodOf(assign[l]) >= afternoon_start. The
+%      weight is typically lower than w_main_aft so main subjects move first,
+%      but this term breaks the "fill the afternoon for free" loophole that
+%      let the solver pile lessons on Mon-Wed P1-P8.
+var int: pen_any_aft =
+  if w_any_aft > 0 then
+    sum(l in LESSON) (
       bool2int(periodOf(assign[l]) >= afternoon_start)
     )
   else 0 endif;
@@ -333,6 +380,7 @@ var int: pen_compact =
 % Total weighted penalty
 var int: total_penalty =
   w_main_aft * pen_main_aft +
+  w_any_aft * pen_any_aft +
   w_main_early * pen_main_early +
   w_main_run * pen_main_run +
   w_no_free * pen_no_free +
@@ -346,6 +394,7 @@ output [
   "{ \"assign\": [", join(",", [show(assign[l]) | l in LESSON]),
   "], \"penalties\": { ",
   "\"main_aft\": ", show(pen_main_aft), ", ",
+  "\"any_aft\": ", show(pen_any_aft), ", ",
   "\"main_early\": ", show(pen_main_early), ", ",
   "\"main_run\": ", show(pen_main_run), ", ",
   "\"no_free\": ", show(pen_no_free), ", ",

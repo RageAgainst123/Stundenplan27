@@ -13,7 +13,8 @@ function subject(code: string, isMain = false): Subject {
 function spec(id: string, sub: string, t: string, grades: number[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
 		id, subject: sub, teacher: t, classes: ['1a'], grades: grades as any,
-		weekPattern: 'every', count, blocks: Array(count).fill(1),
+		weekPattern: 'every', count,
+		blocks: 'blocks' in opts ? opts.blocks : Array(count).fill(1),
 		includeInSolver: opts.includeInSolver ?? true,
 		groupLabel: opts.groupLabel,
 		couplingId: opts.couplingId,
@@ -121,6 +122,43 @@ describe('diagnose: bestHint', () => {
 			{ severity: 'error' as const, message: 'real problem' }
 		];
 		expect(bestHint(hints)?.severity).toBe('error');
+	});
+});
+
+describe('diagnose: Phase 9 — Mindest-Tagespensum + Singles-Pattern', () => {
+	it('warnt wenn Stufe weniger als D × min_daily Wochenstunden hat', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// Stufe 5 hat nur 18 Stunden, min_daily=4 → braucht 20.
+		doc.specs.push(spec('s', 'M', 't', [5], 18));
+		doc.constraints.minDailySlotsPerGrade = 4;
+		const hints = diagnose(doc);
+		const warn = hints.find(h => h.severity === 'warn' && h.message.includes('mindestens'));
+		expect(warn).toBeTruthy();
+		expect(warn!.message).toContain('Schulstufe 5');
+	});
+
+	it('warnt nicht wenn Stufe genug Stunden hat', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 25));
+		doc.constraints.minDailySlotsPerGrade = 4;
+		const hints = diagnose(doc);
+		const tagespensumWarn = hints.find(h => h.message.includes('Stunden pro Tag'));
+		expect(tagespensumWarn).toBeUndefined();
+	});
+
+	it('warnt bei strikt-Singles count > 5 Wochentage', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// 6 Singles, 5 Wochentage → mit Constraint 11 unmöglich
+		doc.specs.push(spec('s', 'M', 't', [5], 6, { blocks: [1, 1, 1, 1, 1, 1] }));
+		const hints = diagnose(doc);
+		const warn = hints.find(h => h.severity === 'warn' && h.message.includes('Einzelstunden'));
+		expect(warn).toBeTruthy();
 	});
 });
 

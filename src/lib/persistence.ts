@@ -1,7 +1,7 @@
 // localStorage save/load + JSON file download/upload for backups.
 // Includes forward-compatible migrations.
 
-import { SCHEMA_VERSION, type GradeLevel, type PlacedLesson, type ScheduleDoc, type LessonSpec, type Subject } from './types';
+import { SCHEMA_VERSION, type ConstraintConfig, type GradeLevel, type PlacedLesson, type ScheduleDoc, type LessonSpec, type Subject } from './types';
 
 const STORAGE_KEY = 'stundenplan27.doc';
 
@@ -67,6 +67,25 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		const sub = subject as Subject & { maxConsecutive?: number };
 		if (typeof sub.maxConsecutive !== 'number') {
 			sub.maxConsecutive = sub.isMain ? 2 : 99;
+		}
+	}
+
+	// Phase 9 additive migration: ConstraintConfig got two new fields.
+	if (doc.constraints) {
+		const c = doc.constraints as ConstraintConfig & {
+			noMainSubjectAfternoon?: { applyToAllSubjects?: boolean; weightAllSubjects?: number };
+			minDailySlotsPerGrade?: number;
+		};
+		if (typeof c.minDailySlotsPerGrade !== 'number') {
+			c.minDailySlotsPerGrade = 4;
+		}
+		if (c.noMainSubjectAfternoon) {
+			if (typeof c.noMainSubjectAfternoon.applyToAllSubjects !== 'boolean') {
+				c.noMainSubjectAfternoon.applyToAllSubjects = true;
+			}
+			if (typeof c.noMainSubjectAfternoon.weightAllSubjects !== 'number') {
+				c.noMainSubjectAfternoon.weightAllSubjects = 15;
+			}
 		}
 	}
 

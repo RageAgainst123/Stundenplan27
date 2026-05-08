@@ -96,20 +96,40 @@ export interface PlacedLesson {
 
 export interface ConstraintConfig {
 	noFreePeriodsForClass: { enabled: boolean; weight: number };
-	noMainSubjectAfternoon: { enabled: boolean; weight: number; afternoonStartsAtPeriod: Period };
+	noMainSubjectAfternoon: {
+		enabled: boolean;
+		weight: number;
+		afternoonStartsAtPeriod: Period;
+		applyToAllSubjects: boolean;     // Phase 9: also penalize non-main on afternoon
+		weightAllSubjects: number;       // Phase 9: weight for non-main afternoon
+	};
 	maxConsecutiveMain: { enabled: boolean; weight: number; max: number };
 	preferMainEarly: { enabled: boolean; weight: number };
 	preferDoubleLessonsContiguous: { enabled: boolean; weight: number };
 	compactTeacherDays: { enabled: boolean; weight: number };
+	/**
+	 * Phase 9: hard minimum of lesson slots per day per grade. Enforces that
+	 * every grade has at least N slots on every weekday, preventing the
+	 * solver from "packing all lessons into Mon-Wed" — pedagogically each
+	 * grade must have ≥4 lessons every day at MS SiG.
+	 */
+	minDailySlotsPerGrade: number;
 }
 
 export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	noFreePeriodsForClass: { enabled: true, weight: 100 },
-	noMainSubjectAfternoon: { enabled: true, weight: 50, afternoonStartsAtPeriod: 7 },
+	noMainSubjectAfternoon: {
+		enabled: true,
+		weight: 50,
+		afternoonStartsAtPeriod: 7,
+		applyToAllSubjects: true,
+		weightAllSubjects: 15
+	},
 	maxConsecutiveMain: { enabled: true, weight: 30, max: 2 },
 	preferMainEarly: { enabled: true, weight: 10 },
 	preferDoubleLessonsContiguous: { enabled: true, weight: 20 },
-	compactTeacherDays: { enabled: true, weight: 15 }
+	compactTeacherDays: { enabled: true, weight: 15 },
+	minDailySlotsPerGrade: 4
 };
 
 export interface ScheduleDoc {
