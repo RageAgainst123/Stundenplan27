@@ -87,10 +87,13 @@ src/
 
 ## Status
 
-- ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 35 Tests grün, `npm run build` sauber.
-- ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt; weiche Constraints (Score-Funktion) als nächste Iteration.
-- ✅ **Phase 5b (Reactivity & Solver-Bugs)** — gelöst. Solver findet auf der echten Liste.csv (52 Specs) einen Plan in <30s mit 155 platzierten Lessons, Sidebar reagiert auf Mutations, Stundenplan-Grid rendert farbige Lehrer-Cells mit Mehrstufen-Kopplungen (z. B. „DGB L2" über 5+6).
-- 🔜 **Phase 6** (Print-Layout, GitHub-Pages-Deploy, Polish) — ausstehend.
+- ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 54 Tests grün, `npm run build` sauber.
+- ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt.
+- ✅ **Phase 5b** (Reactivity & Solver 3D-Slots) — Solver findet auf echter Liste.csv (52 Specs) Plan in ~25 s mit 155 Lessons.
+- ✅ **Phase 5c** (Block-Pattern, Solver-Ignore, Bulk-Edit, maxConsecutive, Reset) — siehe CHANGELOG.
+- ✅ **Phase 5d** (Lehreinheiten-Kopplung-UX: Bulk Koppeln/Entkoppeln, Hover-×, gestapelte Cells).
+- ⚙️ **Phase 6** (Projekt-Hygiene: CLAUDE.md, LICENSE, CHANGELOG, GitHub-Pages-Deploy).
+- 🔜 **Phase 7** (Soft-Constraints, Print-Layout, `PlacedLesson.grade`-Bugfix).
 
 ## Was Phase 5b geändert hat
 
@@ -125,4 +128,13 @@ src/
 npm test
 ```
 
-35 Unit-Tests gegen den CSV-Parser (echte Liste.csv) und Solver-Encode/Decode-Pipeline.
+54 Unit-Tests: Block-Pattern-Helpers, CSV-Parser (echte Liste.csv), Solver-Encode/Decode-Pipeline.
+
+## Lizenz
+
+[MIT](./LICENSE) — Copyright © 2026 Geo Schlegel.
+
+## Mitwirken
+
+Solo-Projekt. Bei Interesse: GitHub-Issues mit konkreten Beobachtungen sind willkommen,
+keine PR-Garantie. Einstiegspunkt für Folge-Sessions ist [`CLAUDE.md`](./CLAUDE.md).
