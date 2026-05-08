@@ -88,11 +88,18 @@ export interface SolveSession {
 }
 
 export interface StartSolveOptions {
-	/** Time limit for the satisfy phase (Phase A). Default 15_000. */
+	/** Time limit for the satisfy phase (Phase A). Default 90_000.
+	 *  Phase 10 fix: was 15_000 — too short for L=129+ models with the
+	 *  full hard-constraint stack. Real UNSAT vs. timeout-without-proof
+	 *  becomes meaningful only with enough search time. */
 	satisfyTimeoutMs?: number;
-	/** Time limit for the optimize phase (Phase B). Default 60_000. */
+	/** Time limit for the optimize phase (Phase B). Default 180_000.
+	 *  Phase 10 fix: was 60_000 — anytime optimization needs a longer
+	 *  window to traverse the solution space and find better minima. */
 	optimizeTimeoutMs?: number;
-	/** Per-relaxation-step time limit. Default 30_000. */
+	/** Per-relaxation-step time limit. Default 60_000.
+	 *  Phase 10 fix: was 30_000 — relaxation rounds also benefit from
+	 *  enough time to either prove SAT or hit a real UNSAT. */
 	relaxTimeoutMs?: number;
 	/** Currently always `false` — variants run on-demand via runVariant(). */
 	enableVariants?: boolean;
@@ -159,6 +166,19 @@ async function runSolver(enc: SolverInput, timeoutMs: number, onProgress?: (s: s
 				? JSON.stringify((result.solution as any).output ?? result.solution)
 				: null);
 
+		// Phase 10 fix: differentiate UNKNOWN (time-limit, no proof) from UNSAT.
+		if (rawOutput === null) {
+			if (status === 'UNKNOWN') {
+				return {
+					status: 'TIMEOUT',
+					placed: [],
+					unplaced: enc.instances.map(i => i.specId),
+					message: 'Solver-Time-Limit erreicht ohne Lösung (UNKNOWN, kein bewiesenes UNSAT).'
+				};
+			}
+			return { status: 'UNSAT', placed: [], unplaced: enc.instances.map(i => i.specId) };
+		}
+
 		return decode(rawOutput, enc.instances);
 	} catch (e) {
 		const msg = e instanceof Error ? e.message
@@ -216,7 +236,7 @@ function disableStartInP1(doc: ScheduleDoc): ScheduleDoc {
 
 export async function solve(doc: ScheduleDoc, opts: SolveOptions = {}): Promise<SolverOutput> {
 	const enc = encode(doc);
-	const timeoutMs = opts.timeoutMs ?? 30_000;
+	const timeoutMs = opts.timeoutMs ?? 90_000;
 
 	if (enc.L === 0) {
 		return {
@@ -520,6 +540,21 @@ function runSolverStreaming(
 					? JSON.stringify((result.solution as any).output ?? result.solution)
 					: null);
 
+			// Phase 10 fix: differentiate UNKNOWN (time-limit reached, but no proof
+			// of unsatisfiability) from real UNSAT. If we have no solution but the
+			// solver didn't say UNSATISFIABLE, this is a TIMEOUT, not UNSAT.
+			if (rawOutput === null) {
+				if (status === 'UNKNOWN') {
+					return {
+						status: 'TIMEOUT',
+						placed: [],
+						unplaced: enc.instances.map(i => i.specId),
+						message: `Solver-Time-Limit erreicht ohne Lösung (Status: UNKNOWN). Das ist KEIN UNSAT — mehr Zeit könnte helfen.`
+					};
+				}
+				return { status: 'UNSAT', placed: [], unplaced: enc.instances.map(i => i.specId) };
+			}
+
 			return decode(rawOutput, enc.instances);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message
@@ -563,9 +598,9 @@ function runSolverStreaming(
 export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): SolveSession {
 	const emitter = new Emitter();
 	const tStart = Date.now();
-	const satisfyMs = opts.satisfyTimeoutMs ?? 15_000;
-	const optimizeMs = opts.optimizeTimeoutMs ?? 60_000;
-	const relaxMs = opts.relaxTimeoutMs ?? 30_000;
+	const satisfyMs = opts.satisfyTimeoutMs ?? 90_000;
+	const optimizeMs = opts.optimizeTimeoutMs ?? 180_000;
+	const relaxMs = opts.relaxTimeoutMs ?? 60_000;
 
 	let aborted = false;
 	let activeStream: StreamHandle | null = null;
@@ -678,9 +713,12 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				return;
 			}
 
-			// If Phase A is UNSAT, walk the relaxation chain.
+			// Phase 10 fix: only walk the relaxation chain on REAL UNSAT.
+			// TIMEOUT (= UNKNOWN with no solution) means the solver ran out of
+			// time but the configuration may still be satisfiable. Don't relax
+			// in that case — report it and tell the user to give more time.
 			if (resA.status === 'UNSAT') {
-				emitLog('phase', 'Phase A UNSAT — starte Lockerungs-Kette');
+				emitLog('phase', 'Phase A UNSAT (bewiesen unlösbar) — starte Lockerungs-Kette');
 				const relaxResult = await relaxationChain(
 					doc, relaxMs, emit, () => aborted,
 					() => activeStream, h => { activeStream = h; },
@@ -696,6 +734,19 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				}
 				if (relaxResult.relaxation) emit('relaxation', relaxResult.relaxation);
 				resA = relaxResult;
+			} else if (resA.status === 'TIMEOUT') {
+				// No solution found within Phase A's time limit, but config
+				// not proven UNSAT. Don't relax constraints silently — tell
+				// the user that more time is the right answer.
+				emitLog('warn', 'Phase A: Time-Limit erreicht ohne Lösung — Constraints werden NICHT gelockert (kein bewiesenes UNSAT)');
+				emit('done', {
+					final: {
+						...resA,
+						message: `Solver hat in ${Math.round((opts.satisfyTimeoutMs ?? 90000) / 1000)} s keine Lösung gefunden (Status: UNKNOWN, kein bewiesenes UNSAT).\n\nDas Modell könnte lösbar sein, der Solver braucht mehr Zeit. Versuche es erneut — die Constraints werden nicht gelockert weil die strenge Konfig nicht widerlegt wurde.`
+					},
+					totalElapsedMs: Date.now() - tStart
+				});
+				return;
 			}
 
 			if (resA.status !== 'SAT') {
@@ -829,12 +880,19 @@ async function relaxationChain(
 			const inf = mkInfo();
 			return { ...r, relaxation: inf, relaxedSpecIds: inf.blocksRelaxed };
 		}
+		// Phase 10 fix: TIMEOUT during relaxation also stops the chain.
+		// Continuing to relax further would only make sense if the current
+		// level was *proven* UNSAT, not if it just timed out.
+		if (r.status === 'TIMEOUT') {
+			emitLog('warn', `Lockerungs-Stufe „${label}" hat Time-Limit erreicht ohne Lösung — Kette wird abgebrochen statt weiter zu lockern`);
+			return r; // signal "stop", caller will report this as final result
+		}
 		return null;
 	}
 
 	if (hasBlocks) {
 		const r = await tryRound(blocksRelaxedDoc, `Lockere Block-Pattern (${relaxedSpecIds.length} Specs auf Auto)`, () => info({}));
-		if (r) return r;
+		if (r) return r; // SAT or TIMEOUT — both stop the chain
 		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
 	} else {
 		emitLog('info', 'Keine strikten Block-Pattern vorhanden — Stufe übersprungen');
@@ -853,6 +911,7 @@ async function relaxationChain(
 	if (originalMustStartP1) {
 		const r = await tryRound(disableStartInP1(relaxMinDailySlots(base, 0)), '„Beginn in P1"-Regel deaktivieren', () => info({ minDaily: originalMinDaily > 0 ? 0 : null, startP1: true }));
 		if (r) return r;
+		if (isAborted()) return { status: 'TIMEOUT', placed: [], unplaced: [], message: 'Abgebrochen' };
 	}
 
 	const hints = diagnose(doc);

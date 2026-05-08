@@ -111,9 +111,13 @@
 		reset();
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
-			satisfyTimeoutMs: 15_000,
-			optimizeTimeoutMs: 60_000,
-			relaxTimeoutMs: 30_000
+			// Phase 10 fix: längere Zeitbudgets damit der Solver echte
+			// Lösungen finden kann statt UNKNOWN zu hissen. UNKNOWN ist
+			// kein UNSAT — die Lockerungs-Kette wird bei UNKNOWN nicht
+			// ausgelöst (siehe service.ts).
+			satisfyTimeoutMs: 90_000,
+			optimizeTimeoutMs: 180_000,
+			relaxTimeoutMs: 60_000
 		});
 		session = s;
 
@@ -298,7 +302,10 @@
 		{:else if result.status === 'UNSAT'}
 			<span class="err">✗ Keine Lösung – {result.message}</span>
 		{:else if result.status === 'TIMEOUT'}
-			<span class="muted small">⏱ {result.message ?? 'Abgebrochen.'}</span>
+			<div class="warn">
+				<strong>⏱ Solver-Zeit erreicht ohne Lösung</strong>
+				<div style="margin-top:4px; white-space:pre-line;">{result.message ?? 'Time-Limit erreicht.'}</div>
+			</div>
 		{:else}
 			<span class="err">✗ {result.status}: {result.message ?? 'Solver-Fehler'}</span>
 		{/if}
