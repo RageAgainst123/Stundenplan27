@@ -136,18 +136,69 @@ describe('encode', () => {
 		expect(gM).toBe(gD);
 	});
 
+	it('Phase 8: multi-grade siblings of one occurrence share a synthetic occurrence groupId', () => {
+		// Regression test for the user-reported "BSP 7+8 split across day/period"
+		// bug. A spec with grades=[7,8] count=1 must NOT let the solver place
+		// the grade-7 instance and grade-8 instance on different slots.
+		// We bind them via a non-zero synthetic occurrence groupId; constraint
+		// 4b in model.mzn then forces same (day, period).
+		const doc = emptyDoc('2026/27');
+		doc.teachers.push({
+			id: 't', name: 'Schlegel', shortNumber: 1, color: '#000',
+			subjects: ['BSP'], unavailable: []
+		});
+		doc.subjects.push({
+			code: 'BSP', name: 'BSP', category: 'PG', isMain: false,
+			hoursPerWeek: {}, maxConsecutive: 99
+		});
+		doc.specs.push({
+			id: 's', subject: 'BSP', teacher: 't', classes: ['2a'],
+			grades: [7, 8], weekPattern: 'every', count: 1, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		// Two instances (grade 7 + grade 8), both auto-mode.
+		expect(enc.instances).toHaveLength(2);
+		const [g7, g8] = enc.instances;
+		expect(g7.groupId).toBeGreaterThan(0);
+		expect(g7.groupId).toBe(g8.groupId);
+	});
+
+	it('Phase 8: single-grade spec without coupling has groupId=0', () => {
+		// Single-grade specs need no synthetic occurrence group — they have
+		// only one instance per occurrence. groupId stays 0 = no constraint.
+		const doc = emptyDoc('2026/27');
+		doc.teachers.push({
+			id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: []
+		});
+		doc.subjects.push({
+			code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {}
+		});
+		doc.specs.push({
+			id: 's', subject: 'M', teacher: 't', classes: ['1a'],
+			grades: [5], weekPattern: 'every', count: 2, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		const enc = encode(doc);
+		expect(enc.instances).toHaveLength(2);
+		expect(enc.instances.every(i => i.groupId === 0)).toBe(true);
+	});
+
 	it('Phase 8 v3: groupLabel does NOT couple specs in the solver', () => {
 		const doc = makeDoc();
 		// Same descriptive label, but no couplingId — solver must keep them
-		// independent (different group ids).
+		// independent. Both are single-grade specs without a coupling, so
+		// they should have groupId=0 (no group constraint), NOT some shared
+		// non-zero id that would force them onto the same slot.
 		doc.specs[0].groupLabel = 'DGB 1/2';
 		doc.specs[1].groupLabel = 'DGB 1/2';
 		const enc = encode(doc);
 		const gM = enc.instances.find(i => i.specId === 'sM')!.groupId;
 		const gD = enc.instances.find(i => i.specId === 'sD')!.groupId;
-		// Both should have unique synthetic occurrence groups (≥ 1_000_000),
-		// not a shared coupling id.
-		expect(gM).not.toBe(gD);
+		// 0 = no group; the constraint that forces same-slot is keyed on
+		// group_id != 0, so both being 0 means "no coupling" → correct.
+		expect(gM).toBe(0);
+		expect(gD).toBe(0);
 	});
 
 	it('handles empty doc gracefully', () => {

@@ -12,6 +12,9 @@
 %   - Teacher availability respected
 %   - Slot uniqueness — two lessons must not share (day,period,grade) unless they
 %     belong to the same coupling group (parallel teaching)
+%   - Group cohesion — two lessons in the SAME group_id (>0) MUST land on the
+%     same (day,period). Covers explicit user couplings AND the synthetic
+%     occurrence groups used to keep multi-grade siblings together.
 %   - Even/odd week pattern compatibility
 %   - Distinct (day,period) for two instances of the same spec from different
 %     occurrences (each lesson goes on its own day or period)
@@ -103,11 +106,24 @@ constraint forall (l1, l2 in LESSON where l1 < l2 /\
     -> (lesson_group[l1] != 0 /\ lesson_group[l1] = lesson_group[l2])
 );
 
-% 4) Slot conflict: two lessons must not occupy the SAME (day,period,grade) unless
-%    they share an explicit coupling group (parallel teaching).
+% 4a) Slot conflict: two lessons must not occupy the SAME (day,period,grade) unless
+%     they share an explicit coupling group (parallel teaching).
 constraint forall (l1, l2 in LESSON where l1 < l2) (
   (assign[l1] = assign[l2])
     -> (lesson_group[l1] != 0 /\ lesson_group[l1] = lesson_group[l2])
+);
+
+% 4b) Group cohesion: two lessons in the SAME group_id (>0) MUST land on the
+%     same (day, period). Used both for explicit couplings (parallel teaching
+%     across teachers) AND for multi-grade siblings of a single pedagogical
+%     lesson — e.g. BSP for grades 7+8 with count=1 expands to 2 lesson
+%     instances (one per grade column) that share an occurrence group; they
+%     have to be taught at the same time, not split across the week.
+constraint forall (l1, l2 in LESSON where l1 < l2 /\
+                  lesson_group[l1] != 0 /\
+                  lesson_group[l1] = lesson_group[l2]) (
+  dayOf(assign[l1]) = dayOf(assign[l2]) /\
+  periodOf(assign[l1]) = periodOf(assign[l2])
 );
 
 % 5) Week pattern: even+odd may not coexist in same (day,period,grade) slot

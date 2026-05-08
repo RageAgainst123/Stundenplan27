@@ -168,7 +168,19 @@ export function encode(doc: ScheduleDoc): SolverInput {
 			// In auto mode: every instance has blockId=-1 (solver decides freely).
 			const thisBlockId = !isAutoMode && blockSize > 1 ? nextBlockId++ : -1;
 			for (let pos = 0; pos < blockSize; pos++) {
-				const occGroupId = groupIdBase > 0 ? groupIdBase : autoGroupCounter++;
+				// Phase 8 fix: when the spec covers MULTIPLE grades, the
+				// resulting per-grade instances are siblings of ONE pedagogical
+				// lesson — they must land on the same (day, period). We bind
+				// them with a synthetic occurrence group regardless of whether
+				// the user set a couplingId. Single-grade specs without a
+				// coupling get groupId=0 (no constraint).
+				const isMultiGrade = spec.grades.length > 1;
+				const occGroupId =
+					groupIdBase > 0
+						? groupIdBase
+						: isMultiGrade
+							? autoGroupCounter++
+							: 0;
 				for (const grade of spec.grades) {
 					const gradesSet = [grade - 4];
 					// Per-grade pin lookup: each grade column gets its own pin slot.
