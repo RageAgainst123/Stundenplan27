@@ -8,6 +8,8 @@ export type Day = 'Mo' | 'Di' | 'Mi' | 'Do' | 'Fr';
 export type Period = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type WeekPattern = 'every' | 'even' | 'odd';
 export type SubjectCategory = 'PG' | 'VÜ' | 'FÖ' | 'KU';
+/** Aufteilung der Wochenstunden in Blöcke. [2,2] = 2 Doppelstunden, [1,1,1,1] = 4 Einzelstunden. */
+export type BlockPattern = number[];
 
 export const DAYS: readonly Day[] = ['Mo', 'Di', 'Mi', 'Do', 'Fr'] as const;
 export const PERIODS: readonly Period[] = [1, 2, 3, 4, 5, 6, 7, 8] as const;
@@ -48,6 +50,7 @@ export interface Subject {
 	category: SubjectCategory;    // PG / VÜ / FÖ / KU
 	isMain: boolean;              // Hauptfach? (afternoon ban applies)
 	hoursPerWeek: Partial<Record<GradeLevel, number>>;
+	maxConsecutive?: number;      // Max Stunden dieses Fachs in Folge (default 2 für isMain, 99 sonst)
 }
 
 export interface LessonSpec {
@@ -59,7 +62,9 @@ export interface LessonSpec {
 	weekPattern: WeekPattern;     // every | even | odd (set manually for BBO/EH)
 	groupKey?: string;            // CSV "Gruppe" column — couples specs into same slot
 	pairedWith?: string[];        // explicit parallel pairings (BSPK|BSPM)
-	count: number;                // periods per week, allows 0.5 / 1.5
+	count: number;                // Gesamt-Wochenstunden, halbzahlig erlaubt (0.5, 1.5)
+	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
+	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
 	source: 'csv' | 'manual';     // provenance
 }
 

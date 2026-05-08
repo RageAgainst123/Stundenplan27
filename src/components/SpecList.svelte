@@ -3,9 +3,13 @@
 	const store = useStore();
 	import type { GradeLevel, LessonSpec, WeekPattern } from '../lib/types';
 	import { GRADES } from '../lib/types';
+	import { blockPresets, blockLabel, blockKey, parseBlockKey, groupColor, DEFAULT_BLOCK } from '../lib/blocks';
 
 	let filterTeacher = $state<string>('');
 	let filterSubject = $state<string>('');
+	let filterGroup = $state<string>('');
+	let groupBy = $state<'none' | 'group'>('group');
+	let selectedIds = $state<Set<string>>(new Set());
 
 	const weekOptions: { v: WeekPattern; label: string }[] = [
 		{ v: 'every', label: 'jede Woche' },
@@ -14,15 +18,37 @@
 	];
 
 	const filtered = $derived.by(() => {
-		return store.doc.specs.filter(s => {
+		const list = store.doc.specs.filter(s => {
 			if (filterTeacher && s.teacher !== filterTeacher) return false;
 			if (filterSubject && s.subject !== filterSubject) return false;
+			if (filterGroup && s.groupKey !== filterGroup) return false;
 			return true;
 		});
+		if (groupBy === 'group') {
+			// Specs with groupKey first, sorted by groupKey, then ungrouped
+			return [...list].sort((a, b) => {
+				const ag = a.groupKey ?? '';
+				const bg = b.groupKey ?? '';
+				if (ag && !bg) return -1;
+				if (!ag && bg) return 1;
+				if (ag !== bg) return ag.localeCompare(bg);
+				return a.subject.localeCompare(b.subject);
+			});
+		}
+		return list;
+	});
+
+	const allGroups = $derived.by(() => {
+		const set = new Set<string>();
+		for (const s of store.doc.specs) if (s.groupKey) set.add(s.groupKey);
+		return Array.from(set).sort();
 	});
 
 	function teacherName(id: string) {
 		return store.doc.teachers.find(t => t.id === id)?.name ?? '–';
+	}
+	function teacherColor(id: string) {
+		return store.doc.teachers.find(t => t.id === id)?.color ?? '#9ca3af';
 	}
 
 	function newSpec() {
@@ -36,15 +62,25 @@
 			grades: [],
 			weekPattern: 'every',
 			count: 1,
+			blocks: [1],
+			includeInSolver: true,
 			source: 'manual'
 		};
 		store.doc.specs.push(s);
 	}
 
+	function duplicateSpec(s: LessonSpec) {
+		const idx = store.doc.specs.findIndex(x => x.id === s.id);
+		const snap = $state.snapshot(s) as LessonSpec;
+		const copy: LessonSpec = { ...snap, id: crypto.randomUUID(), source: 'manual' };
+		store.doc.specs.splice(idx + 1, 0, copy);
+	}
+
 	function removeSpec(id: string) {
-		// also drop placements referencing this spec
 		store.doc.placed = store.doc.placed.filter(p => p.specId !== id);
 		store.doc.specs = store.doc.specs.filter(s => s.id !== id);
+		selectedIds.delete(id);
+		selectedIds = new Set(selectedIds);
 	}
 
 	function toggleGrade(s: LessonSpec, g: GradeLevel) {
@@ -65,10 +101,76 @@
 			.map(x => x.trim())
 			.filter(Boolean);
 	}
+
+	// ---- Block-Pattern handling ----
+	function currentBlockKey(s: LessonSpec): string {
+		return blockKey(s.blocks ?? DEFAULT_BLOCK(s.count));
+	}
+	function setBlockFromKey(s: LessonSpec, key: string) {
+		const b = parseBlockKey(key);
+		if (b.length > 0) s.blocks = b;
+	}
+	function syncCount(s: LessonSpec) {
+		// When count changes, reset blocks to default if it doesn't sum correctly
+		const sum = (s.blocks ?? []).reduce((a, c) => a + c, 0);
+		if (Math.abs(sum - s.count) > 0.001) {
+			s.blocks = DEFAULT_BLOCK(s.count);
+		}
+	}
+
+	// ---- Selection / Bulk ops ----
+	function toggleSelect(id: string) {
+		if (selectedIds.has(id)) selectedIds.delete(id);
+		else selectedIds.add(id);
+		selectedIds = new Set(selectedIds);
+	}
+	function toggleSelectAll() {
+		if (selectedIds.size === filtered.length) {
+			selectedIds = new Set();
+		} else {
+			selectedIds = new Set(filtered.map(s => s.id));
+		}
+	}
+	function clearSelection() {
+		selectedIds = new Set();
+	}
+
+	function bulkDelete() {
+		if (!confirm(`Wirklich ${selectedIds.size} Lehreinheiten löschen?`)) return;
+		store.doc.placed = store.doc.placed.filter(p => !selectedIds.has(p.specId));
+		store.doc.specs = store.doc.specs.filter(s => !selectedIds.has(s.id));
+		clearSelection();
+	}
+	function bulkDuplicate() {
+		const toCopy = store.doc.specs.filter(s => selectedIds.has(s.id));
+		for (const s of toCopy) {
+			const snap = $state.snapshot(s) as LessonSpec;
+			store.doc.specs.push({ ...snap, id: crypto.randomUUID(), source: 'manual' });
+		}
+		clearSelection();
+	}
+	function bulkSetSolver(value: boolean) {
+		for (const s of store.doc.specs) {
+			if (selectedIds.has(s.id)) s.includeInSolver = value;
+		}
+	}
+	function bulkSetWeek(pattern: WeekPattern) {
+		for (const s of store.doc.specs) {
+			if (selectedIds.has(s.id)) s.weekPattern = pattern;
+		}
+	}
+
+	// ---- Active stats for header ----
+	const activeCount = $derived(store.doc.specs.filter(s => s.includeInSolver).length);
+	const ignoredCount = $derived(store.doc.specs.filter(s => !s.includeInSolver).length);
 </script>
 
 <div class="head">
 	<h2>Lehreinheiten ({filtered.length}/{store.doc.specs.length})</h2>
+	<div class="stats">
+		<span class="stat ok">{activeCount} aktiv</span>
+		{#if ignoredCount > 0}<span class="stat muted">{ignoredCount} ignoriert</span>{/if}
+	</div>
 	<div class="filters">
 		<select bind:value={filterTeacher}>
 			<option value="">Alle Lehrer</option>
@@ -78,9 +180,32 @@
 			<option value="">Alle Fächer</option>
 			{#each store.doc.subjects as s}<option value={s.code}>{s.code}</option>{/each}
 		</select>
+		<select bind:value={filterGroup}>
+			<option value="">Alle Gruppen</option>
+			{#each allGroups as g}<option value={g}>{g}</option>{/each}
+		</select>
+		<label class="check-inline">
+			<input type="checkbox" checked={groupBy === 'group'} onchange={(e) => (groupBy = (e.currentTarget as HTMLInputElement).checked ? 'group' : 'none')} />
+			gruppieren
+		</label>
 	</div>
 	<button class="btn primary" onclick={newSpec}>+ Neue Lehreinheit</button>
 </div>
+
+{#if selectedIds.size > 0}
+	<div class="bulk-toolbar">
+		<strong>{selectedIds.size}</strong> ausgewählt:
+		<button class="btn small" onclick={bulkDuplicate}>⎘ Duplizieren</button>
+		<button class="btn small" onclick={() => bulkSetSolver(true)}>Solver an</button>
+		<button class="btn small" onclick={() => bulkSetSolver(false)}>Solver aus</button>
+		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v) bulkSetWeek(v as WeekPattern); (e.currentTarget as HTMLSelectElement).value = ''; }}>
+			<option value="">Wochen-Muster setzen…</option>
+			{#each weekOptions as w}<option value={w.v}>{w.label}</option>{/each}
+		</select>
+		<button class="btn danger small" onclick={bulkDelete}>🗑 Löschen</button>
+		<button class="btn small" onclick={clearSelection}>Auswahl aufheben</button>
+	</div>
+{/if}
 
 {#if filtered.length === 0}
 	<div class="empty-hint">Keine Lehreinheiten.</div>
@@ -88,20 +213,35 @@
 	<table class="specs">
 		<thead>
 			<tr>
+				<th class="sel"><input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onchange={toggleSelectAll} /></th>
+				<th>Solver</th>
 				<th>Fach</th>
 				<th>Lehrer</th>
 				<th>Klasse(n)</th>
 				<th>Schulstufen</th>
 				<th>Stunden</th>
+				<th>Block-Pattern</th>
 				<th>Woche</th>
 				<th>Kopplung</th>
-				<th>Quelle</th>
 				<th></th>
 			</tr>
 		</thead>
 		<tbody>
 			{#each filtered as s (s.id)}
-				<tr>
+				{@const gColor = s.groupKey ? groupColor(s.groupKey) : 'transparent'}
+				<tr
+					class:selected={selectedIds.has(s.id)}
+					class:ignored={!s.includeInSolver}
+					style:--group-color={gColor}
+					style:border-left-color={gColor}
+				>
+					<td class="sel"><input type="checkbox" checked={selectedIds.has(s.id)} onchange={() => toggleSelect(s.id)} /></td>
+					<td class="solver-toggle">
+						<label class="switch" title={s.includeInSolver ? 'Wird vom Generator platziert' : 'Vom Generator ignoriert'}>
+							<input type="checkbox" bind:checked={s.includeInSolver} />
+							<span class="slider"></span>
+						</label>
+					</td>
 					<td>
 						<select bind:value={s.subject}>
 							{#each store.doc.subjects as sub}
@@ -110,7 +250,7 @@
 						</select>
 					</td>
 					<td>
-						<select bind:value={s.teacher}>
+						<select bind:value={s.teacher} style:border-left={`4px solid ${teacherColor(s.teacher)}`}>
 							{#each store.doc.teachers as t}<option value={t.id}>{t.name}</option>{/each}
 						</select>
 					</td>
@@ -136,7 +276,18 @@
 						{/each}
 					</td>
 					<td>
-						<input type="number" min="0.5" step="0.5" bind:value={s.count} class="hours-input" />
+						<input type="number" min="0.5" step="0.5" bind:value={s.count} class="hours-input" onchange={() => syncCount(s)} />
+					</td>
+					<td class="block-cell">
+						<select
+							value={currentBlockKey(s)}
+							onchange={(e) => setBlockFromKey(s, (e.currentTarget as HTMLSelectElement).value)}
+							class="block-select"
+						>
+							{#each blockPresets(s.count) as preset (blockKey(preset))}
+								<option value={blockKey(preset)}>{blockLabel(preset)}</option>
+							{/each}
+						</select>
 					</td>
 					<td>
 						<select bind:value={s.weekPattern}>
@@ -144,15 +295,18 @@
 						</select>
 					</td>
 					<td>
-						<input
-							type="text"
-							bind:value={s.groupKey}
-							placeholder="Gruppen-Schlüssel"
-							size="14"
-						/>
+						{#if s.groupKey}
+							<button class="group-tag" style:background={gColor} onclick={() => (filterGroup = filterGroup === s.groupKey ? '' : s.groupKey ?? '')} title="Klick: Gruppe filtern">
+								{s.groupKey}
+							</button>
+						{:else}
+							<input type="text" bind:value={s.groupKey} placeholder="–" size="14" class="group-input" />
+						{/if}
 					</td>
-					<td><span class="source {s.source}">{s.source}</span></td>
-					<td><button class="btn danger small" onclick={() => removeSpec(s.id)}>×</button></td>
+					<td class="actions">
+						<button class="btn small" onclick={() => duplicateSpec(s)} title="Duplizieren">⎘</button>
+						<button class="btn danger small" onclick={() => removeSpec(s.id)} title="Löschen">×</button>
+					</td>
 				</tr>
 			{/each}
 		</tbody>
@@ -164,23 +318,70 @@
 		display: flex;
 		justify-content: space-between;
 		align-items: center;
-		gap: 16px;
-		margin-bottom: 16px;
+		gap: 12px;
+		margin-bottom: 12px;
+		flex-wrap: wrap;
 	}
 	.head h2 {
 		font-size: 18px;
 	}
+	.stats {
+		display: flex;
+		gap: 6px;
+	}
+	.stat {
+		font-size: 11px;
+		padding: 2px 8px;
+		border-radius: 4px;
+		font-weight: 600;
+	}
+	.stat.ok {
+		background: rgba(34, 197, 94, 0.15);
+		color: var(--ok);
+	}
+	.stat.muted {
+		background: var(--bg-soft);
+		color: var(--text-muted);
+	}
 	.filters {
 		display: flex;
-		gap: 8px;
+		gap: 6px;
 		margin-left: auto;
-		margin-right: 12px;
+		margin-right: 8px;
+		align-items: center;
 	}
 	.filters select {
 		padding: 4px 8px;
 		border: 1px solid var(--border);
 		border-radius: 4px;
 		font-size: 13px;
+	}
+	.check-inline {
+		display: inline-flex;
+		gap: 4px;
+		font-size: 12px;
+		color: var(--text-muted);
+		align-items: center;
+	}
+	.bulk-toolbar {
+		position: sticky;
+		top: 0;
+		z-index: 5;
+		display: flex;
+		gap: 8px;
+		align-items: center;
+		padding: 8px 12px;
+		margin-bottom: 8px;
+		background: var(--accent-bg);
+		border: 1px solid var(--accent);
+		border-radius: 6px;
+		font-size: 13px;
+	}
+	.bulk-select {
+		padding: 4px 8px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 12px;
 	}
 	table.specs {
 		width: 100%;
@@ -204,6 +405,61 @@
 		color: var(--text-muted);
 		text-transform: uppercase;
 	}
+	table.specs tr {
+		border-left: 4px solid transparent;
+	}
+	table.specs tr.selected {
+		background: rgba(37, 99, 235, 0.06);
+	}
+	table.specs tr.ignored {
+		opacity: 0.55;
+		background: var(--bg-soft);
+	}
+	td.sel,
+	th.sel {
+		width: 22px;
+		padding: 6px 4px;
+	}
+	.solver-toggle {
+		width: 38px;
+		text-align: center;
+	}
+	.switch {
+		position: relative;
+		display: inline-block;
+		width: 32px;
+		height: 18px;
+	}
+	.switch input {
+		opacity: 0;
+		width: 0;
+		height: 0;
+	}
+	.slider {
+		position: absolute;
+		cursor: pointer;
+		inset: 0;
+		background: var(--border-strong);
+		border-radius: 999px;
+		transition: 0.15s;
+	}
+	.slider:before {
+		content: '';
+		position: absolute;
+		left: 2px;
+		bottom: 2px;
+		width: 14px;
+		height: 14px;
+		background: white;
+		border-radius: 50%;
+		transition: 0.15s;
+	}
+	.switch input:checked + .slider {
+		background: var(--ok);
+	}
+	.switch input:checked + .slider:before {
+		transform: translateX(14px);
+	}
 	select,
 	input[type='text'],
 	input[type='number'] {
@@ -214,7 +470,10 @@
 		font: inherit;
 	}
 	.hours-input {
-		width: 60px;
+		width: 56px;
+	}
+	.block-select {
+		min-width: 110px;
 	}
 	.grades {
 		white-space: nowrap;
@@ -237,21 +496,26 @@
 	.grade-chip input {
 		display: none;
 	}
-	.source {
-		display: inline-block;
-		padding: 1px 5px;
-		border-radius: 3px;
-		font-size: 10px;
-		text-transform: uppercase;
+	.group-tag {
+		font-size: 11px;
+		padding: 3px 8px;
+		border-radius: 999px;
+		border: 1px solid rgba(0, 0, 0, 0.15);
 		font-weight: 600;
+		cursor: pointer;
+		color: rgba(0, 0, 0, 0.7);
+		max-width: 160px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
-	.source.csv {
-		background: var(--accent-bg);
-		color: var(--accent);
+	.group-input {
+		font-size: 12px;
+		opacity: 0.6;
 	}
-	.source.manual {
-		background: var(--bg-soft);
-		color: var(--text-muted);
+	.actions {
+		display: flex;
+		gap: 4px;
 	}
 	.btn.small {
 		padding: 3px 8px;

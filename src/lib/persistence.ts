@@ -1,7 +1,34 @@
 // localStorage save/load + JSON file download/upload for backups.
-import { SCHEMA_VERSION, type ScheduleDoc } from './types';
+// Includes a forward-compatible migration that fills in defaults for fields
+// added after the initial schema (blocks, includeInSolver, maxConsecutive).
+
+import { SCHEMA_VERSION, type ScheduleDoc, type LessonSpec, type Subject } from './types';
+import { DEFAULT_BLOCK } from './blocks';
 
 const STORAGE_KEY = 'stundenplan27.doc';
+
+/**
+ * Apply in-place migrations to a loaded doc. Runs on every load so that
+ * older backups (or older localStorage state) get filled with defaults.
+ */
+export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
+	for (const spec of doc.specs ?? []) {
+		const s = spec as LessonSpec & { blocks?: number[]; includeInSolver?: boolean };
+		if (!Array.isArray(s.blocks) || s.blocks.length === 0) {
+			s.blocks = DEFAULT_BLOCK(s.count);
+		}
+		if (typeof s.includeInSolver !== 'boolean') {
+			s.includeInSolver = true;
+		}
+	}
+	for (const subject of doc.subjects ?? []) {
+		const sub = subject as Subject & { maxConsecutive?: number };
+		if (typeof sub.maxConsecutive !== 'number') {
+			sub.maxConsecutive = sub.isMain ? 2 : 99;
+		}
+	}
+	return doc;
+}
 
 export function saveToLocalStorage(doc: ScheduleDoc): void {
 	try {
@@ -21,7 +48,7 @@ export function loadFromLocalStorage(): ScheduleDoc | null {
 				`Schema version mismatch (found ${parsed?.meta?.schemaVersion}, expected ${SCHEMA_VERSION}). Loaded as-is.`
 			);
 		}
-		return parsed;
+		return migrateDoc(parsed);
 	} catch (e) {
 		console.warn('localStorage load failed', e);
 		return null;
@@ -52,5 +79,5 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 			`Inkompatibles Schema (gefunden: ${parsed?.meta?.schemaVersion ?? 'unbekannt'}, erwartet: ${SCHEMA_VERSION})`
 		);
 	}
-	return parsed;
+	return migrateDoc(parsed);
 }

@@ -35,6 +35,8 @@ function makeDoc() {
 		grades: [5],
 		weekPattern: 'every',
 		count: 4,
+		blocks: [1, 1, 1, 1],
+		includeInSolver: true,
 		source: 'manual'
 	};
 	const sD: LessonSpec = {
@@ -45,6 +47,8 @@ function makeDoc() {
 		grades: [5],
 		weekPattern: 'every',
 		count: 3,
+		blocks: [1, 1, 1],
+		includeInSolver: true,
 		source: 'manual'
 	};
 	doc.specs.push(sM, sD);

@@ -204,7 +204,8 @@ export function importCsv(content: string): ImportResult {
 				name: meta.name,
 				category: row.category,
 				isMain: meta.isMain,
-				hoursPerWeek: {}
+				hoursPerWeek: {},
+				maxConsecutive: meta.isMain ? 2 : 99
 			};
 			subjectMap.set(row.subjectCode, subject);
 		}
@@ -236,6 +237,8 @@ export function importCsv(content: string): ImportResult {
 			weekPattern: 'every',
 			groupKey: row.groupKey || undefined,
 			count,
+			blocks: Array(Math.max(1, Math.round(count))).fill(1),
+			includeInSolver: true,
 			source: 'csv'
 		});
 	}

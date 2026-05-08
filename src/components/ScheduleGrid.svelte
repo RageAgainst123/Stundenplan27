@@ -119,6 +119,18 @@
 		if (!spec) return [];
 		return checkPlacementConflict(store.doc, spec, day, period).reasons;
 	}
+
+	function resetPlan() {
+		const n = store.doc.placed.length;
+		if (n === 0) return;
+		const pinnedCount = store.doc.placed.filter(p => p.pinned).length;
+		const msg = pinnedCount > 0
+			? `Wirklich alle ${n} platzierten Stunden löschen (inkl. ${pinnedCount} gepinnten)? Lehrer, Fächer und Lehreinheiten bleiben erhalten.`
+			: `Wirklich alle ${n} platzierten Stunden löschen? Lehrer, Fächer und Lehreinheiten bleiben erhalten.`;
+		if (!confirm(msg)) return;
+		store.doc.placed = [];
+		store.persistNow();
+	}
 </script>
 
 <section class="filter-bar">
@@ -156,6 +168,11 @@
 	</span>
 	<span class="sep"></span>
 	<GenerateButton />
+	{#if store.doc.placed.length > 0}
+		<button class="btn danger small" onclick={resetPlan} title="Alle platzierten Stunden löschen">
+			🗑 Planung verwerfen
+		</button>
+	{/if}
 </section>
 
 <div class="layout">

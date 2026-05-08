@@ -47,6 +47,14 @@ export class ScheduleStore {
 export function initStore(): ScheduleStore {
 	const s = new ScheduleStore();
 	setContext(KEY, s);
+	// Auto-save on any nested mutation. Uses an effect root so it lives for the
+	// whole app lifetime; explicit JSON.stringify forces a deep dependency read.
+	$effect.root(() => {
+		$effect(() => {
+			JSON.stringify(s.doc);
+			s.persist();
+		});
+	});
 	return s;
 }
 

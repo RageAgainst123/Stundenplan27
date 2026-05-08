@@ -12,7 +12,8 @@
 			name: 'Neues Fach',
 			category: 'PG',
 			isMain: false,
-			hoursPerWeek: {}
+			hoursPerWeek: {},
+			maxConsecutive: 99
 		};
 		store.doc.subjects.push(s);
 	}
@@ -48,6 +49,7 @@
 				<th>Name</th>
 				<th>Kat.</th>
 				<th>Hauptfach</th>
+				<th title="Maximale Anzahl gleicher Fächer in Folge an einem Tag">Max&nbsp;in Folge</th>
 				<th>Stunden 5./6./7./8. (informativ)</th>
 				<th></th>
 			</tr>
@@ -64,6 +66,9 @@
 					</td>
 					<td>
 						<input type="checkbox" bind:checked={s.isMain} />
+					</td>
+					<td>
+						<input type="number" min="1" max="8" step="1" bind:value={s.maxConsecutive} class="max-consec-input" placeholder="—" />
 					</td>
 					<td class="hours">
 						{#each GRADES as g}
@@ -139,6 +144,14 @@
 		border-radius: 4px;
 		padding: 1px 4px;
 		background: white;
+	}
+	.max-consec-input {
+		width: 50px;
+		padding: 3px 6px;
+		font-size: 12px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		text-align: center;
 	}
 	.hours {
 		display: flex;

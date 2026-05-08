@@ -2,15 +2,19 @@
 // The instance list is needed to map the solver's `assign` array back into PlacedLessons.
 
 import { DAYS, GRADES, PERIODS, type Day, type Period, type GradeLevel, type ScheduleDoc } from '../types';
+import { DEFAULT_BLOCK } from '../blocks';
 
 export interface LessonInstance {
 	specId: string;
 	specIndex1: number;            // 1-based spec id (instances of same spec share this)
 	indexWithinSpec: number;       // 0..count-1
 	teacherIndex1: number;         // 1-based, matches MiniZinc array indices
+	subjectIndex1: number;         // 1-based subject id (used for maxConsecutive)
 	gradesSet: number[];           // 1-based grade indices (5→1, 6→2, 7→3, 8→4)
 	groupId: number;               // 0 = no group; >0 = shared
 	weekId: number;                // 0=every, 1=even, 2=odd
+	blockId: number;               // -1 = standalone, ≥0 = part of a contiguous block
+	blockSize: number;             // size of the block this instance belongs to (1 = standalone)
 	pinned: boolean;
 	pinSlot1?: number;             // 1-based slot index when pinned
 }
@@ -21,7 +25,10 @@ export interface SolverInput {
 	T: number;
 	G: number;
 	L: number;
+	S: number;                     // number of subjects
 	teacherIds: string[];          // by 0-based index; teacherIndex1 = i+1
+	subjectCodes: string[];        // by 0-based index; subjectIndex1 = i+1
+	subjectMaxConsec: number[];    // [S], default 99 = no limit
 	instances: LessonInstance[];
 	dataJson: Record<string, unknown>;
 }
@@ -101,42 +108,62 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		pinsBySpec.set(p.specId, arr);
 	}
 
-	// Each LessonSpec expands into one instance per (occurrence × grade). Specs with
-	// |grades|>1 represent classes taught together at the same (day,period) — so for
-	// every "occurrence" (count) we emit one instance per grade, all sharing the same
-	// occurrence index so they can be coupled to a common (day,period) at solve time.
+	// Subject indexing for maxConsecutive
+	const subjectCodes = doc.subjects.map(s => s.code);
+	const subjectIdx = new Map<string, number>(subjectCodes.map((c, i) => [c, i + 1]));
+	const subjectMaxConsec = doc.subjects.map(s => s.maxConsecutive ?? 99);
+	const S = subjectCodes.length;
+
+	// Spec expansion:
+	// 1. Skip specs with includeInSolver === false
+	// 2. For each spec, expand `blocks[]`. Each block element of size N becomes N
+	//    consecutive lesson instances (sharing a blockId), one per grade per slot.
+	// 3. Block of size 1 → standalone (blockId = -1, blockSize = 1).
+	// 4. All grade-instances of the SAME block-position share an occurrence groupId
+	//    (so they land on the same day/period for parallel teaching).
 	const instances: LessonInstance[] = [];
 	let specCounter = 0;
-	let autoGroupCounter = 1_000_000; // synthetic group ids for grade-coupling
+	let autoGroupCounter = 1_000_000;
+	let nextBlockId = 0;
+
 	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
 		const tIdx1 = teacherIdx.get(spec.teacher);
 		if (!tIdx1) continue;
+		const sIdx1 = subjectIdx.get(spec.subject) ?? 1;
 		specCounter++;
 		const groupIdBase = getGroupId(spec);
 		const weekId = weekToId[spec.weekPattern] ?? 0;
 		const pins = pinsBySpec.get(spec.id) ?? [];
-		const count = Math.round(spec.count);
+		const blocks = spec.blocks && spec.blocks.length > 0 ? spec.blocks : DEFAULT_BLOCK(spec.count);
 
-		// Each occurrence: emit one instance per grade. All grades in one occurrence
-		// share a synthetic group_id so they MUST land on the same (day,period).
-		for (let occ = 0; occ < count; occ++) {
-			// Build a stable group id for this occurrence: reuse spec's groupKey base if
-			// any, OR mint a fresh synthetic id for each occurrence.
-			const occGroupId = groupIdBase > 0 ? groupIdBase : autoGroupCounter++;
-			const pin = pins[occ];
-			for (const grade of spec.grades) {
-				const gradesSet = [grade - 4]; // single-element set: this instance occupies this grade
-				instances.push({
-					specId: spec.id,
-					specIndex1: specCounter,
-					indexWithinSpec: occ,
-					teacherIndex1: tIdx1,
-					gradesSet,
-					groupId: occGroupId,
-					weekId,
-					pinned: pin !== undefined,
-					pinSlot1: pin
-				});
+		// Walk through each block; each block becomes blockSize consecutive lesson positions.
+		// We keep a global "occurrence index" within the spec for pin-mapping and tracing.
+		let occ = 0;
+		for (const blockSize of blocks) {
+			// One block id per block; if blockSize=1 we mark as -1 (standalone).
+			const thisBlockId = blockSize > 1 ? nextBlockId++ : -1;
+			for (let pos = 0; pos < blockSize; pos++) {
+				const occGroupId = groupIdBase > 0 ? groupIdBase : autoGroupCounter++;
+				const pin = pins[occ];
+				for (const grade of spec.grades) {
+					const gradesSet = [grade - 4];
+					instances.push({
+						specId: spec.id,
+						specIndex1: specCounter,
+						indexWithinSpec: occ,
+						teacherIndex1: tIdx1,
+						subjectIndex1: sIdx1,
+						gradesSet,
+						groupId: occGroupId,
+						weekId,
+						blockId: thisBlockId,
+						blockSize: blockSize,
+						pinned: pin !== undefined,
+						pinSlot1: pin
+					});
+				}
+				occ++;
 			}
 		}
 	}
@@ -188,16 +215,21 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		P,
 		T: Math.max(T, 1),
 		G,
-		L: Math.max(L, 1)
+		L: Math.max(L, 1),
+		S: Math.max(S, 1)
 	};
 
 	const lessonTeacher = instances.map(i => i.teacherIndex1).join(',') || '1';
+	const lessonSubject = instances.map(i => i.subjectIndex1).join(',') || '1';
 	const lessonGrades = instances.map(i => mznSet(i.gradesSet)).join(',') || '{1}';
 	const lessonGroup = instances.map(i => i.groupId).join(',') || '0';
 	const lessonWeek = instances.map(i => i.weekId).join(',') || '0';
 	const lessonSpecId = instances.map(i => i.specIndex1).join(',') || '1';
+	const lessonBlockId = instances.map(i => i.blockId).join(',') || '-1';
+	const lessonBlockSize = instances.map(i => i.blockSize).join(',') || '1';
 	const lessonPinned = instances.map(i => (i.pinned ? 'true' : 'false')).join(',') || 'false';
 	const lessonPinSlot = instances.map(i => i.pinSlot1 ?? 1).join(',') || '1';
+	const subjectMaxConsecArr = subjectMaxConsec.length > 0 ? subjectMaxConsec.join(',') : '99';
 
 	const dzn = [
 		`D = ${D};`,
@@ -205,17 +237,22 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		`T = ${Math.max(T, 1)};`,
 		`G = ${G};`,
 		`L = ${Math.max(L, 1)};`,
+		`S = ${Math.max(S, 1)};`,
 		L > 0 ? `lesson_teacher = [${lessonTeacher}];` : `lesson_teacher = [1];`,
+		L > 0 ? `lesson_subject = [${lessonSubject}];` : `lesson_subject = [1];`,
 		L > 0 ? `lesson_grades = [${lessonGrades}];` : `lesson_grades = [{1}];`,
 		L > 0 ? `lesson_group = [${lessonGroup}];` : `lesson_group = [0];`,
 		L > 0 ? `lesson_week = [${lessonWeek}];` : `lesson_week = [0];`,
 		L > 0 ? `lesson_spec_id = [${lessonSpecId}];` : `lesson_spec_id = [1];`,
+		L > 0 ? `lesson_block_id = [${lessonBlockId}];` : `lesson_block_id = [-1];`,
+		L > 0 ? `lesson_block_size = [${lessonBlockSize}];` : `lesson_block_size = [1];`,
 		L > 0 ? `lesson_pinned = [${lessonPinned}];` : `lesson_pinned = [false];`,
 		L > 0 ? `lesson_pin_slot = [${lessonPinSlot}];` : `lesson_pin_slot = [1];`,
+		`subject_max_consec = [${subjectMaxConsecArr}];`,
 		`teacher_blocked = ${mznBool3D(teacherBlocked3D.length > 0 ? teacherBlocked3D : [[[false]]])};`
 	].join('\n');
 
 	(dataJson as any).__dzn = dzn;
 
-	return { D, P, T, G, L, teacherIds, instances, dataJson };
+	return { D, P, T, G, L, S, teacherIds, subjectCodes, subjectMaxConsec, instances, dataJson };
 }
