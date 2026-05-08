@@ -59,8 +59,8 @@ describe('diagnose: pin conflicts', () => {
 		doc.subjects.push(subject('M'), subject('D'));
 		doc.specs.push(spec('s1', 'M', 't1', [5], 1));
 		doc.specs.push(spec('s2', 'D', 't1', [5], 1));
-		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
-		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: true });
+		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, grade: 5, pinned: true });
 		const hints = diagnose(doc);
 		const conflict = hints.find(h => h.severity === 'error' && h.message.includes('mehrfach gepinnt'));
 		expect(conflict).toBeTruthy();
@@ -72,8 +72,8 @@ describe('diagnose: pin conflicts', () => {
 		doc.subjects.push(subject('M'), subject('D'));
 		doc.specs.push(spec('s1', 'M', 't1', [5], 1, { groupKey: 'G' }));
 		doc.specs.push(spec('s2', 'D', 't1', [5], 1, { groupKey: 'G' }));
-		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
-		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: true });
+		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, grade: 5, pinned: true });
 		const hints = diagnose(doc);
 		expect(hints.find(h => h.message.includes('mehrfach gepinnt'))).toBeUndefined();
 	});
@@ -83,7 +83,7 @@ describe('diagnose: pin conflicts', () => {
 		doc.teachers.push(teacher('t1', 'L1', [{ day: 'Mo', period: 1 }]));
 		doc.subjects.push(subject('M'));
 		doc.specs.push(spec('s1', 'M', 't1', [5], 1));
-		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: true });
 		const hints = diagnose(doc);
 		const block = hints.find(h => h.severity === 'error' && h.message.includes('unverfügbar'));
 		expect(block).toBeTruthy();
@@ -136,10 +136,15 @@ describe('diagnose: User-Phase-7A scenario', () => {
 		doc.specs.push(spec('s67', 'REL', 'tREL', [6, 7], 2));
 		doc.specs.push(spec('s78', 'REL', 'tREL', [7, 8], 2));
 		// Pin them on Wednesday (4 hours total, teacher has 8 slots Mi → fits)
-		doc.placed.push({ specId: 's67', day: 'Mi', period: 1, pinned: true });
-		doc.placed.push({ specId: 's67', day: 'Mi', period: 2, pinned: true });
-		doc.placed.push({ specId: 's78', day: 'Mi', period: 3, pinned: true });
-		doc.placed.push({ specId: 's78', day: 'Mi', period: 4, pinned: true });
+		// Phase 8 v2: pin both grade columns of each multi-grade spec.
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 1, grade: 6, pinned: true });
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 1, grade: 7, pinned: true });
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 2, grade: 6, pinned: true });
+		doc.placed.push({ specId: 's67', day: 'Mi', period: 2, grade: 7, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 3, grade: 7, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 3, grade: 8, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 4, grade: 7, pinned: true });
+		doc.placed.push({ specId: 's78', day: 'Mi', period: 4, grade: 8, pinned: true });
 		const hints = diagnose(doc);
 		// Should not fail pre-flight: 4 hours assigned, 8 available on Mi
 		const errors = hints.filter(h => h.severity === 'error');

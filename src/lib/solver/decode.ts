@@ -1,5 +1,5 @@
 // Map MiniZinc solver output back into PlacedLesson[].
-import type { PlacedLesson } from '../types';
+import type { GradeLevel, PlacedLesson } from '../types';
 import { dpgFromSlot, type LessonInstance } from './encode';
 
 export interface PenaltyBreakdown {
@@ -57,10 +57,15 @@ export function decode(
 			continue;
 		}
 		const dpg = dpgFromSlot(slot1);
+		// Phase 8 v2: derive grade from the slot directly. The encoder ensures
+		// each instance is constrained to its own grade column (gradesSet is a
+		// singleton), so dpgFromSlot's grade matches the instance's intent.
+		const grade = dpg.grade as GradeLevel;
 		placed.push({
 			specId: instances[i].specId,
 			day: dpg.day,
 			period: dpg.period,
+			grade,
 			pinned: options.keepPinnedFlag ? instances[i].pinned : instances[i].pinned
 		});
 	}

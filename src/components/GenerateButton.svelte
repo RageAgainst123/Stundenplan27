@@ -21,14 +21,15 @@
 			if (r.status === 'SAT') {
 				// Replace non-pinned placements with solver result, keep pinned ones intact.
 				const pinnedKept = store.doc.placed.filter(p => p.pinned);
-				const pinnedKeys = new Set(pinnedKept.map(p => `${p.specId}|${p.day}|${p.period}`));
-				// Dedupe by (specId, day, period) defensively. The solver MUST place
-				// distinct lesson instances on distinct slots; if it doesn't, the
-				// rendering each-block would error out on duplicate keys.
+				// Phase 8 v2: dedup key includes grade — multi-grade specs emit
+				// one PlacedLesson per grade column on the same (day, period).
+				const pinnedKeys = new Set(
+					pinnedKept.map(p => `${p.specId}|${p.day}|${p.period}|${p.grade}`)
+				);
 				const seen = new Set<string>(pinnedKeys);
 				const additions: typeof r.placed = [];
 				for (const p of r.placed) {
-					const k = `${p.specId}|${p.day}|${p.period}`;
+					const k = `${p.specId}|${p.day}|${p.period}|${p.grade}`;
 					if (seen.has(k)) continue;
 					seen.add(k);
 					additions.push({ ...p, pinned: false });

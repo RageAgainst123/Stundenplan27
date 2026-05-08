@@ -102,18 +102,23 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	// constraint 0 enforces gradeOf(assign[l]) ∈ lesson_grades[l]. If we re-used
 	// the same slot for all grades, the multi-grade siblings would each need to
 	// be in grade[0]'s column, contradicting their own grade assignment → UNSAT.
+	// Phase 8 v2: PlacedLesson now carries its own grade. We index pins per
+	// (specId, grade) so each grade column gets exactly the slots the user
+	// pinned for THAT column. Multi-grade specs are pinned via multiple
+	// PlacedLessons (one per grade) — see ScheduleGrid.handleDropToCell.
 	const specById = new Map(doc.specs.map(s => [s.id, s]));
 	const pinsBySpecGrade = new Map<string, Map<GradeLevel, number[]>>();
 	for (const p of doc.placed) {
 		if (!p.pinned) continue;
 		const spec = specById.get(p.specId);
 		if (!spec || spec.grades.length === 0) continue;
+		// Defensive: ignore pins on grades the spec doesn't actually cover
+		// (legacy/corrupt data).
+		if (!spec.grades.includes(p.grade)) continue;
 		if (!pinsBySpecGrade.has(p.specId)) pinsBySpecGrade.set(p.specId, new Map());
 		const byGrade = pinsBySpecGrade.get(p.specId)!;
-		for (const grade of spec.grades) {
-			if (!byGrade.has(grade)) byGrade.set(grade, []);
-			byGrade.get(grade)!.push(slotFromDPG(p.day, p.period, grade));
-		}
+		if (!byGrade.has(p.grade)) byGrade.set(p.grade, []);
+		byGrade.get(p.grade)!.push(slotFromDPG(p.day, p.period, p.grade));
 	}
 
 	// Subject indexing for maxConsecutive + isMain (for soft constraints)

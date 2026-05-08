@@ -1,7 +1,7 @@
 // localStorage save/load + JSON file download/upload for backups.
 // Includes forward-compatible migrations.
 
-import { SCHEMA_VERSION, type ScheduleDoc, type LessonSpec, type Subject } from './types';
+import { SCHEMA_VERSION, type GradeLevel, type PlacedLesson, type ScheduleDoc, type LessonSpec, type Subject } from './types';
 
 const STORAGE_KEY = 'stundenplan27.doc';
 
@@ -14,6 +14,11 @@ const STORAGE_KEY = 'stundenplan27.doc';
  * "user never picked anything" and reset to undefined, which now means
  * "automatic — solver decides". Explicit non-default patterns like
  * [2,1] stay strict.
+ *
+ * Phase 8 v1→v2 migration: PlacedLesson.grade was missing in v1 — multi-grade
+ * specs were rendered into every grade column at once. v2 stores one
+ * PlacedLesson per grade. We expand each v1 placement into spec.grades.length
+ * v2 placements (one per grade column).
  */
 export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 	for (const spec of doc.specs ?? []) {
@@ -37,6 +42,39 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof sub.maxConsecutive !== 'number') {
 			sub.maxConsecutive = sub.isMain ? 2 : 99;
 		}
+	}
+
+	// Phase 8 v1→v2: expand grade-less PlacedLessons. Detect by absence of
+	// `grade` on any entry — also covers JSON backups from v1.
+	const specsById = new Map((doc.specs ?? []).map(s => [s.id, s]));
+	const v1Mode = (doc.placed ?? []).some(p => typeof (p as PlacedLesson).grade !== 'number');
+	if (v1Mode) {
+		const expanded: PlacedLesson[] = [];
+		const seen = new Set<string>();
+		for (const p of doc.placed ?? []) {
+			const spec = specsById.get(p.specId);
+			if (!spec) continue;
+			const gradesForRow: GradeLevel[] = typeof (p as PlacedLesson).grade === 'number'
+				? [(p as PlacedLesson).grade]
+				: spec.grades.length > 0 ? spec.grades : [5];
+			for (const g of gradesForRow) {
+				const key = `${p.specId}|${p.day}|${p.period}|${g}`;
+				if (seen.has(key)) continue;
+				seen.add(key);
+				expanded.push({
+					specId: p.specId,
+					day: p.day,
+					period: p.period,
+					grade: g,
+					pinned: !!p.pinned
+				});
+			}
+		}
+		doc.placed = expanded;
+	}
+
+	if (doc.meta) {
+		doc.meta.schemaVersion = SCHEMA_VERSION;
 	}
 	return doc;
 }
@@ -85,9 +123,16 @@ export function downloadAsJson(doc: ScheduleDoc, filename?: string): void {
 export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	const text = await file.text();
 	const parsed = JSON.parse(text) as ScheduleDoc;
-	if (!parsed?.meta || parsed.meta.schemaVersion !== SCHEMA_VERSION) {
+	if (!parsed?.meta) {
+		throw new Error('JSON ohne meta-Feld — keine Stundenplan-Datei.');
+	}
+	// schemaVersion is typed as the current literal (2), but old backups may
+	// hold 1 → cast to number for the runtime comparison.
+	const v = parsed.meta.schemaVersion as number;
+	// Accept v1 (auto-migrate) and v2 directly. Anything else is unknown.
+	if (v !== 1 && v !== SCHEMA_VERSION) {
 		throw new Error(
-			`Inkompatibles Schema (gefunden: ${parsed?.meta?.schemaVersion ?? 'unbekannt'}, erwartet: ${SCHEMA_VERSION})`
+			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1 oder ${SCHEMA_VERSION})`
 		);
 	}
 	return migrateDoc(parsed);

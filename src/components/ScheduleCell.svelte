@@ -31,10 +31,6 @@
 	const cellPlacements = $derived(placementsAt(store.doc, day, period, grade));
 
 	// If all placements in this cell share a non-empty groupKey → coupling background.
-	// (Note: depends on `PlacedLesson` exposing the correct grade column. Currently
-	// grades are inferred from spec.grades, so multi-grade lessons may register in
-	// multiple grade columns; the heuristic stays correct for genuinely coupled
-	// lessons since they share a groupKey.)
 	const couplingBg = $derived.by(() => {
 		if (cellPlacements.length < 2) return '';
 		const keys = cellPlacements.map(cp => cp.spec.groupKey ?? '');
@@ -58,12 +54,20 @@
 				p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
 			);
 		}
-		store.doc.placed.push({ specId, day, period, pinned: true });
+		// Phase 8 v2: one placement per grade-column the spec covers.
+		const grades = spec.grades.length > 0 ? spec.grades : [grade];
+		for (const g of grades) {
+			store.doc.placed.push({ specId, day, period, grade: g, pinned: true });
+		}
 	}
 
 	function togglePin(specId: string) {
-		const p = store.doc.placed.find(x => x.specId === specId && x.day === day && x.period === period);
-		if (p) p.pinned = !p.pinned;
+		const matching = store.doc.placed.filter(
+			x => x.specId === specId && x.day === day && x.period === period
+		);
+		if (matching.length === 0) return;
+		const newPinned = !matching[0].pinned;
+		for (const p of matching) p.pinned = newPinned;
 	}
 
 	function removePlacement(specId: string) {
@@ -85,7 +89,7 @@
 		}
 	}}
 >
-	{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + idx)}
+	{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + cp.placed.grade + '|' + idx)}
 		{@const teacher = teacherById(cp.spec.teacher)}
 		{@const visible = isHighlighted(cp.spec, grade)}
 		<div

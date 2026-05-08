@@ -118,7 +118,7 @@ describe('encode', () => {
 
 	it('encodes pinning via pin_slot', () => {
 		const doc = makeDoc();
-		doc.placed.push({ specId: 'sM', day: 'Mo', period: 1, pinned: true });
+		doc.placed.push({ specId: 'sM', day: 'Mo', period: 1, grade: 5, pinned: true });
 		const enc = encode(doc);
 		const sMInstances = enc.instances.filter(i => i.specId === 'sM');
 		expect(sMInstances.filter(i => i.pinned)).toHaveLength(1);
@@ -219,7 +219,9 @@ describe('phase 7A: multi-grade pinning bug', () => {
 	it('pinning a multi-grade spec produces a per-grade pin slot, not just grade[0]', () => {
 		const doc = makeMultiGradeDoc();
 		// Pin REL_67 on (Mi, 1)
-		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, pinned: true });
+		// Phase 8 v2: pin both grade columns of the multi-grade spec.
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, grade: 6, pinned: true });
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, grade: 7, pinned: true });
 		const enc = encode(doc);
 		const pinnedInst = enc.instances.filter(i => i.specId === 'sREL67' && i.pinned);
 		// At least one instance per grade should be pinned
@@ -235,8 +237,10 @@ describe('phase 7A: multi-grade pinning bug', () => {
 
 	it('all pinned instances of a single (day,period) are gradeOf-consistent with their gradesSet', () => {
 		const doc = makeMultiGradeDoc();
-		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, pinned: true });
-		doc.placed.push({ specId: 'sREL78', day: 'Mi', period: 3, pinned: true });
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, grade: 6, pinned: true });
+		doc.placed.push({ specId: 'sREL67', day: 'Mi', period: 1, grade: 7, pinned: true });
+		doc.placed.push({ specId: 'sREL78', day: 'Mi', period: 3, grade: 7, pinned: true });
+		doc.placed.push({ specId: 'sREL78', day: 'Mi', period: 3, grade: 8, pinned: true });
 		const enc = encode(doc);
 		// For every pinned instance: pinSlot's grade must match the instance's lesson_grades
 		for (const inst of enc.instances.filter(i => i.pinned)) {

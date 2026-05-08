@@ -99,10 +99,12 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 	}
 
 	// 5) Pinning-Konflikte: mehrere Pins auf demselben (specId, day, period, grade)
+	//    Phase 8 v2: include grade — multi-grade specs legitimately have one
+	//    PlacedLesson per grade, all pinned, all on the same (day, period).
 	const pinKeys = new Map<string, number>();
 	for (const p of doc.placed) {
 		if (!p.pinned) continue;
-		const k = `${p.specId}|${p.day}|${p.period}`;
+		const k = `${p.specId}|${p.day}|${p.period}|${p.grade}`;
 		pinKeys.set(k, (pinKeys.get(k) ?? 0) + 1);
 	}
 	for (const [k, n] of pinKeys) {
@@ -115,9 +117,16 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 	}
 
 	// 6) Pinned-Spec-Slot-Lehrer-Kollision: zwei Pins desselben Lehrers auf demselben (day,period)
+	//    Phase 8 v2: a multi-grade spec emits multiple PlacedLessons (one per
+	//    grade) on the same slot — all share specId. We dedup by specId to
+	//    avoid counting the same pedagogical lesson multiple times.
 	const pinByTeacherSlot = new Map<string, string[]>(); // "teacher|day|period" → [spec subjects]
+	const seenSpecSlot = new Set<string>();
 	for (const p of doc.placed) {
 		if (!p.pinned) continue;
+		const dedupKey = `${p.specId}|${p.day}|${p.period}`;
+		if (seenSpecSlot.has(dedupKey)) continue;
+		seenSpecSlot.add(dedupKey);
 		const spec = doc.specs.find(s => s.id === p.specId);
 		if (!spec) continue;
 		const key = `${spec.teacher}|${p.day}|${p.period}`;

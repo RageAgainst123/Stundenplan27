@@ -72,6 +72,10 @@ export interface PlacedLesson {
 	specId: string;
 	day: Day;
 	period: Period;
+	grade: GradeLevel;            // Phase 8: grade-column the lesson belongs to.
+	                               // Multi-grade specs (e.g. grades=[5,6]) emit ONE
+	                               // PlacedLesson per grade — same (day,period) but
+	                               // distinct grade.
 	pinned: boolean;              // user-fixed, solver may not move
 }
 
@@ -100,10 +104,10 @@ export interface ScheduleDoc {
 	specs: LessonSpec[];
 	placed: PlacedLesson[];
 	constraints: ConstraintConfig;
-	meta: { schemaVersion: 1; lastModified: string };
+	meta: { schemaVersion: 2; lastModified: string };
 }
 
-export const SCHEMA_VERSION = 1 as const;
+export const SCHEMA_VERSION = 2 as const;
 
 export function emptyDoc(schoolYear = '2026/27'): ScheduleDoc {
 	return {

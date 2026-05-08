@@ -71,7 +71,8 @@
 	function handleDropToSidebar(state: DragDropState<DragPayload>) {
 		const { specId, fromCell } = state.draggedItem;
 		if (!fromCell) return;
-		// remove placement at fromCell
+		// Remove ALL grade-rows of this spec at the source slot (multi-grade
+		// specs occupy spec.grades.length rows simultaneously).
 		store.doc.placed = store.doc.placed.filter(
 			p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
 		);
@@ -87,19 +88,29 @@
 			alert('Kann hier nicht platziert werden:\n' + conflict.reasons.join('\n'));
 			return;
 		}
-		// remove from old cell if move
+		// remove ALL grade-rows from old cell if move
 		if (fromCell) {
 			store.doc.placed = store.doc.placed.filter(
 				p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
 			);
 		}
-		store.doc.placed.push({ specId, day, period, pinned: true });
+		// Phase 8 v2: emit ONE placement per grade column the spec covers.
+		const grades = spec.grades.length > 0 ? spec.grades : ([5] as const);
+		for (const g of grades) {
+			store.doc.placed.push({ specId, day, period, grade: g, pinned: true });
+		}
 		dragHoverConflict = null;
 	}
 
 	function togglePin(specId: string, day: Day, period: Period) {
-		const p = store.doc.placed.find(x => x.specId === specId && x.day === day && x.period === period);
-		if (p) p.pinned = !p.pinned;
+		// Toggle pin on every grade-row this lesson occupies — pinning is per
+		// pedagogical lesson, not per grade column.
+		const matching = store.doc.placed.filter(
+			x => x.specId === specId && x.day === day && x.period === period
+		);
+		if (matching.length === 0) return;
+		const newPinned = !matching[0].pinned;
+		for (const p of matching) p.pinned = newPinned;
 	}
 
 	function removePlacement(specId: string, day: Day, period: Period) {
