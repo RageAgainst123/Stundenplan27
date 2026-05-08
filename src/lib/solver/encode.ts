@@ -79,15 +79,16 @@ export function encode(doc: ScheduleDoc): SolverInput {
 	const teacherIdx = new Map<string, number>(teacherIds.map((id, i) => [id, i + 1]));
 	const T = teacherIds.length;
 
-	// Build group registry
+	// Build coupling registry. Phase 8 v3: solver couplings now use the new
+	// `couplingId` field, NOT the descriptive `groupLabel` from CSV.
 	const groupMap = new Map<string, number>();
 	let nextGroupId = 1;
-	function getGroupId(spec: { groupKey?: string; pairedWith?: string[] }): number {
-		if (spec.groupKey && spec.groupKey.trim()) {
-			let id = groupMap.get(spec.groupKey);
+	function getGroupId(spec: { couplingId?: string; pairedWith?: string[] }): number {
+		if (spec.couplingId && spec.couplingId.trim()) {
+			let id = groupMap.get(spec.couplingId);
 			if (!id) {
 				id = nextGroupId++;
-				groupMap.set(spec.groupKey, id);
+				groupMap.set(spec.couplingId, id);
 			}
 			return id;
 		}

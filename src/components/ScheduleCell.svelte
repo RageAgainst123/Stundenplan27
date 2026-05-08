@@ -30,10 +30,12 @@
 	// because the component re-evaluates whenever store.doc.placed changes.
 	const cellPlacements = $derived(placementsAt(store.doc, day, period, grade));
 
-	// If all placements in this cell share a non-empty groupKey → coupling background.
+	// If all placements in this cell share a non-empty couplingId → coupling background.
+	// Phase 8 v3: only solver couplings (couplingId) get the visual highlight,
+	// not descriptive Sokrates labels (groupLabel).
 	const couplingBg = $derived.by(() => {
 		if (cellPlacements.length < 2) return '';
-		const keys = cellPlacements.map(cp => cp.spec.groupKey ?? '');
+		const keys = cellPlacements.map(cp => cp.spec.couplingId ?? '');
 		if (keys.some(k => !k)) return '';
 		const uniq = new Set(keys);
 		if (uniq.size !== 1) return '';

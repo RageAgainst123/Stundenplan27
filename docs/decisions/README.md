@@ -44,3 +44,4 @@ hängen daran?
 | [0007](0007-csv-as-seed-not-sync.md) | CSV-Import als Seeder, nicht als Sync   | 2026-05-08 |
 | [0008](0008-flexible-block-patterns.md) | Flexible Block-Patterns (Auto-Modus) | 2026-05-08 |
 | [0009](0009-soft-constraints-as-penalties.md) | Soft-Constraints als gewichtete Penalty-Zielfunktion | 2026-05-08 |
+| [0010](0010-grouplabel-vs-couplingid.md) | groupLabel vs. couplingId — Trennung Stufen-Bezeichnung und Solver-Kopplung | 2026-05-08 |

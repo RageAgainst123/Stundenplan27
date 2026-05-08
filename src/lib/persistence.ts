@@ -19,10 +19,26 @@ const STORAGE_KEY = 'stundenplan27.doc';
  * specs were rendered into every grade column at once. v2 stores one
  * PlacedLesson per grade. We expand each v1 placement into spec.grades.length
  * v2 placements (one per grade column).
+ *
+ * Phase 8 v2→v3 migration: split LessonSpec.groupKey into:
+ *   - groupLabel  (descriptive Sokrates "Gruppe" — no solver effect)
+ *   - couplingId  (hard solver constraint: same slot)
+ * Option A (conservative): all old groupKey values move to groupLabel; no
+ * spec gets a couplingId automatically. The user re-creates real couplings
+ * via the bulk action. Reasoning: in real Sokrates exports the "Gruppe"
+ * column is unique per spec, so it never represented a parallel-teaching
+ * coupling — the previous code treated it as one and produced wrong solver
+ * constraints.
  */
 export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 	for (const spec of doc.specs ?? []) {
-		const s = spec as LessonSpec & { blocks?: number[]; includeInSolver?: boolean };
+		const s = spec as LessonSpec & {
+			blocks?: number[];
+			includeInSolver?: boolean;
+			groupKey?: string;
+			groupLabel?: string;
+			couplingId?: string;
+		};
 		if (Array.isArray(s.blocks) && s.blocks.length > 0) {
 			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.round(s.count);
 			if (isLegacyAllSingles) {
@@ -35,6 +51,16 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		}
 		if (typeof s.includeInSolver !== 'boolean') {
 			s.includeInSolver = true;
+		}
+
+		// v2 → v3: groupKey → groupLabel (Option A — no auto-coupling).
+		// Only migrate if the new fields don't already exist (idempotent).
+		if (s.groupKey && !s.groupLabel && !s.couplingId) {
+			s.groupLabel = s.groupKey;
+		}
+		// Always strip the obsolete field so it doesn't linger in JSON backups.
+		if ('groupKey' in s) {
+			delete (s as unknown as Record<string, unknown>).groupKey;
 		}
 	}
 	for (const subject of doc.subjects ?? []) {
@@ -126,13 +152,13 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	if (!parsed?.meta) {
 		throw new Error('JSON ohne meta-Feld — keine Stundenplan-Datei.');
 	}
-	// schemaVersion is typed as the current literal (2), but old backups may
-	// hold 1 → cast to number for the runtime comparison.
+	// schemaVersion is typed as the current literal, but old backups may hold
+	// older numbers → cast to number for the runtime comparison.
 	const v = parsed.meta.schemaVersion as number;
-	// Accept v1 (auto-migrate) and v2 directly. Anything else is unknown.
-	if (v !== 1 && v !== SCHEMA_VERSION) {
+	// Accept v1, v2 (both auto-migrated by migrateDoc) and the current version.
+	if (v !== 1 && v !== 2 && v !== SCHEMA_VERSION) {
 		throw new Error(
-			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1 oder ${SCHEMA_VERSION})`
+			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2 oder ${SCHEMA_VERSION})`
 		);
 	}
 	return migrateDoc(parsed);

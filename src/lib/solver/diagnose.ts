@@ -131,10 +131,10 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		if (!spec) continue;
 		const key = `${spec.teacher}|${p.day}|${p.period}`;
 		const list = pinByTeacherSlot.get(key) ?? [];
-		// Skip if same groupKey (allowed parallel)
+		// Skip if same couplingId (allowed parallel teaching)
 		if (list.length > 0) {
 			const otherSpec = doc.specs.find(s => list.includes(s.subject));
-			if (otherSpec && otherSpec.groupKey && otherSpec.groupKey === spec.groupKey) {
+			if (otherSpec && otherSpec.couplingId && otherSpec.couplingId === spec.couplingId) {
 				continue;
 			}
 		}

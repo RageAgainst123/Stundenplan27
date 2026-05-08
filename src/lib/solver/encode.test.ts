@@ -125,15 +125,29 @@ describe('encode', () => {
 		expect(sMInstances.find(i => i.pinned)!.pinSlot1).toBe(1);
 	});
 
-	it('assigns same group id to specs sharing groupKey', () => {
+	it('assigns same group id to specs sharing couplingId', () => {
 		const doc = makeDoc();
-		doc.specs[0].groupKey = 'KopplungA';
-		doc.specs[1].groupKey = 'KopplungA';
+		doc.specs[0].couplingId = 'KopplungA';
+		doc.specs[1].couplingId = 'KopplungA';
 		const enc = encode(doc);
 		const gM = enc.instances.find(i => i.specId === 'sM')!.groupId;
 		const gD = enc.instances.find(i => i.specId === 'sD')!.groupId;
 		expect(gM).toBeGreaterThan(0);
 		expect(gM).toBe(gD);
+	});
+
+	it('Phase 8 v3: groupLabel does NOT couple specs in the solver', () => {
+		const doc = makeDoc();
+		// Same descriptive label, but no couplingId — solver must keep them
+		// independent (different group ids).
+		doc.specs[0].groupLabel = 'DGB 1/2';
+		doc.specs[1].groupLabel = 'DGB 1/2';
+		const enc = encode(doc);
+		const gM = enc.instances.find(i => i.specId === 'sM')!.groupId;
+		const gD = enc.instances.find(i => i.specId === 'sD')!.groupId;
+		// Both should have unique synthetic occurrence groups (≥ 1_000_000),
+		// not a shared coupling id.
+		expect(gM).not.toBe(gD);
 	});
 
 	it('handles empty doc gracefully', () => {

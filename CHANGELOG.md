@@ -9,8 +9,34 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ### Geplant
 - Print-Layout (A4 pro Lehrer / pro Schulstufe)
-- `PlacedLesson.grade`-Feld + Schema-Migration v1→v2
 - Performance-Tuning der Soft-Constraint-Penalties bei großer Liste
+- `pairedWith`-Feld entfernen (redundant zu `couplingId`)
+
+## [0.8.0] - 2026-05-08 — Phase 8: Schema-Migrationen v1→v2→v3
+
+### Added (v3)
+- **Trennung Stufen-Bezeichnung und Kopplung**: `LessonSpec.groupKey` aufgespalten in
+  - `groupLabel` — beschreibend, aus CSV-Spalte „Gruppe", **kein Solver-Effekt**
+  - `couplingId` — harte Solver-Kopplung (zeitgleicher Slot), nur manuell vom User gesetzt
+  Siehe [ADR-0010](docs/decisions/0010-grouplabel-vs-couplingid.md).
+- UI: `groupLabel` als kursives, dashed-border-Badge in der Klassen-Spalte.
+  Kopplungs-Spalte und ScheduleCell-Pastell-Hintergrund nutzen jetzt nur `couplingId`.
+- Migration v2→v3 (Option A — konservativ): alte `groupKey`-Werte werden zu
+  `groupLabel`. Keine Auto-Kopplung — User legt echte Kopplungen explizit neu an.
+- CSV-Import setzt nur `groupLabel`, niemals `couplingId`.
+
+### Fixed (v2)
+- **`PlacedLesson.grade`-Feld** + Schema-Migration v1→v2. Multi-Grade-Specs
+  (`grades=[5,6]`) werden jetzt als eine `PlacedLesson` pro Stufenspalte
+  gespeichert statt einmal mit Render-Fan-Out — User-Bug „Solver platziert
+  mehr Lehreinheiten als definiert" war ein Render-Bug, kein Solver-Bug.
+- `placedCountForSpec()` zählt jetzt eindeutige `(day, period)`-Slots
+  statt Roheinträge, damit Multi-Grade-Specs nicht mehrfach gezählt werden.
+- `checkPlacementConflict()` ist grade-aware.
+- Solver-Encoder pinning nutzt `p.grade` direkt (statt aus `spec.grades` zu expandieren).
+
+### Tests
+- 11 neue v2-Tests + 4 neue v3-Tests. Total: 92 Tests grün.
 
 ## [0.7.0] - 2026-05-08 — Phase 7B: Flexible Block-Patterns + Soft-Constraints
 

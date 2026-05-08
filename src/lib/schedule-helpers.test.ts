@@ -14,7 +14,8 @@ function spec(id: string, sub: string, t: string, grades: number[], count: numbe
 		weekPattern: 'every', count,
 		blocks: opts.blocks,
 		includeInSolver: true,
-		groupKey: opts.groupKey,
+		groupLabel: opts.groupLabel,
+		couplingId: opts.couplingId,
 		source: 'manual'
 	};
 }

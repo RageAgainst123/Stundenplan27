@@ -60,8 +60,23 @@ export interface LessonSpec {
 	classes: string[];            // ["1a"] or ["1a","2a"] (cross-class) — metadata only
 	grades: GradeLevel[];         // [5] or [5,6] (multi-grade) — drives the column placement
 	weekPattern: WeekPattern;     // every | even | odd (set manually for BBO/EH)
-	groupKey?: string;            // CSV "Gruppe" column — couples specs into same slot
-	pairedWith?: string[];        // explicit parallel pairings (BSPK|BSPM)
+	/**
+	 * Phase 8 v3: split from the old `groupKey`.
+	 *
+	 * `groupLabel` is the descriptive Sokrates "Gruppe" column ("DGB 1/2",
+	 * "PG_REL_RRK_1") — used for display and filtering only. It has NO solver
+	 * effect. A label like "1/2" just means "Stufen 5+6" and is informational.
+	 */
+	groupLabel?: string;
+	/**
+	 * `couplingId` is a hard solver constraint: all specs sharing the same
+	 * couplingId MUST be placed in the exact same (day, period). Used for
+	 * parallel teaching where two teachers run different lessons in the same
+	 * timeslot (e.g. BSP Knaben + BSP Mädchen). Only set explicitly by the
+	 * user via the bulk "Koppeln" action; never populated from CSV.
+	 */
+	couplingId?: string;
+	pairedWith?: string[];        // explicit parallel pairings (BSPK|BSPM) — legacy, prefer couplingId
 	count: number;                // Gesamt-Wochenstunden, halbzahlig erlaubt (0.5, 1.5)
 	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
@@ -104,10 +119,10 @@ export interface ScheduleDoc {
 	specs: LessonSpec[];
 	placed: PlacedLesson[];
 	constraints: ConstraintConfig;
-	meta: { schemaVersion: 2; lastModified: string };
+	meta: { schemaVersion: 3; lastModified: string };
 }
 
-export const SCHEMA_VERSION = 2 as const;
+export const SCHEMA_VERSION = 3 as const;
 
 export function emptyDoc(schoolYear = '2026/27'): ScheduleDoc {
 	return {

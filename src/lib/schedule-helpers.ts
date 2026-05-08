@@ -10,7 +10,7 @@ export interface CellPlacement {
 
 /**
  * Returns all placements that occupy (day, period, grade) — there can be more than
- * one if multiple specs share a slot via groupKey or pairedWith (parallel teaching).
+ * one if multiple specs share a slot via couplingId or pairedWith (parallel teaching).
  *
  * Phase 8 v2: filtering is by p.grade exactly (no more spec.grades fan-out).
  */
@@ -92,8 +92,10 @@ export function checkPlacementConflict(
 		if (!otherSpec) continue;
 		if (otherSpec.id === spec.id) continue; // same spec already there is fine for repeat
 
+		// Phase 8 v3: coupling check uses couplingId (solver-relevant), NOT
+		// groupLabel (display-only).
 		const sameGroup =
-			(spec.groupKey && otherSpec.groupKey === spec.groupKey) ||
+			(spec.couplingId && otherSpec.couplingId === spec.couplingId) ||
 			spec.pairedWith?.includes(otherSpec.id) ||
 			otherSpec.pairedWith?.includes(spec.id);
 

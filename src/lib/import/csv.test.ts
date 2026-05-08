@@ -69,7 +69,7 @@ describe('importCsv – real Sokrates fixture', () => {
 	});
 
 	it('parses cross-class "1a+2a" as multiple classes', () => {
-		const mädchen = result.specs.find(s => s.groupKey === 'Bewegung und Sport Mädchen');
+		const mädchen = result.specs.find(s => s.groupLabel === 'Bewegung und Sport Mädchen');
 		expect(mädchen).toBeDefined();
 		expect(mädchen!.classes).toEqual(['1a', '2a']);
 		expect(mädchen!.grades).toEqual([5, 6, 7, 8]);
@@ -84,7 +84,7 @@ describe('importCsv – real Sokrates fixture', () => {
 	});
 
 	it('handles cross-grade religion 6+7', () => {
-		const rel67 = result.specs.find(s => s.groupKey === 'PG_REL_RRK_1');
+		const rel67 = result.specs.find(s => s.groupLabel === 'PG_REL_RRK_1');
 		expect(rel67).toBeDefined();
 		expect(rel67!.grades).toEqual([6, 7]);
 	});
@@ -106,13 +106,17 @@ describe('importCsv – real Sokrates fixture', () => {
 		expect(result.specs.every(s => s.weekPattern === 'every')).toBe(true);
 	});
 
-	it('groupKey is set when CSV had a Gruppe value, undefined otherwise', () => {
-		const withGroup = result.specs.find(s => s.groupKey === 'Bewegung und Sport Knaben 1/2');
+	it('groupLabel is set when CSV had a Gruppe value, undefined otherwise', () => {
+		const withGroup = result.specs.find(s => s.groupLabel === 'Bewegung und Sport Knaben 1/2');
 		expect(withGroup).toBeDefined();
 		const noGroup = result.specs.find(
 			s => s.subject === 'M' && s.classes[0] === '1a' && s.grades[0] === 5
 		);
-		expect(noGroup?.groupKey).toBeUndefined();
+		expect(noGroup?.groupLabel).toBeUndefined();
+	});
+
+	it('Phase 8 v3: CSV imports never set couplingId (only manual via UI)', () => {
+		expect(result.specs.every(s => s.couplingId === undefined)).toBe(true);
 	});
 
 	it('all specs have source=csv', () => {

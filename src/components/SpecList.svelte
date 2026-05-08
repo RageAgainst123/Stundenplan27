@@ -21,14 +21,15 @@
 		const list = store.doc.specs.filter(s => {
 			if (filterTeacher && s.teacher !== filterTeacher) return false;
 			if (filterSubject && s.subject !== filterSubject) return false;
-			if (filterGroup && s.groupKey !== filterGroup) return false;
+			// Filter dropdown lists couplings (solver-relevant).
+			if (filterGroup && s.couplingId !== filterGroup) return false;
 			return true;
 		});
 		if (groupBy === 'group') {
-			// Specs with groupKey first, sorted by groupKey, then ungrouped
+			// Specs with a coupling first (sorted by couplingId), then ungrouped.
 			return [...list].sort((a, b) => {
-				const ag = a.groupKey ?? '';
-				const bg = b.groupKey ?? '';
+				const ag = a.couplingId ?? '';
+				const bg = b.couplingId ?? '';
 				if (ag && !bg) return -1;
 				if (!ag && bg) return 1;
 				if (ag !== bg) return ag.localeCompare(bg);
@@ -40,7 +41,7 @@
 
 	const allGroups = $derived.by(() => {
 		const set = new Set<string>();
-		for (const s of store.doc.specs) if (s.groupKey) set.add(s.groupKey);
+		for (const s of store.doc.specs) if (s.couplingId) set.add(s.couplingId);
 		return Array.from(set).sort();
 	});
 
@@ -177,15 +178,19 @@
 		}
 	}
 
-	// ---- Coupling ops ----
+	// ---- Coupling ops (Phase 8 v3) ----
+	// "Kopplung" = solver constraint: parallel teaching, same slot, multiple
+	// teachers. Stored in spec.couplingId. Distinct from spec.groupLabel,
+	// which is the descriptive Sokrates "Gruppe" column ("DGB 1/2") and has
+	// no solver effect.
 	function bulkCouple() {
 		const sel = store.doc.specs.filter(s => selectedIds.has(s.id));
 		if (sel.length < 2) {
 			alert('Bitte mindestens zwei Lehreinheiten auswählen.');
 			return;
 		}
-		// If they already share a non-empty groupKey, do nothing.
-		const existingKeys = new Set(sel.map(s => s.groupKey ?? ''));
+		// If they already share a non-empty couplingId, do nothing.
+		const existingKeys = new Set(sel.map(s => s.couplingId ?? ''));
 		const onlyKey = existingKeys.size === 1 ? [...existingKeys][0] : '';
 		// Soft validation: warn on count mismatch
 		const counts = Array.from(new Set(sel.map(s => s.count)));
@@ -196,45 +201,47 @@
 			);
 			if (!ok) return;
 		}
-		// Decide on the group key:
+		// Decide on the coupling id (default: prefill with one of the selected
+		// specs' groupLabel if available, else generate a timestamp name).
 		const candidate =
 			(onlyKey ||
-				sel.find(s => s.groupKey)?.groupKey ||
+				sel.find(s => s.couplingId)?.couplingId ||
+				sel.find(s => s.groupLabel)?.groupLabel ||
 				`Kopplung ${new Date().toLocaleString('de-AT', { hour12: false }).replace(/[\s,:.]+/g, '-')}`);
 		const proposed = prompt(
-			`Gruppen-Name (oder Enter bestätigen):`,
+			`Kopplungs-Name (Solver platziert diese Einheiten zeitgleich):`,
 			candidate
 		);
 		if (proposed === null) return;
 		const finalKey = proposed.trim() || candidate;
 		for (const s of store.doc.specs) {
-			if (selectedIds.has(s.id)) s.groupKey = finalKey;
+			if (selectedIds.has(s.id)) s.couplingId = finalKey;
 		}
 	}
 
 	function bulkUncouple() {
 		const sel = store.doc.specs.filter(s => selectedIds.has(s.id));
-		const couplable = sel.filter(s => s.groupKey);
+		const couplable = sel.filter(s => s.couplingId);
 		if (couplable.length === 0) {
 			alert('Keine der ausgewählten Lehreinheiten ist gekoppelt.');
 			return;
 		}
 		if (!confirm(`${couplable.length} Lehreinheiten entkoppeln?`)) return;
 		for (const s of store.doc.specs) {
-			if (selectedIds.has(s.id) && s.groupKey) s.groupKey = undefined;
+			if (selectedIds.has(s.id) && s.couplingId) s.couplingId = undefined;
 		}
 	}
 
 	function uncoupleSingle(specId: string) {
 		const spec = store.doc.specs.find(s => s.id === specId);
-		if (!spec || !spec.groupKey) return;
-		spec.groupKey = undefined;
+		if (!spec || !spec.couplingId) return;
+		spec.couplingId = undefined;
 	}
 
 	// ---- Group analysis (for bulk-toolbar visibility) ----
 	const selectedSpecs = $derived(store.doc.specs.filter(s => selectedIds.has(s.id)));
 	const canCouple = $derived(selectedSpecs.length >= 2);
-	const canUncouple = $derived(selectedSpecs.some(s => s.groupKey));
+	const canUncouple = $derived(selectedSpecs.some(s => s.couplingId));
 
 	// ---- Active stats for header ----
 	const activeCount = $derived(store.doc.specs.filter(s => s.includeInSolver).length);
@@ -256,13 +263,13 @@
 			<option value="">Alle Fächer</option>
 			{#each store.doc.subjects as s}<option value={s.code}>{s.code}</option>{/each}
 		</select>
-		<select bind:value={filterGroup}>
-			<option value="">Alle Gruppen</option>
+		<select bind:value={filterGroup} title="Filter: nur eine Solver-Kopplung anzeigen">
+			<option value="">Alle Kopplungen</option>
 			{#each allGroups as g}<option value={g}>{g}</option>{/each}
 		</select>
 		<label class="check-inline">
 			<input type="checkbox" checked={groupBy === 'group'} onchange={(e) => (groupBy = (e.currentTarget as HTMLInputElement).checked ? 'group' : 'none')} />
-			gruppieren
+			nach Kopplung gruppieren
 		</label>
 	</div>
 	<button class="btn primary" onclick={newSpec}>+ Neue Lehreinheit</button>
@@ -309,7 +316,7 @@
 		</thead>
 		<tbody>
 			{#each filtered as s (s.id)}
-				{@const gColor = s.groupKey ? groupColor(s.groupKey) : 'transparent'}
+				{@const gColor = s.couplingId ? groupColor(s.couplingId) : 'transparent'}
 				<tr
 					class:selected={selectedIds.has(s.id)}
 					class:ignored={!s.includeInSolver}
@@ -336,13 +343,18 @@
 						</select>
 					</td>
 					<td>
-						<input
-							type="text"
-							value={classesString(s)}
-							onchange={e => setClassesString(s, (e.currentTarget as HTMLInputElement).value)}
-							placeholder="1a oder 1a+2a"
-							size="8"
-						/>
+						<div class="classes-cell">
+							<input
+								type="text"
+								value={classesString(s)}
+								onchange={e => setClassesString(s, (e.currentTarget as HTMLInputElement).value)}
+								placeholder="1a oder 1a+2a"
+								size="8"
+							/>
+							{#if s.groupLabel}
+								<span class="group-label" title={`Sokrates-Gruppe (Stufenbezeichnung, ohne Solver-Effekt): ${s.groupLabel}`}>{s.groupLabel}</span>
+							{/if}
+						</div>
 					</td>
 					<td class="grades">
 						{#each GRADES as g}
@@ -383,15 +395,15 @@
 						</select>
 					</td>
 					<td>
-						{#if s.groupKey}
+						{#if s.couplingId}
 							<span class="group-tag-wrap">
-								<button class="group-tag" style:background={gColor} onclick={() => (filterGroup = filterGroup === s.groupKey ? '' : s.groupKey ?? '')} title="Klick: Gruppe filtern">
-									{s.groupKey}
+								<button class="group-tag" style:background={gColor} onclick={() => (filterGroup = filterGroup === s.couplingId ? '' : s.couplingId ?? '')} title="Klick: Kopplung filtern">
+									{s.couplingId}
 								</button>
-								<button class="group-tag-x" onclick={() => uncoupleSingle(s.id)} title="Aus Gruppe entfernen">×</button>
+								<button class="group-tag-x" onclick={() => uncoupleSingle(s.id)} title="Aus Kopplung entfernen">×</button>
 							</span>
 						{:else}
-							<input type="text" bind:value={s.groupKey} placeholder="–" size="14" class="group-input" />
+							<input type="text" bind:value={s.couplingId} placeholder="–" size="14" class="group-input" title="Solver-Kopplung: Lehreinheiten mit gleichem Wert werden zeitgleich platziert" />
 						{/if}
 					</td>
 					<td class="actions">
@@ -587,6 +599,26 @@
 	.info-icon:hover {
 		background: var(--accent-bg);
 		color: var(--accent);
+	}
+	.classes-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+		align-items: flex-start;
+	}
+	.group-label {
+		display: inline-block;
+		padding: 1px 6px;
+		font-size: 10px;
+		color: var(--text-muted);
+		background: var(--bg-soft);
+		border: 1px dashed var(--border-strong);
+		border-radius: 3px;
+		white-space: nowrap;
+		max-width: 120px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		font-style: italic;
 	}
 	.grades {
 		white-space: nowrap;

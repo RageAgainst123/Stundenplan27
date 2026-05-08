@@ -24,7 +24,7 @@ interface ParsedRow {
 	category: SubjectCategory;
 	subjectCode: string;       // "BSP"
 	classes: string[];         // ["1a"] or ["1a","2a"]
-	groupKey: string;          // "" if empty
+	groupLabel: string;        // Sokrates "Gruppe" column ("DGB 1/2"), "" if empty
 	stunden: number;
 	ergStunden: number;
 	grades: GradeLevel[];
@@ -130,7 +130,7 @@ function parseRow(fields: string[]): ParsedRow | null {
 		category: sub.category,
 		subjectCode: sub.code,
 		classes: parseClasses(rawClasses),
-		groupKey: rawGroup.trim(),
+		groupLabel: rawGroup.trim(),
 		stunden: parseDecimal(rawStunden),
 		ergStunden: parseDecimal(rawErg),
 		grades: parseGrades(rawGrades),
@@ -235,7 +235,12 @@ export function importCsv(content: string): ImportResult {
 			classes: row.classes,
 			grades: row.grades,
 			weekPattern: 'every',
-			groupKey: row.groupKey || undefined,
+			// Phase 8 v3: the Sokrates "Gruppe" column is descriptive only
+			// (e.g. "DGB 1/2" = grades 5+6). It is NOT a solver coupling.
+			// Real couplings (parallel teaching with multiple teachers) must
+			// be created manually via the bulk "Koppeln" action.
+			groupLabel: row.groupLabel || undefined,
+			couplingId: undefined,
 			count,
 			// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet,
 			// max 1 Doppelstunde pro Spec, keine 3er-Blöcke). Strikte Patterns

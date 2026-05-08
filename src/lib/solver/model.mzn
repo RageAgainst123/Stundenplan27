@@ -118,7 +118,7 @@ constraint forall (l1, l2 in LESSON where l1 < l2 /\
 
 % 6) Distinct (day, period) for two instances of the same spec from DIFFERENT
 %    occurrences. We use lesson_occ_idx (NOT lesson_group) because specs with an
-%    explicit groupKey share the same group_id across all occurrences — using
+%    explicit couplingId share the same group_id across all occurrences — using
 %    group here would let multiple occurrences collapse onto the same slot.
 constraint forall (l1, l2 in LESSON where l1 < l2 /\
                   lesson_spec_id[l1] = lesson_spec_id[l2] /\

@@ -15,7 +15,8 @@ function spec(id: string, sub: string, t: string, grades: number[], count: numbe
 		id, subject: sub, teacher: t, classes: ['1a'], grades: grades as any,
 		weekPattern: 'every', count, blocks: Array(count).fill(1),
 		includeInSolver: opts.includeInSolver ?? true,
-		groupKey: opts.groupKey,
+		groupLabel: opts.groupLabel,
+		couplingId: opts.couplingId,
 		source: 'manual'
 	};
 }
@@ -66,12 +67,12 @@ describe('diagnose: pin conflicts', () => {
 		expect(conflict).toBeTruthy();
 	});
 
-	it('does NOT report conflict when both pinned specs share the same groupKey', () => {
+	it('does NOT report conflict when both pinned specs share the same couplingId', () => {
 		const doc = emptyDoc();
 		doc.teachers.push(teacher('t1', 'L1'));
 		doc.subjects.push(subject('M'), subject('D'));
-		doc.specs.push(spec('s1', 'M', 't1', [5], 1, { groupKey: 'G' }));
-		doc.specs.push(spec('s2', 'D', 't1', [5], 1, { groupKey: 'G' }));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 1, { couplingId: 'G' }));
+		doc.specs.push(spec('s2', 'D', 't1', [5], 1, { couplingId: 'G' }));
 		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: true });
 		doc.placed.push({ specId: 's2', day: 'Mo', period: 1, grade: 5, pinned: true });
 		const hints = diagnose(doc);

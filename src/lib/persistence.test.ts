@@ -77,3 +77,43 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 		expect(doc.specs[0].blocks).toEqual([2, 1]);
 	});
 });
+
+describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {
+	it('moves old groupKey to groupLabel, never to couplingId', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		(doc.specs as any).push({
+			id: 's', subject: 'BSP', teacher: 't', classes: ['1a'], grades: [5, 6],
+			weekPattern: 'every', count: 2, blocks: undefined,
+			includeInSolver: true,
+			groupKey: 'DGB 1/2',
+			source: 'manual'
+		});
+		(doc.meta as any).schemaVersion = 2;
+
+		migrateDoc(doc);
+
+		const s = doc.specs[0] as any;
+		expect(s.groupKey).toBeUndefined();
+		expect(s.groupLabel).toBe('DGB 1/2');
+		expect(s.couplingId).toBeUndefined();
+		expect(doc.meta.schemaVersion).toBe(SCHEMA_VERSION);
+	});
+
+	it('does not overwrite groupLabel/couplingId if already set', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		(doc.specs as any).push({
+			id: 's', subject: 'BSP', teacher: 't', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 1, blocks: undefined,
+			includeInSolver: true,
+			groupKey: 'old',
+			groupLabel: 'manual',
+			couplingId: 'kopplung-x',
+			source: 'manual'
+		});
+		migrateDoc(doc);
+		const s = doc.specs[0] as any;
+		expect(s.groupKey).toBeUndefined();
+		expect(s.groupLabel).toBe('manual');
+		expect(s.couplingId).toBe('kopplung-x');
+	});
+});
