@@ -7,8 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "vitest run --exclude \"src/lib/solver/__perf__/**\"",
+    "test:watch": "vitest --exclude \"src/lib/solver/__perf__/**\"",
+    "test:perf": "vitest run --testTimeout=120000 src/lib/solver/__perf__",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {

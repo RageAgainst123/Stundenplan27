@@ -325,6 +325,14 @@ export function encode(doc: ScheduleDoc): SolverInput {
 		`w_compact = ${w_compact};`,
 		`min_daily_slots = ${minDailySlots};`,
 		`must_start_p1 = ${mustStartP1 ? 'true' : 'false'};`,
+		// Phase 10 perf: constraint 11 (same-day cohesion) disabled by default.
+		// Empirically blocks the solver completely on real-size models — even
+		// the static-grade-filter and only-strict-mode variants couldn't get
+		// past ~35k failures with 0 solutions in 60s. Without C11 the solver
+		// finds 9 solutions and proves optimum in 50s. Constraint 9b (max 1
+		// double pair per spec in auto mode) and constraint 7 (block_id
+		// contiguity in strict mode) cover most of the original intent.
+		`enable_same_day_cohesion = false;`,
 		`teacher_blocked = ${mznBool3D(teacherBlocked3D.length > 0 ? teacherBlocked3D : [[[false]]])};`
 	].join('\n');
 

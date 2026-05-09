@@ -87,6 +87,13 @@ int: min_daily_slots;
 % true = enforce no-gap-at-start; false = allow late starts (auto-relax).
 bool: must_start_p1;
 
+% Phase 10 perf debug: enable/disable hard constraints individually for
+% performance bisection. Set in DZN. Default applied via encode.ts (true).
+bool: enable_same_day_cohesion;
+bool: enable_max_consec_3run = true;
+bool: enable_auto_no_3run = true;
+bool: enable_auto_max_1double = true;
+
 % Teacher unavailability
 array[TEACHER, 1..D, 1..P] of bool: teacher_blocked;
 
@@ -180,16 +187,19 @@ constraint forall (l1, l2 in LESSON where l1 < l2 /\
 %    occurrence (same spec, same group_id) represent ONE lesson taught to
 %    multiple grades, not two separate runs of the subject. Without this,
 %    a count=4 multi-grade Mathe spec would self-trigger the constraint.
-constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
+%    Phase 10 perf: STATIC grade filter (lesson_grades is a param-singleton).
+constraint enable_max_consec_3run ->
+  forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
                   lesson_subject[l1] = lesson_subject[l2] /\
                   lesson_subject[l2] = lesson_subject[l3] /\
                   subject_max_consec[lesson_subject[l1]] = 2 /\
+                  lesson_grades[l1] = lesson_grades[l2] /\
+                  lesson_grades[l2] = lesson_grades[l3] /\
                   not (lesson_spec_id[l1] = lesson_spec_id[l2] /\ lesson_occ_idx[l1] = lesson_occ_idx[l2]) /\
                   not (lesson_spec_id[l2] = lesson_spec_id[l3] /\ lesson_occ_idx[l2] = lesson_occ_idx[l3]) /\
                   not (lesson_spec_id[l1] = lesson_spec_id[l3] /\ lesson_occ_idx[l1] = lesson_occ_idx[l3])) (
   not (
     dayOf(assign[l1]) = dayOf(assign[l2]) /\ dayOf(assign[l2]) = dayOf(assign[l3]) /\
-    gradeOf(assign[l1]) = gradeOf(assign[l2]) /\ gradeOf(assign[l2]) = gradeOf(assign[l3]) /\
     abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1 /\
     abs(periodOf(assign[l2]) - periodOf(assign[l3])) = 1 /\
     abs(periodOf(assign[l1]) - periodOf(assign[l3])) = 2
@@ -205,16 +215,19 @@ constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
 %    skip the auto-mode logic — those instances have lesson_auto[l]=false.
 
 % 9a) No 3-period run within an auto-mode spec on the same day & grade.
-constraint forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
+%     Phase 10 perf: STATIC grade filter.
+constraint enable_auto_no_3run ->
+  forall (l1, l2, l3 in LESSON where l1 < l2 /\ l2 < l3 /\
                   lesson_auto[l1] /\ lesson_auto[l2] /\ lesson_auto[l3] /\
                   lesson_spec_id[l1] = lesson_spec_id[l2] /\
                   lesson_spec_id[l2] = lesson_spec_id[l3] /\
+                  lesson_grades[l1] = lesson_grades[l2] /\
+                  lesson_grades[l2] = lesson_grades[l3] /\
                   lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
                   lesson_occ_idx[l2] != lesson_occ_idx[l3] /\
                   lesson_occ_idx[l1] != lesson_occ_idx[l3]) (
   not (
     dayOf(assign[l1]) = dayOf(assign[l2]) /\ dayOf(assign[l2]) = dayOf(assign[l3]) /\
-    gradeOf(assign[l1]) = gradeOf(assign[l2]) /\ gradeOf(assign[l2]) = gradeOf(assign[l3]) /\
     abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1 /\
     abs(periodOf(assign[l2]) - periodOf(assign[l3])) = 1 /\
     abs(periodOf(assign[l1]) - periodOf(assign[l3])) = 2
@@ -263,13 +276,19 @@ constraint forall (sp in 1..max(lesson_spec_id)) (
 %     Multi-Grade-Geschwister derselben occurrence (gleiche occ_idx, andere
 %     grade) sind über Constraint 4b sowieso auf den selben Slot gezwungen
 %     und werden hier durch occ_idx-Filter ausgespart.
-constraint forall (l1, l2 in LESSON where l1 < l2 /\
-                  lesson_spec_id[l1] = lesson_spec_id[l2] /\
-                  lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
-                  gradeOf(assign[l1]) = gradeOf(assign[l2])) (
-  dayOf(assign[l1]) = dayOf(assign[l2])
-    -> abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
-);
+% Phase 10 perf rework: constraint 11 with STATIC grade filter.
+% Old form: `where ... gradeOf(assign[l1]) = gradeOf(assign[l2])` was a
+% decision-variable comparison — every pair got a reified constraint.
+% New form: lesson_grades is a singleton param, so static comparison filters
+% pairs at flat-time, eliminating most reified propagators.
+constraint enable_same_day_cohesion ->
+  forall (l1, l2 in LESSON where l1 < l2 /\
+                    lesson_spec_id[l1] = lesson_spec_id[l2] /\
+                    lesson_occ_idx[l1] != lesson_occ_idx[l2] /\
+                    lesson_grades[l1] = lesson_grades[l2]) (
+    dayOf(assign[l1]) = dayOf(assign[l2])
+      -> abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
+  );
 
 % Phase 10 perf rework: shared helper variables for constraints 10 + 12.
 % slots_dgp[d, g, p] is a var bool that's true iff some lesson is assigned to
