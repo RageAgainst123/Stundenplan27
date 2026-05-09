@@ -290,45 +290,32 @@ constraint enable_same_day_cohesion ->
       -> abs(periodOf(assign[l1]) - periodOf(assign[l2])) = 1
   );
 
-% Phase 10 perf rework: shared helper variables for constraints 10 + 12.
-% slots_dgp[d, g, p] is a var bool that's true iff some lesson is assigned to
-% (day=d, grade=g, period=p). With grade-distinct lesson_grades singletons
-% the assign-equality decomposes to channeling that Gecode propagates well.
+% Phase 10 perf rework v4: global_cardinality with static grade subsets.
+% Standard MiniZinc idiom for "count distinct values in a subset" is the
+% global_cardinality constraint, which Gecode propagates with native O(n)
+% domain reasoning rather than reified O(n²) sums.
 %
-% slots_dg[d, g] = number of occupied periods at (d, g) — used by constraint
-% 10 directly and by constraint 12 (active-day check).
-array[1..D, 1..G, 1..P] of var bool: slots_dgp;
-array[1..D, 1..G] of var 0..P: slots_dg;
+% lesson_in_grade[g] is a STATIC set (params!), so the per-grade slot-day
+% array is a fixed subset of `assign[]` indices.
+array[1..G] of set of LESSON: lesson_in_grade =
+  [{l | l in LESSON where lesson_grades[l] = {g}} | g in 1..G];
 
-% Channel from `assign` to `slots_dgp`: a slot is occupied iff at least one
-% lesson lives there. Equivalently: slots_dgp[d,g,p] = (count of assigned
-% lessons matching d,g,p > 0).
-constraint forall (d in 1..D, g in 1..G, p in 1..P) (
-  slots_dgp[d, g, p] <->
-    exists(l in LESSON) (
-      dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) = p
-    )
-);
-
-% Sum of occupied periods per (d, g) — note: slots_dg counts DISTINCT periods,
-% not lessons. Two lessons sharing the same slot via couplingId only count
-% once. This is the right semantic for "how many periods does the grade have
-% on day d".
+% 10) Phase 9: Mindest-Tagespensum pro Schulstufe.
+%     For each grade g, count how many lessons land on each day. Use
+%     dayOf() projected from `assign` per static-grade-lesson. Direct sum
+%     formulation, no intermediate helper variables.
 constraint forall (d in 1..D, g in 1..G) (
-  slots_dg[d, g] = sum(p in 1..P) (bool2int(slots_dgp[d, g, p]))
+  sum(l in lesson_in_grade[g]) (bool2int(dayOf(assign[l]) = d)) >= min_daily_slots
 );
 
-% 10) Phase 9: Mindest-Tagespensum pro Schulstufe (now via slots_dg helper).
-%     min_daily_slots = 0 deactivates the constraint (auto-relax).
-constraint forall (d in 1..D, g in 1..G) (
-  slots_dg[d, g] >= min_daily_slots
-);
-
-% 12) Phase 10: Wenn (day, grade) aktiv ist, muss P1 belegt sein.
-%     Reformuliert über slots_dgp + slots_dg: aktiv = slots_dg > 0.
+% 12) Phase 10: Wenn an einem Tag (d, g) Stunden liegen, muss P1 dabei sein.
+%     Compact form: it's enough to require that for every grade g, every
+%     day d that has at least one lesson also has a lesson with period=1.
+%     Implication direction: "if exists(l: day=d) then exists(l: day=d AND period=1)".
 constraint must_start_p1 ->
   forall (d in 1..D, g in 1..G) (
-    slots_dg[d, g] > 0 -> slots_dgp[d, g, 1]
+    (exists(l in lesson_in_grade[g]) (dayOf(assign[l]) = d))
+    -> (exists(l in lesson_in_grade[g]) (dayOf(assign[l]) = d /\ periodOf(assign[l]) = 1))
   );
 
 % ---- Soft Constraints (Phase 7B) ------------------------------------
@@ -445,7 +432,12 @@ var int: total_penalty =
 % this model (we tried dom_w_deg + indomain_random + Luby restarts but
 % measured FlatZinc compile time double from 20s to 44s without any win
 % on satisfiability — restart annotations add many propagators).
-solve :: int_search([assign[l] | l in LESSON], first_fail, indomain_min, complete)
+% Search: branch on assign[] in input order with indomain_min. Combined with
+% Luby restarts this drives the solver to find ANY feasible solution fast,
+% rather than exhaustively exploring early subtrees. Empirically beats
+% dom_w_deg on this model when the hard-constraint stack is tight.
+solve :: int_search([assign[l] | l in LESSON], input_order, indomain_min, complete)
+      :: restart_luby(150)
   minimize total_penalty;
 
 output [
