@@ -1,7 +1,15 @@
 # ADR-0002: Solver — MiniZinc-WASM im Browser
 
-**Status:** accepted
+**Status:** ⚠ **superseded** by [ADR-0013](0013-typescript-construct-local-search.md) (2026-05-09)
 **Datum:** 2026-05-07
+
+> **Rückblick (2026-05-09):** Die Wahl von MiniZinc als Solver-Engine war
+> in Phase 5 die richtige für ein deklaratives Hard-Constraint-Modell.
+> Phasen 5–10 haben aber gezeigt, dass Constraint Programming mit
+> Soft-Optimierung für Stundenpläne strukturell ungeeignet ist (Plateau-
+> Verhalten, Backtracking-Suche kann nicht lokal verbessern). Phase 11
+> ersetzt MiniZinc durch einen TypeScript Construct + Local Search Solver
+> (siehe ADR-0013). Dieses ADR bleibt im Repo als historisches Dokument.
 
 ## Kontext
 

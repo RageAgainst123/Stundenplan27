@@ -506,7 +506,9 @@ describe('phase 9: encoder DZN parameters', () => {
 		const doc = configuredDoc();
 		const enc = encode(doc);
 		const dzn = (enc.dataJson as any).__dzn as string;
-		expect(dzn).toContain('w_any_aft = 15;');
+		// Phase 10: default weight raised from 15 to 50 to actually push
+		// non-main subjects off afternoon slots.
+		expect(dzn).toContain('w_any_aft = 50;');
 	});
 
 	it('emits w_any_aft = 0 when applyToAllSubjects is false', () => {
@@ -560,13 +562,14 @@ describe('decode', () => {
 		const enc = encode(doc);
 		const fakeOutput = JSON.stringify({
 			assign: [1, 2, 3, 4, 5, 6, 7],
-			penalties: { main_aft: 0, any_aft: 4, main_early: 12, main_run: 1, no_free: 3, compact: 2, total: 590 }
+			penalties: { main_aft: 0, any_aft: 4, main_early: 12, main_run: 1, no_free: 3, uneven_days: 5, compact: 2, total: 595 }
 		});
 		const result = decode(fakeOutput, enc.instances);
 		expect(result.status).toBe('SAT');
 		expect(result.penalties).toBeDefined();
-		expect(result.penalties!.total).toBe(590);
+		expect(result.penalties!.total).toBe(595);
 		expect(result.penalties!.any_aft).toBe(4);
+		expect(result.penalties!.uneven_days).toBe(5);
 	});
 
 	it('omits penalties when solver output lacks them', () => {

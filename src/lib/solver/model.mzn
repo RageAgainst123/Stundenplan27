@@ -300,12 +300,16 @@ constraint enable_same_day_cohesion ->
 array[1..G] of set of LESSON: lesson_in_grade =
   [{l | l in LESSON where lesson_grades[l] = {g}} | g in 1..G];
 
-% 10) Phase 9: Mindest-Tagespensum pro Schulstufe.
-%     For each grade g, count how many lessons land on each day. Use
-%     dayOf() projected from `assign` per static-grade-lesson. Direct sum
-%     formulation, no intermediate helper variables.
+% Lesson count per (day, grade) — used by both hard constraint 10 (min_daily)
+% and soft constraint pen_uneven_days (under-loaded day penalty).
+array[1..D, 1..G] of var 0..card(LESSON): lessons_dg;
 constraint forall (d in 1..D, g in 1..G) (
-  sum(l in lesson_in_grade[g]) (bool2int(dayOf(assign[l]) = d)) >= min_daily_slots
+  lessons_dg[d, g] = sum(l in lesson_in_grade[g]) (bool2int(dayOf(assign[l]) = d))
+);
+
+% 10) Phase 9: Mindest-Tagespensum pro Schulstufe.
+constraint forall (d in 1..D, g in 1..G) (
+  lessons_dg[d, g] >= min_daily_slots
 );
 
 % 12) Phase 10: Wenn an einem Tag (d, g) Stunden liegen, muss P1 dabei sein.
@@ -377,24 +381,53 @@ var int: pen_main_run =
     )
   else 0 endif;
 
-% P4) "Keine Freistunden für Klassen":
-%     A "free period" for a grade is a period p such that there exists at
-%     least one lesson on that day & grade in a period > p AND no lesson on
-%     that day & grade at period p.
+% P4) "Keine Freistunden / Schule beginnt jeden Tag":
+%     Combined penalty using the existing static lesson_in_grade helper.
+%     For each (day, grade) we count: how many of the P periods are LEFT EMPTY
+%     between the first and last occupied period? Plus: heavy penalty for
+%     completely empty days (the original pen_no_free missed those entirely,
+%     which is why our solver kept dropping Do/Fr).
+%
+%     Formulation: lessons_dg[d,g] = total lessons placed at (d,g).
+%     If a day has K lessons but some periods are unused between min and max
+%     period actually used, those gaps are "free periods".
+%
+%     Cheaper approximation: per (d,g), count periods p in 1..P where at
+%     least one lesson is BEFORE p AND none is AT p AND at least one is AFTER.
+%     We use lesson_in_grade[g] as the static subset (no decision-variable
+%     filter on grade), which is the speed-critical change.
 var int: pen_no_free =
   if w_no_free > 0 then
     sum(d in 1..D, g in 1..G, p in 1..P) (
       bool2int(
-        not exists(l in LESSON) (
-          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) = p
+        not exists(l in lesson_in_grade[g]) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) = p
         ) /\
-        exists(l in LESSON) (
-          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) < p
+        exists(l in lesson_in_grade[g]) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) < p
         ) /\
-        exists(l in LESSON) (
-          dayOf(assign[l]) = d /\ gradeOf(assign[l]) = g /\ periodOf(assign[l]) > p
+        exists(l in lesson_in_grade[g]) (
+          dayOf(assign[l]) = d /\ periodOf(assign[l]) > p
         )
       )
+    )
+  else 0 endif;
+
+% P4b) "Tage gleichmäßig belegen":
+%      For each grade, the lesson load should be spread over the work week
+%      instead of packing into Mon-Wed. Penalty: deviation from the average
+%      number of lessons/day. Approximation via sum of squared diffs: too
+%      expensive for Gecode. Practical alternative — penalize each day where
+%      lessons_dg[d,g] is BELOW a target threshold (default = 4).
+%      In effect: under-loaded days are penalized linearly.
+%      The threshold is reused from min_daily_slots — if min_daily=4 and a
+%      day only has 1 lesson, that day contributes (4-1)=3 to the penalty.
+%      Value 0 means "no contribution" (day is at or above target).
+int: even_target = max(min_daily_slots, 4);
+var int: pen_uneven_days =
+  if w_no_free > 0 then
+    sum(d in 1..D, g in 1..G) (
+      max(0, even_target - lessons_dg[d, g])
     )
   else 0 endif;
 
@@ -425,6 +458,7 @@ var int: total_penalty =
   w_main_early * pen_main_early +
   w_main_run * pen_main_run +
   w_no_free * pen_no_free +
+  w_no_free * pen_uneven_days +
   w_compact * pen_compact;
 
 % ---- Solve ----
@@ -448,6 +482,7 @@ output [
   "\"main_early\": ", show(pen_main_early), ", ",
   "\"main_run\": ", show(pen_main_run), ", ",
   "\"no_free\": ", show(pen_no_free), ", ",
+  "\"uneven_days\": ", show(pen_uneven_days), ", ",
   "\"compact\": ", show(pen_compact), ", ",
   "\"total\": ", show(total_penalty),
   " } }"

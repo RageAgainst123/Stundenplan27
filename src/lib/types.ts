@@ -122,19 +122,28 @@ export interface ConstraintConfig {
 	mustStartFirstPeriod: { enabled: boolean };
 }
 
+// Phase 10 weight calibration (after solver-side diagnosis):
+// Old defaults caused `pen_main_early × 10 = 1680` to dominate the score,
+// so Gecode optimized "main subjects to P1-P3" instead of distributing days.
+// New defaults boost class/teacher distribution and main-subject afternoon
+// avoidance, while shrinking main_early to a tie-breaker.
 export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
-	noFreePeriodsForClass: { enabled: true, weight: 100 },
+	// distribution (Mo–Fr balance + no gaps) — must dominate
+	noFreePeriodsForClass: { enabled: true, weight: 200 },
+	// main subjects on afternoon — strong hard-ish push
 	noMainSubjectAfternoon: {
 		enabled: true,
-		weight: 50,
+		weight: 200,
 		afternoonStartsAtPeriod: 7,
 		applyToAllSubjects: true,
-		weightAllSubjects: 15
+		weightAllSubjects: 50
 	},
-	maxConsecutiveMain: { enabled: true, weight: 30, max: 2 },
-	preferMainEarly: { enabled: true, weight: 10 },
+	maxConsecutiveMain: { enabled: true, weight: 40, max: 2 },
+	// main-early: tie-breaker only — very small weight so it doesn't
+	// dominate the score (was 10 × 168 = 1680, the runaway leader).
+	preferMainEarly: { enabled: true, weight: 2 },
 	preferDoubleLessonsContiguous: { enabled: true, weight: 20 },
-	compactTeacherDays: { enabled: true, weight: 15 },
+	compactTeacherDays: { enabled: true, weight: 30 },
 	minDailySlotsPerGrade: 4,
 	mustStartFirstPeriod: { enabled: true }
 };

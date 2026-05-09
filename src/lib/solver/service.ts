@@ -826,7 +826,7 @@ function finalFromBest(
 			.filter(id => !best.placed.some(p => p.specId === id)),
 		penalties: best.score !== null ? {
 			main_aft: 0, any_aft: 0, main_early: 0, main_run: 0,
-			no_free: 0, compact: 0, total: best.score
+			no_free: 0, uneven_days: 0, compact: 0, total: best.score
 		} : undefined,
 		message: `Vom Benutzer abgebrochen — beste bisher gefundene Lösung übernommen (Score ${best.score ?? '?'}).`
 	};

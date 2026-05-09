@@ -8,6 +8,7 @@ export interface PenaltyBreakdown {
 	main_early: number;
 	main_run: number;
 	no_free: number;
+	uneven_days: number;   // Phase 10: under-loaded days penalty
 	compact: number;
 	total: number;
 }
@@ -92,6 +93,7 @@ export function decode(
 			main_early: parsed.penalties.main_early ?? 0,
 			main_run: parsed.penalties.main_run ?? 0,
 			no_free: parsed.penalties.no_free ?? 0,
+			uneven_days: parsed.penalties.uneven_days ?? 0,
 			compact: parsed.penalties.compact ?? 0,
 			total: parsed.penalties.total ?? 0
 		};

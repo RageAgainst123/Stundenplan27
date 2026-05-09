@@ -65,14 +65,28 @@
 - **Score-Breakdown** im UI nach SAT-Run.
 - Migration alter localStorage-Pläne von `[1,1,…]` → `undefined`.
 
-## 🔜 Phase 8 — Nächste Iteration
+## ⚙️ Phase 11 — Aktuelle Arbeit: Solver-Architektur-Wechsel
 
-### High-Prio
+**Stand:** Konzept fertig (siehe `docs/SOLVER-V2-CONCEPT.md`), ADR-0013 dokumentiert,
+Implementierung in 11 Schritten geplant (`~/.claude/plans/`).
+
+**Begründung:** 4h Tuning der MiniZinc-Engine in Phasen 5–10 → Plateau-Verhalten,
+Score plateau'd bei ~4700 trotz 5 min Optimierung. Constraint Programming ist
+strukturell ungeeignet für Schul-Stundenpläne mit Soft-Constraints. Untis und
+FET nutzen seit 30 Jahren Construct + Local Search.
+
+**Implementierung:** TypeScript-eigener Solver in `src/lib/solver-v2/` mit drei
+Phasen (Construction → Local Search → Iterated LS). API-kompatibel mit dem
+bestehenden `startSolve()`. UI ändert sich nicht.
+
+**Erwartetes Ergebnis:** Score-Reduktion 50–100× schneller als MiniZinc, Plan
+auf Liste.csv mit Score < 2500 in 30 s (statt 4765 nach 5 min).
+
+## 🔜 Phase 12 — Nach Solver v2
+
+### High-Prio (post-Solver)
 1. **`PlacedLesson.grade`-Feld + Schema-Migration v1→v2.**
-   Aktuell hat eine PlacedLesson nur `(day, period)`, der Renderer zeigt
-   Mehrstufen-Lessons in jeder Stufen-Spalte. Korrekte Repräsentation: pro
-   Solver-Instanz eine PlacedLesson mit `grade`. Cosmetic, aber wichtig damit
-   Drag & Drop später grade-bewusst wird.
+   ✅ ERLEDIGT in Phase 8. Drag & Drop ist grade-aware.
 
 2. **Print-Layout.**
    `@media print` für:

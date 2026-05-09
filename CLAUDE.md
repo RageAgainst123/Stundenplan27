@@ -11,9 +11,19 @@ Folgende Dateien werden mit dieser CLAUDE.md geladen:
 - @docs/REQUIREMENTS.md
 - @docs/decisions/README.md
 
+## Wichtigster Kontext-Hinweis (Stand Phase 11)
+
+**Solver wird gerade umgebaut von MiniZinc-WASM auf TypeScript Construct + Local Search.**
+
+- **Konzept-Dokument:** `docs/SOLVER-V2-CONCEPT.md` — gründlich lesen bevor du am Solver arbeitest
+- **Architektur-Entscheidung:** `docs/decisions/0013-typescript-construct-local-search.md` (supersedes ADR-0002)
+- **Implementierungsplan:** `~/.claude/plans/https-rageagainst123-github-io-std-stund-temporal-oasis.md` (Phase 11, 11 Schritte)
+
+Begründung des Wechsels: 4 Stunden Tuning mit MiniZinc-CLI auf der echten Liste.csv haben gezeigt dass Constraint Programming für Schul-Stundenpläne strukturell ungeeignet ist (Plateau-Verhalten, Soft-Constraints als Nachgedanke, keine lokalen Verbesserungen). Untis und FET nutzen seit 30 Jahren Construct + Local Search. Solver v2 folgt diesem bewährten Ansatz.
+
 ## Was diese App tut (1 Satz)
 
-Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklassen (5./6./7./8. SSt.), lokal-only mit MiniZinc-WASM-Solver, Sokrates-CSV-Import und Drag&Drop-Editor.
+Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklassen (5./6./7./8. SSt.), lokal-only, Sokrates-CSV-Import, Drag&Drop-Editor, **TypeScript Construct + Local Search Solver** (in Phase 11 von MiniZinc-WASM migriert).
 
 ## Befehle
 
@@ -28,16 +38,20 @@ Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklasse
 
 ## Stack-Kurz
 
-Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 (WASM-Solver)
+Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-eigener Solver (`src/lib/solver-v2/`)
+
+**Phase 11 in progress:** alter Solver `src/lib/solver/` (MiniZinc) wird abgelöst durch `src/lib/solver-v2/` (Construct + Local Search). Während Migration läuft: beide parallel im Repo, UI nutzt erst v2 ab Schritt 11-8.
 
 ## Architektur (eine Zeile pro Modul)
 
-- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec mit blocks/groupKey/includeInSolver, PlacedLesson, ScheduleDoc).
+- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec, PlacedLesson, ScheduleDoc, ConstraintConfig). Schema v3.
 - **`src/lib/store.svelte.ts`** — Singleton-Store via `setContext`/`getContext`, `$state` für ScheduleDoc, Auto-Save in localStorage via `$effect.root`.
-- **`src/lib/persistence.ts`** — localStorage save/load + JSON-Im/Export, Migration für ältere Schemas.
+- **`src/lib/persistence.ts`** — localStorage save/load + JSON-Im/Export, Migrationen v1→v2→v3.
 - **`src/lib/import/csv.ts`** — Sokrates-Liste-Parser (PG_/VÜ_/FÖ_/KU_, Klassen-Kopplungen `1a+2a`, Mehrstufen, Wochen-Pattern).
 - **`src/lib/blocks.ts`** — Block-Pattern-Helpers (`blockPresets`, `blockLabel`, `groupColor`).
-- **`src/lib/solver/{model.mzn, encode.ts, decode.ts, service.ts}`** — Constraint-Programming-Layer.
+- **`src/lib/diagnose.ts`** — Pre-Flight-Checks (Lehrer-Überlast, fehlende Refs, Wochenstunden-Constraints).
+- **`src/lib/solver/{model.mzn, encode.ts, decode.ts, service.ts, diagnose.ts}`** — **alter** MiniZinc-CSP-Solver (Phase 5–10). Wird durch v2 abgelöst.
+- **`src/lib/solver-v2/{score, scoreDelta, moves, hardCheck, units, construct, ejectionChain, localSearch, restart, index}.ts`** — **neuer** TypeScript Construct + Local Search Solver. Siehe `docs/SOLVER-V2-CONCEPT.md`.
 - **`src/components/`** — UI: ImportExport, TeacherList (mit AvailabilityGrid), SubjectList, SpecList (Bulk-Toolbar + Coupling), ScheduleGrid (mit ScheduleCell + GenerateButton), RulesPanel.
 
 ## Stolperfallen (CRITICAL — bitte erst lesen, bevor du Bugs jagst)
@@ -54,17 +68,28 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 
 - Bei Cache-Problemen: `rm -rf node_modules/.vite dist && npm run build`.
 - WASM-Asset für MiniZinc ist 17 MB — der erste Solver-Lauf dauert ~10s länger weil der WASM-Worker initialisiert wird.
 
-### Solver
+### Solver (Architektur-Wechsel in Phase 11)
 
-- Slot ist 3D: `(day, period, grade)`, NSLOTS = 5×8×4 = 160. Siehe `slotFromDPG` in `encode.ts`.
-- LessonSpec mit `count=4, blocks=[2,2]` wird zu 4 lesson-instances mit zwei block-ids — Constraint 7 in `model.mzn` erzwingt Kontiguität.
-- LessonSpec mit `grades=[5,6]` wird pro grade zu eigenen Instanzen expandiert, alle in einem occurrence-`groupId` für Parallel-Teaching gebunden.
-- Specs mit `includeInSolver=false` werden in `encode.ts` übersprungen (kein DZN-Eintrag).
-- Solver-Lauf auf der echten `Liste.csv`: ~25s. Bei UNSAT zuerst `subject.maxConsecutive` prüfen, dann Lehrer-Auslastung.
+**Slot-Modell (gilt für v1 und v2):**
+- Slot ist 3D: `(day, period, grade)`, NSLOTS = 5×8×4 = 160. `slotFromDPG()` in encode.ts (v1) bzw. units.ts (v2).
+- LessonSpec mit `count=4, blocks=[2,2]` wird zu 4 lesson-instances mit zwei block-ids — Block-Constraint erzwingt Kontiguität.
+- LessonSpec mit `grades=[5,6]` wird pro grade zu eigenen Instanzen expandiert, occurrence-Tupel müssen denselben (day,period) belegen.
+- Specs mit `includeInSolver=false` werden vom Solver übersprungen.
+
+**v1-spezifisch (alter MiniZinc-Solver, wird abgelöst):**
+- DZN-Encoding (statt JSON-Encoding wegen Set-of-Set-Bugs).
+- `solve minimize total_penalty` mit `:: int_search([assign[l] | l in LESSON], input_order, indomain_min, complete) :: restart_luby(150)`.
+- Auf Liste.csv (128 Instanzen): erste Lösung in ~14 s, Score-Plateau bei ~4700 nach 5 min.
+
+**v2-spezifisch (neuer TypeScript-Solver):**
+- Siehe `docs/SOLVER-V2-CONCEPT.md` §6–§9 für Algorithmus-Details.
+- Construction in <5 s, Local Search 50.000+ Iter/sec, Iterated LS bei Plateau.
+- Score-Komponenten + Delta-Update sind das Performance-Herzstück.
+- `min_daily=4` und `must_start_p1` werden zu Soft-Constraints (kein UNSAT-Schock).
 
 ### Bekannte offene Bugs
 
-- **`PlacedLesson` hat kein `grade`-Feld** — Mehrstufen-Lessons werden im Render in jeder grade-Spalte gezeigt, auch wenn der Solver sie nur einer zugeordnet hat. Cosmetic, nicht funktional. Fix erfordert Schema-Migration v1→v2.
+(Phase 11 keine bekannten offenen Bugs nach Phase-8-Schema-Migrationen.)
 
 ## Konventionen
 
@@ -109,7 +134,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · minizinc 4.4 
 - ✅ Phase 8: Schema v1→v2 (PlacedLesson.grade) + v2→v3 (groupLabel/couplingId-Trennung)
 - ✅ Phase 9: Tagespensum + Doppel/Einzel-Cohesion + Nachmittag-für-alle + 3-stufige Auto-Lockerung
 - ✅ Phase 10: Anytime-Solver + Streaming-UI + „Beginn in P1" + RelaxationInfo
-- 🔜 Phase 11: Variantenmodus, Print-Layout, Performance-Tuning, pairedWith entfernen
+- ⚙️ Phase 11: **Solver-Wechsel** MiniZinc → TypeScript Construct + Local Search (siehe `docs/SOLVER-V2-CONCEPT.md`)
+- 🔜 Phase 12: Variantenmodus, Print-Layout, pairedWith entfernen, Hot-Start
 
 ## Plan-Datei für Detail-Recherche
 

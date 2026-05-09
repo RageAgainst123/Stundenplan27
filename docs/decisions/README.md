@@ -36,7 +36,7 @@ hängen daran?
 | Nr      | Titel                                                       | Datum      |
 | ------- | ----------------------------------------------------------- | ---------- |
 | [0001](0001-stack-vite-svelte5.md) | Stack: Vite + Svelte 5 + TypeScript      | 2026-05-07 |
-| [0002](0002-minizinc-wasm-solver.md) | Solver: MiniZinc-WASM im Browser     | 2026-05-07 |
+| [0002](0002-minizinc-wasm-solver.md) | ~~Solver: MiniZinc-WASM im Browser~~ ⚠ superseded by 0013 | 2026-05-07 |
 | [0003](0003-no-backend.md) | Persistenz: localStorage, kein Backend        | 2026-05-07 |
 | [0004](0004-3d-slot-modeling.md) | Solver-Modell: 3D-Slot (day, period, grade) | 2026-05-08 |
 | [0005](0005-context-pattern-store.md) | State: setContext/getContext-Store     | 2026-05-08 |
@@ -47,3 +47,4 @@ hängen daran?
 | [0010](0010-grouplabel-vs-couplingid.md) | groupLabel vs. couplingId — Trennung Stufen-Bezeichnung und Solver-Kopplung | 2026-05-08 |
 | [0011](0011-tagespensum-und-doppel-einzel.md) | Tagespensum + „Doppel ⇒ kein Einzel am gleichen Tag" | 2026-05-08 |
 | [0012](0012-anytime-multistage-solver-workflow.md) | Anytime Multi-Stage Solver Workflow | 2026-05-08 |
+| [0013](0013-typescript-construct-local-search.md) | **Solver-Architektur-Wechsel:** TypeScript Construct + Local Search (supersedes 0002) | 2026-05-09 |
