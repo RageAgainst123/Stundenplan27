@@ -1,0 +1,211 @@
+// Solver v2 — internal types.
+//
+// `Unit` is the atomic placement unit. One Unit may consist of multiple
+// `LessonInstance`s if it represents a multi-grade tuple, a contiguous
+// block, or a coupling group. A Unit always lands on exactly one
+// (day, period) — but can occupy multiple grade columns at once.
+//
+// Performance note: Units are constructed once, then identified by a numeric
+// `idx` in the Solver state. All hot-path data (slot[], teacherUsed[][])
+// is dense Int32Array for cache efficiency.
+
+import type { Day, GradeLevel, LessonSpec, PlacedLesson, Period, ScheduleDoc, Teacher, Subject } from '../types';
+
+/**
+ * A single lesson instance with concrete (occurrence, grade) coordinates.
+ * Several instances form a Unit when they must move together.
+ */
+export interface LessonInstance {
+	/** Source spec id (debug + decode). */
+	specId: string;
+	/** 0..count-1 within the spec — distinguishes multiple lessons of the same spec. */
+	occurrenceIndex: number;
+	/** Single grade column this instance occupies. */
+	grade: GradeLevel;
+	/** Block id (-1 = standalone, >=0 = part of a block — must be consecutive). */
+	blockId: number;
+	/** Block size (1 = standalone, 2+ = block-group member). */
+	blockSize: number;
+	/** Position within the block (0..blockSize-1). Used for period offset within Block-Unit. */
+	blockPos: number;
+}
+
+/** What kind of constraint linkage holds the instances of a Unit together. */
+export type UnitKind =
+	| 'solo'         // one instance, one grade
+	| 'multigrade'   // same occurrence, multiple grades (e.g. spec.grades=[5,6])
+	| 'block'        // contiguous periods in the same grade column (blocks=[2,...])
+	| 'coupling';    // same couplingId — multiple specs share a slot
+
+/**
+ * A Unit is the atom of placement and movement in the solver.
+ * Every Unit has ONE primary (day, period). Block-Units occupy P, P+1, ..., P+blockSize-1.
+ * Multi-grade Units occupy ONE (day, period) but multiple grade columns.
+ */
+export interface Unit {
+	/** Dense index into solver state arrays (0..nUnits-1). */
+	idx: number;
+	/** What holds this Unit together. */
+	kind: UnitKind;
+	/** Lesson instances that make up this Unit. */
+	instances: LessonInstance[];
+	/**
+	 * For block-units: blockSize > 1 means the block occupies blockSize consecutive
+	 * periods STARTING at the placed period. For solo/multigrade/coupling: 1.
+	 */
+	blockSize: number;
+	/** Teacher id of (one of) the spec(s). Block/multigrade-Units always have ONE teacher. */
+	teacherId: string;
+	/** Subject code (block/multigrade/solo: same; coupling: pick first for display). */
+	subjectCode: string;
+	/** Grade columns this Unit occupies (grades). */
+	grades: GradeLevel[];
+	/** Pinned: cannot move during Local Search; placed in advance from doc.placed. */
+	pinned: boolean;
+	/** Pre-pinned (day, period). Solo & block: lessons[0] period; ignored otherwise. */
+	pinnedDay?: Day;
+	pinnedPeriod?: Period;
+	/**
+	 * Spec ids represented by this Unit. For coupling-units this is a list of
+	 * the coupled specs (>1); otherwise length 1.
+	 */
+	specIds: string[];
+	/** Week pattern of the underlying spec (every/even/odd). */
+	weekPattern: 'every' | 'even' | 'odd';
+}
+
+/**
+ * Solver state — the working representation during Construction and Local Search.
+ *
+ * `placement[unit.idx]` = (day, period) where Unit currently sits, or -1 if unplaced.
+ * For perf, day and period are packed into a single int slot id (slotFromDP).
+ */
+export interface SolverState {
+	/** Pointer back to source doc — readonly during solve, used for spec/teacher lookups. */
+	doc: ScheduleDoc;
+	/** Number of Units. */
+	nUnits: number;
+	/** Units, indexed by `unit.idx`. */
+	units: Unit[];
+	/**
+	 * placement[unit.idx] = SLOT_UNPLACED (-1) or a packed slot index 0..D*P-1.
+	 * day  = floor(slot / P), period = (slot mod P) + 1
+	 * Day index is 0..4 (Mo=0..Fr=4). Period is 1..8.
+	 *
+	 * Block units only store the FIRST period of the block here. The block
+	 * extends to placement[idx]..placement[idx]+blockSize-1.
+	 */
+	placement: Int32Array;
+	/** Map: spec id → all Units that reference this spec. */
+	unitsBySpec: Map<string, Unit[]>;
+	/** Map: teacher id → all Units assigned to this teacher. */
+	unitsByTeacher: Map<string, Unit[]>;
+	/** Map: spec id → ScheduleDoc.specs lookup. */
+	specsById: Map<string, LessonSpec>;
+	/** Map: subject code → ScheduleDoc.subjects lookup. */
+	subjectsByCode: Map<string, Subject>;
+	/** Map: teacher id → ScheduleDoc.teachers lookup. */
+	teachersById: Map<string, Teacher>;
+}
+
+/** Placement constant for "not placed yet". */
+export const SLOT_UNPLACED = -1;
+
+/** Number of weekdays. */
+export const D = 5;
+/** Number of periods per day. */
+export const P = 8;
+
+/**
+ * Pack (dayIndex 0..4, period 1..8) into a single slot id 0..39.
+ * Period is 1-based on input, 0-based internally.
+ */
+export function slotFromDP(dayIndex: number, period: number): number {
+	return dayIndex * P + (period - 1);
+}
+
+/** Inverse of slotFromDP. */
+export function dpFromSlot(slot: number): { dayIndex: number; period: number } {
+	return { dayIndex: Math.floor(slot / P), period: (slot % P) + 1 };
+}
+
+/** Day index 0..4 → Day name. */
+export const DAYS_BY_INDEX: readonly Day[] = ['Mo', 'Di', 'Mi', 'Do', 'Fr'] as const;
+
+/** Day name → index 0..4. */
+export const DAY_INDEX: Record<Day, number> = {
+	Mo: 0, Di: 1, Mi: 2, Do: 3, Fr: 4
+};
+
+// ----- Score breakdown (matches the v1 PenaltyBreakdown semantics) -----
+
+/**
+ * Score components. Each is a count (0..N), the weighted sum is `total`.
+ * Numbers are non-negative; 0 = constraint perfectly satisfied.
+ */
+export interface ScoreBreakdown {
+	/** Hard-ish: (day, grade) with fewer than min_daily_slots lessons. Counts violations. */
+	min_daily: number;
+	/** Hard-ish: (day, grade) is active but P1 not occupied. */
+	no_p1_start: number;
+	/** Soft: count of main-subject lessons in P >= afternoon_start. */
+	main_aft: number;
+	/** Soft: count of any lesson in P >= afternoon_start. */
+	any_aft: number;
+	/** Soft: sandwich gaps per (day, grade). */
+	no_free: number;
+	/** Soft: under-load penalty per (day, grade): max(0, target - lessons_dg). */
+	uneven_days: number;
+	/** Soft: count of main-subject 3-runs. */
+	main_run: number;
+	/** Soft: sandwich gaps per (teacher, day). */
+	compact_teacher: number;
+	/** Soft: sum (period - 1) for main-subject lessons. */
+	main_early: number;
+	/** Total weighted sum. Solver minimizes this. */
+	total: number;
+}
+
+/** Default weights (Phase 11). Higher weight = more important. */
+export interface ScoreWeights {
+	min_daily: number;
+	no_p1_start: number;
+	main_aft: number;
+	any_aft: number;
+	no_free: number;
+	uneven_days: number;
+	main_run: number;
+	compact_teacher: number;
+	main_early: number;
+}
+
+/**
+ * Default weights derived from `DEFAULT_CONSTRAINTS` in types.ts plus the
+ * v2-specific `min_daily` and `no_p1_start` (which were hard in v1 but soft
+ * in v2 — see SOLVER-V2-CONCEPT.md §4 "Was nicht mehr Hard-Constraint ist").
+ */
+export function defaultWeights(doc: ScheduleDoc): ScoreWeights {
+	const c = doc.constraints;
+	return {
+		min_daily: 500,
+		no_p1_start: 300,
+		main_aft: c.noMainSubjectAfternoon.enabled ? c.noMainSubjectAfternoon.weight : 0,
+		any_aft:
+			c.noMainSubjectAfternoon.enabled && c.noMainSubjectAfternoon.applyToAllSubjects
+				? c.noMainSubjectAfternoon.weightAllSubjects
+				: 0,
+		no_free: c.noFreePeriodsForClass.enabled ? c.noFreePeriodsForClass.weight : 0,
+		uneven_days: 150,
+		main_run: c.maxConsecutiveMain.enabled ? c.maxConsecutiveMain.weight : 0,
+		compact_teacher: c.compactTeacherDays.enabled ? c.compactTeacherDays.weight : 0,
+		main_early: c.preferMainEarly.enabled ? c.preferMainEarly.weight : 0
+	};
+}
+
+/** Result of a complete solve session. */
+export interface SolverResult {
+	placed: PlacedLesson[];
+	unplaced: string[];
+	score: number;
+	breakdown: ScoreBreakdown;
+}
