@@ -489,5 +489,90 @@ describe('computeScore — teacher_no_lunch', () => {
 	});
 });
 
+describe('computeScore — min_daily', () => {
+	it('penalizes (day, grade) with fewer lessons than minDailySlotsPerGrade', () => {
+		const doc = emptyDoc();
+		doc.constraints.minDailySlotsPerGrade = 4;
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		// Only 2 lessons on Mo/Stufe 5, target is 4 → 2 missing slots
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.min_daily).toBe(2);
+	});
+
+	it('zero penalty when day is empty (only counts ACTIVE days)', () => {
+		const doc = emptyDoc();
+		doc.constraints.minDailySlotsPerGrade = 4;
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		// Don't place anything → empty day, no min_daily penalty
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.min_daily).toBe(0);
+	});
+});
+
+describe('computeScore — uneven_days', () => {
+	it('penalizes every (day, grade) under the target load — empty days included', () => {
+		const doc = emptyDoc();
+		doc.constraints.minDailySlotsPerGrade = 4;
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 3));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		place(state, 's', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		// uneven_days target = max(minDaily, 4) = 4. We have 5 days × 4 grades.
+		// Only Mo/Stufe 5 has 3 occupied periods (so 1 missing). All other
+		// 19 (day,grade) tuples have 0 occupied → 4 missing each.
+		// Total: 1 + 19 × 4 = 77.
+		expect(b.uneven_days).toBe(77);
+	});
+
+	it('zero penalty when every (day, grade) is filled to target', () => {
+		const doc = emptyDoc();
+		doc.constraints.minDailySlotsPerGrade = 4;
+		const state = buildState(doc);
+		// Empty doc, no specs → no occupied periods, all empty → target 4
+		// per (day, grade) = 5×4×4 = 80 missing.
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.uneven_days).toBe(80);
+	});
+});
+
+describe('computeScore — compact_teacher', () => {
+	it('penalizes sandwich gaps in a teacher day', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		// Mo P1 + Mo P3 → P2 is a sandwich gap for the teacher
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.compact_teacher).toBe(1);
+	});
+
+	it('zero gap when slots are contiguous', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.compact_teacher).toBe(0);
+	});
+});
+
 void (null as unknown as ScheduleDoc);
 void (null as unknown as PlacedLesson);
