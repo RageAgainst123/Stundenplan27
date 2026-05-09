@@ -29,7 +29,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		let load = 0;
 		for (const spec of doc.specs) {
 			if (spec.includeInSolver === false) continue;
-			if (spec.teacher !== teacher.id) continue;
+			if (!spec.teachers.includes(teacher.id)) continue;
 			load += Math.round(spec.count);
 		}
 		if (load > available) {
@@ -49,7 +49,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 	for (const teacher of doc.teachers) {
 		const blocked = teacher.unavailable?.length ?? 0;
 		const available = D * P - blocked;
-		const hasSpecs = doc.specs.some(s => s.teacher === teacher.id && s.includeInSolver !== false);
+		const hasSpecs = doc.specs.some(s => s.teachers.includes(teacher.id) && s.includeInSolver !== false);
 		if (available === 0 && hasSpecs) {
 			hints.push({
 				severity: 'error',
@@ -58,10 +58,20 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		}
 	}
 
-	// 3) Grade load vs grade slots — pro Stufe darf Wochenstunden ≤ 40 sein
+	// 3) Grade load vs grade slots — pro Stufe darf Wochenstunden ≤ 40 sein.
+	// Achtung: gekoppelte Specs (same couplingId) belegen denselben Zeit-Slot —
+	// sie zählen für das Stunden-Pensum nur EINMAL pro Coupling-Gruppe, nicht
+	// je Spec. Beispiel: BSP Knaben (Nagl) + BSP Mädchen (Schlegel), beide
+	// grades=[7,8] count=3, gekoppelt → Stufe 7 hat dadurch 3 Stunden Sport,
+	// nicht 6.
 	const gradeLoad = new Map<GradeLevel, number>();
+	const seenCouplings = new Set<string>();
 	for (const spec of doc.specs) {
 		if (spec.includeInSolver === false) continue;
+		if (spec.couplingId) {
+			if (seenCouplings.has(spec.couplingId)) continue;
+			seenCouplings.add(spec.couplingId);
+		}
 		for (const g of spec.grades) {
 			gradeLoad.set(g, (gradeLoad.get(g) ?? 0) + Math.round(spec.count));
 		}
@@ -131,7 +141,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 	// 4) Spec mit fehlendem Lehrer oder Subject
 	for (const spec of doc.specs) {
 		if (spec.includeInSolver === false) continue;
-		if (!doc.teachers.find(t => t.id === spec.teacher)) {
+		if (!doc.teachers.find(t => t.id === spec.teachers[0])) {
 			hints.push({
 				severity: 'error',
 				message: `Lehreinheit ${spec.subject} (${spec.classes.join('+')}) verweist auf einen nicht existierenden Lehrer. Bitte zuweisen.`
@@ -182,7 +192,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		seenSpecSlot.add(dedupKey);
 		const spec = doc.specs.find(s => s.id === p.specId);
 		if (!spec) continue;
-		const key = `${spec.teacher}|${p.day}|${p.period}`;
+		const key = `${spec.teachers[0]}|${p.day}|${p.period}`;
 		const list = pinByTeacherSlot.get(key) ?? [];
 		// Skip if same couplingId (allowed parallel teaching)
 		if (list.length > 0) {
@@ -210,7 +220,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		if (!p.pinned) continue;
 		const spec = doc.specs.find(s => s.id === p.specId);
 		if (!spec) continue;
-		const teacher = doc.teachers.find(t => t.id === spec.teacher);
+		const teacher = doc.teachers.find(t => t.id === spec.teachers[0]);
 		if (!teacher) continue;
 		if (teacher.unavailable?.some(u => u.day === p.day && u.period === p.period)) {
 			hints.push({

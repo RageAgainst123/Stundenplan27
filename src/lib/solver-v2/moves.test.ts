@@ -13,7 +13,7 @@ function subject(code: string, opts: Partial<Subject> = {}): Subject {
 }
 function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
-		id, subject: sub, teacher: t, classes: ['1a'], grades,
+		id, subject: sub, teachers: [t], classes: ['1a'], grades,
 		weekPattern: 'every', count,
 		blocks: 'blocks' in opts ? opts.blocks : undefined,
 		includeInSolver: true,
@@ -226,6 +226,146 @@ describe('genMove generates only valid moves', () => {
 		const state = buildState(doc);
 		const rng = new Rng(42);
 		expect(genMove(state, rng)).toBeNull();
+	});
+});
+
+describe('findHardViolations — defensive scan', () => {
+	it('reports a unit whose grade overlaps another non-coupled unit at the same slot', async () => {
+		const { findHardViolations } = await import('./hardCheck');
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tBSP1', 'BSP1'));
+		doc.teachers.push(teacher('tBSP2', 'BSP2'));
+		doc.teachers.push(teacher('tM', 'M-Lehrer'));
+		doc.teachers.push(teacher('tD', 'D-Lehrer'));
+		doc.subjects.push(subject('BSP'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		// BSP-Coupling: K + M, both grades=[7,8], 1h each, gekoppelt
+		doc.specs.push(spec('bspK', 'BSP', 'tBSP1', [7, 8], 1, { couplingId: 'bsp' }));
+		doc.specs.push(spec('bspM', 'BSP', 'tBSP2', [7, 8], 1, { couplingId: 'bsp' }));
+		// Two unrelated specs that must NOT share a slot with the coupling
+		doc.specs.push(spec('m7', 'M', 'tM', [7], 1));
+		doc.specs.push(spec('d8', 'D', 'tD', [8], 1));
+		const state = buildState(doc);
+		// Force a broken state: BSP-coupling on Mo P2 and M(7)+D(8) also on Mo P2
+		const couplingUnit = state.units.find(u => u.kind === 'coupling')!;
+		const mUnit = state.units.find(u => u.specIds.includes('m7'))!;
+		const dUnit = state.units.find(u => u.specIds.includes('d8'))!;
+		const slot = slotFromDP(0, 2); // Mo P2
+		state.placement[couplingUnit.idx] = slot;
+		state.placement[mUnit.idx] = slot;
+		state.placement[dUnit.idx] = slot;
+		const offenders = findHardViolations(state);
+		// At least one of the conflicting units must be flagged.
+		expect(offenders.length).toBeGreaterThan(0);
+		// The coupling has both grades 7 and 8, so collisions exist with
+		// both M (grade 7) and D (grade 8).
+		const offenderUnits = offenders.map(i => state.units[i]);
+		const hasCoupling = offenderUnits.some(u => u === couplingUnit);
+		const hasM = offenderUnits.some(u => u === mUnit);
+		const hasD = offenderUnits.some(u => u === dUnit);
+		expect(hasCoupling || hasM || hasD).toBe(true);
+	});
+
+	it('does NOT flag a perfectly valid coupling+block placement', async () => {
+		const { findHardViolations } = await import('./hardCheck');
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'A'));
+		doc.teachers.push(teacher('tB', 'B'));
+		doc.subjects.push(subject('BSP'));
+		// Doppelstunden-Coupling 7+8
+		doc.specs.push(spec('a', 'BSP', 'tA', [7, 8], 2, { couplingId: 'g', blocks: [2] }));
+		doc.specs.push(spec('b', 'BSP', 'tB', [7, 8], 2, { couplingId: 'g', blocks: [2] }));
+		const state = buildState(doc);
+		const cu = state.units.find(u => u.kind === 'coupling')!;
+		state.placement[cu.idx] = slotFromDP(0, 1);
+		expect(findHardViolations(state)).toEqual([]);
+	});
+});
+
+describe('wouldViolate — single spec with team teachers (no couplingId)', () => {
+	it('rejects slots where any team member is unavailable', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'A'));
+		doc.teachers.push(teacher('tB', 'B', [{ day: 'Mo', period: 1 }]));
+		doc.subjects.push(subject('KU'));
+		// One spec, two teachers (team-teaching) — NO coupling needed.
+		const s = spec('s', 'KU', 'tA', [5], 1);
+		s.teachers = ['tA', 'tB'];
+		doc.specs.push(s);
+		const state = buildState(doc);
+		const u = state.units[0];
+		expect(u.teacherIds.sort()).toEqual(['tA', 'tB']);
+		// Mo P1: B blocked → reject
+		expect(wouldViolate(state, u, slotFromDP(0, 1))).not.toBeNull();
+		// Mo P2: both free → ok
+		expect(wouldViolate(state, u, slotFromDP(0, 2))).toBeNull();
+	});
+
+	it('rejects slots where any team teacher is double-booked elsewhere', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'A'));
+		doc.teachers.push(teacher('tB', 'B'));
+		doc.subjects.push(subject('KU'));
+		doc.subjects.push(subject('M'));
+		// Team-teaching spec for Stufe 5
+		const team = spec('team', 'KU', 'tA', [5], 1);
+		team.teachers = ['tA', 'tB'];
+		doc.specs.push(team);
+		// Independent solo spec where teacher B is busy at Mo P3
+		doc.specs.push(spec('soloB', 'M', 'tB', [6], 1));
+		doc.placed.push({ specId: 'soloB', day: 'Mo', period: 3, grade: 6, pinned: true });
+		const state = buildState(doc);
+		const teamUnit = state.units.find(u => u.specIds.includes('team'))!;
+		// Mo P3: B is teaching Stufe 6 → conflict
+		const reason = wouldViolate(state, teamUnit, slotFromDP(0, 3));
+		expect(reason).not.toBeNull();
+		expect(reason).toMatch(/double-booked|tB/);
+	});
+});
+
+describe('wouldViolate — coupling team teachers (regression)', () => {
+	it('rejects a slot if ANY team member is unavailable', () => {
+		const doc = emptyDoc();
+		// Nagl free everywhere; Schlegel blocked at Mo P1.
+		doc.teachers.push(teacher('tNagl', 'Nagl'));
+		doc.teachers.push(teacher('tSchlegel', 'Schlegel', [{ day: 'Mo', period: 1 }]));
+		doc.subjects.push(subject('BSP'));
+		// Two coupled BSP specs (Knaben/Mädchen 7+8), each 1h.
+		doc.specs.push(spec('bspK', 'BSP', 'tNagl', [7, 8], 1, { couplingId: 'bsp78' }));
+		doc.specs.push(spec('bspM', 'BSP', 'tSchlegel', [7, 8], 1, { couplingId: 'bsp78' }));
+		const state = buildState(doc);
+		// One coupling-Unit should be created.
+		const couplingUnit = state.units.find(u => u.kind === 'coupling');
+		expect(couplingUnit).toBeDefined();
+		expect(couplingUnit!.teacherIds.sort()).toEqual(['tNagl', 'tSchlegel']);
+		// Mo P1 must be rejected because Schlegel is unavailable there.
+		const reasonMo1 = wouldViolate(state, couplingUnit!, slotFromDP(0, 1));
+		expect(reasonMo1).not.toBeNull();
+		expect(reasonMo1).toMatch(/Schlegel/);
+		// Mo P2 must succeed (both teachers free).
+		expect(wouldViolate(state, couplingUnit!, slotFromDP(0, 2))).toBeNull();
+	});
+
+	it('rejects a slot where another non-coupled spec already books a team teacher', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tNagl', 'Nagl'));
+		doc.teachers.push(teacher('tSchlegel', 'Schlegel'));
+		doc.subjects.push(subject('BSP'));
+		doc.subjects.push(subject('TURN'));
+		// Coupled team-teaching BSP for Stufen 7+8.
+		doc.specs.push(spec('bspK', 'BSP', 'tNagl', [7, 8], 1, { couplingId: 'bsp78' }));
+		doc.specs.push(spec('bspM', 'BSP', 'tSchlegel', [7, 8], 1, { couplingId: 'bsp78' }));
+		// Independent solo lesson where Schlegel teaches Stufe 5 turnen, pinned to Mo P3.
+		doc.specs.push(spec('turn5', 'TURN', 'tSchlegel', [5], 1));
+		doc.placed.push({ specId: 'turn5', day: 'Mo', period: 3, grade: 5, pinned: true });
+		const state = buildState(doc);
+		const couplingUnit = state.units.find(u => u.kind === 'coupling');
+		expect(couplingUnit).toBeDefined();
+		// Coupling cannot land on Mo P3: Schlegel is busy with turn5 there.
+		const reason = wouldViolate(state, couplingUnit!, slotFromDP(0, 3));
+		expect(reason).not.toBeNull();
+		expect(reason).toMatch(/double-booked|tSchlegel/);
 	});
 });
 

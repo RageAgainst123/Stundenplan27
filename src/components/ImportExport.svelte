@@ -61,8 +61,10 @@
 			}
 		}
 		for (const imported of preview.specs) {
-			const finalTeacher = teacherIdMap.get(imported.teacher) ?? imported.teacher;
-			store.doc.specs.push({ ...imported, teacher: finalTeacher });
+			// Remap every team member id through the teacherIdMap so newly-
+			// imported teachers point at the correct existing/new teacher rows.
+			const finalTeachers = imported.teachers.map(tid => teacherIdMap.get(tid) ?? tid);
+			store.doc.specs.push({ ...imported, teachers: finalTeachers });
 		}
 
 		store.persistNow();

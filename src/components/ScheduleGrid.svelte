@@ -36,7 +36,7 @@
 
 	function isHighlighted(spec: LessonSpec, gradeOfCell: GradeLevel): boolean {
 		if (showAll) return true;
-		if (selectedTeachers.size > 0 && !selectedTeachers.has(spec.teacher)) return false;
+		if (selectedTeachers.size > 0 && !spec.teachers.some(t => selectedTeachers.has(t))) return false;
 		if (selectedSubject && spec.subject !== selectedSubject) return false;
 		if (selectedGrades.size > 0 && !selectedGrades.has(gradeOfCell)) return false;
 		return true;
@@ -200,7 +200,7 @@
 		{:else}
 			<div class="unplaced-list">
 				{#each unplaced as { spec, remaining } (spec.id)}
-					{@const t = teacherById(spec.teacher)}
+					{@const t = teacherById(spec.teachers[0] ?? '')}
 					<div
 						class="unplaced-item"
 						use:draggable={{

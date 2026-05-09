@@ -1,0 +1,135 @@
+import { describe, it, expect } from 'vitest';
+import { emptyDoc, type Day, type LessonSpec, type Period, type Subject, type Teacher, type GradeLevel } from '../types';
+import { startSolve, solve } from './index';
+
+function teacher(id: string, name: string, unavailable: { day: Day; period: Period }[] = []): Teacher {
+	return { id, name, shortNumber: 1, color: '#000', subjects: [], unavailable };
+}
+function subject(code: string, opts: Partial<Subject> = {}): Subject {
+	return { code, name: code, category: 'PG', isMain: opts.isMain ?? false, hoursPerWeek: {}, maxConsecutive: opts.maxConsecutive ?? 99 };
+}
+function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
+	return {
+		id, subject: sub, teachers: [t], classes: ['1a'], grades,
+		weekPattern: 'every', count,
+		blocks: 'blocks' in opts ? opts.blocks : undefined,
+		includeInSolver: true,
+		groupLabel: opts.groupLabel,
+		couplingId: opts.couplingId,
+		source: 'manual',
+	};
+}
+
+describe('startSolve — public API', () => {
+	it('returns a session with abort/on/getDzn methods', () => {
+		const doc = emptyDoc();
+		const s = startSolve(doc);
+		expect(typeof s.abort).toBe('function');
+		expect(typeof s.on).toBe('function');
+		expect(typeof s.getDzn).toBe('function');
+		s.abort();
+	});
+
+	it('emits done with status=ERROR when no specs', async () => {
+		const doc = emptyDoc();
+		const session = startSolve(doc, { totalBudgetMs: 100 });
+		const done = await new Promise<{ final: { status: string; message?: string } }>((resolve) => {
+			session.on('done', e => resolve(e as any));
+		});
+		expect(done.final.status).toBe('ERROR');
+	});
+
+	it('fatal diagnose hint short-circuits to ERROR', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// Spec references non-existent teacher
+		doc.specs.push(spec('s', 'M', 'tNONE', [5], 1));
+		// Plus a valid spec so encode produces L > 0
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		const session = startSolve(doc, { totalBudgetMs: 200 });
+		const done = await new Promise<{ final: { status: string; message?: string } }>((resolve) => {
+			session.on('done', e => resolve(e as any));
+		});
+		expect(done.final.status).toBe('ERROR');
+		expect(done.final.message).toMatch(/nicht lösbar|Lehrer/i);
+	});
+
+	it('full solve produces a SAT result on a tiny doc', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const session = startSolve(doc, { totalBudgetMs: 1500, innerBudgetMs: 500 });
+		const done = await new Promise<{ final: { status: string; placed: Array<{ specId: string }>; penalties?: { total: number } } }>((resolve) => {
+			session.on('done', e => resolve(e as any));
+		});
+		expect(done.final.status).toBe('SAT');
+		expect(done.final.placed.length).toBeGreaterThan(0);
+		expect(done.final.penalties).toBeDefined();
+	});
+
+	it('abort returns TIMEOUT with best-so-far solution', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.teachers.push(teacher('t2', 'L2'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 4));
+		doc.specs.push(spec('s2', 'D', 't2', [6], 4));
+		const session = startSolve(doc, { totalBudgetMs: 60_000, innerBudgetMs: 30_000 });
+		// Abort after first solution
+		setTimeout(() => session.abort(), 100);
+		const done = await new Promise<{ final: { status: string; message?: string } }>((resolve) => {
+			session.on('done', e => resolve(e as any));
+		});
+		// Could be SAT (Construction was so fast it finished before abort) or TIMEOUT.
+		expect(['SAT', 'TIMEOUT']).toContain(done.final.status);
+	});
+
+	it('emits at least one solution event for a solvable doc', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const session = startSolve(doc, { totalBudgetMs: 1000, innerBudgetMs: 300 });
+		let solutionCount = 0;
+		session.on('solution', () => solutionCount++);
+		await new Promise<void>((resolve) => {
+			session.on('done', () => resolve());
+		});
+		expect(solutionCount).toBeGreaterThanOrEqual(1);
+	});
+});
+
+describe('strict-noFree auto-relaxation', () => {
+	it('default doc has strict mode enabled', () => {
+		const doc = emptyDoc();
+		expect(doc.constraints.noFreePeriodsForClass.strict).toBe(true);
+	});
+
+	it('does not signal noFreeRelaxed when no gaps exist', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// 4 stunden in stufe 5 — easy to place without gaps
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const session = startSolve(doc, { totalBudgetMs: 1500, innerBudgetMs: 500 });
+		const done = await new Promise<{ final: { relaxation?: { noFreeRelaxed: boolean } } }>(
+			(resolve) => session.on('done', e => resolve(e as any))
+		);
+		expect(done.final.relaxation?.noFreeRelaxed).toBe(false);
+	});
+});
+
+describe('solve() — Promise-based wrapper', () => {
+	it('returns a SolverOutput', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const result = await solve(doc, { timeoutMs: 1000 });
+		expect(['SAT', 'TIMEOUT']).toContain(result.status);
+		expect(result.placed.length).toBeGreaterThan(0);
+	});
+});

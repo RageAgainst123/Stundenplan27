@@ -75,10 +75,12 @@ export function checkPlacementConflict(
 	const reasonSet = new Set<string>();
 	const push = (r: string) => { if (!reasonSet.has(r)) { reasonSet.add(r); reasons.push(r); } };
 
-	// Teacher unavailable
-	const teacher = doc.teachers.find(t => t.id === spec.teacher);
-	if (teacher?.unavailable.some(u => u.day === day && u.period === period)) {
-		push(`Lehrer "${teacher.name}" ist hier nicht verfügbar.`);
+	// Teacher unavailable — every team member must be free
+	for (const tid of spec.teachers) {
+		const teacher = doc.teachers.find(t => t.id === tid);
+		if (teacher?.unavailable.some(u => u.day === day && u.period === period)) {
+			push(`Lehrer "${teacher.name}" ist hier nicht verfügbar.`);
+		}
 	}
 
 	const targetGrades = new Set(spec.grades);
@@ -99,10 +101,13 @@ export function checkPlacementConflict(
 			spec.pairedWith?.includes(otherSpec.id) ||
 			otherSpec.pairedWith?.includes(spec.id);
 
-		// Teacher clash (unless paired/group)
-		if (!sameGroup && otherSpec.teacher === spec.teacher) {
-			const tn = doc.teachers.find(t => t.id === spec.teacher)?.name ?? '?';
-			push(`Lehrer "${tn}" hat hier bereits Unterricht (${otherSpec.subject}).`);
+		// Teacher clash (unless paired/group) — any shared team member counts
+		if (!sameGroup) {
+			const sharedTeacher = spec.teachers.find(tid => otherSpec.teachers.includes(tid));
+			if (sharedTeacher) {
+				const tn = doc.teachers.find(t => t.id === sharedTeacher)?.name ?? '?';
+				push(`Lehrer "${tn}" hat hier bereits Unterricht (${otherSpec.subject}).`);
+			}
 		}
 
 		// Grade clash: only if the OTHER placement's grade is one we want to occupy.

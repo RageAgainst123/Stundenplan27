@@ -54,8 +54,24 @@ export interface Unit {
 	 * periods STARTING at the placed period. For solo/multigrade/coupling: 1.
 	 */
 	blockSize: number;
-	/** Teacher id of (one of) the spec(s). Block/multigrade-Units always have ONE teacher. */
+	/**
+	 * Primary teacher id (the first spec's teacher). Used for display labels
+	 * and as a stable cache key. Solo/block/multigrade Units have exactly one
+	 * teacher; coupling Units may have several — see `teacherIds` for the
+	 * full set used by hard constraints.
+	 */
 	teacherId: string;
+	/**
+	 * All teachers that occupy this Unit's slot when placed. For solo/block/
+	 * multigrade Units this contains exactly one id (`[teacherId]`). For
+	 * coupling Units it contains the teacher of every coupled spec — they
+	 * teach in parallel in the same timeslot.
+	 *
+	 * Hard constraints H2 (availability) and H3 (no double-booking) iterate
+	 * over `teacherIds` so a coupling group correctly blocks every involved
+	 * teacher elsewhere.
+	 */
+	teacherIds: string[];
 	/** Subject code (block/multigrade/solo: same; coupling: pick first for display). */
 	subjectCode: string;
 	/** Grade columns this Unit occupies (grades). */
@@ -162,6 +178,12 @@ export interface ScoreBreakdown {
 	compact_teacher: number;
 	/** Soft: sum (period - 1) for main-subject lessons. */
 	main_early: number;
+	/**
+	 * Soft: sum of period-distance penalties for specs with an explicit
+	 * `timePref`. 'early' favours P1–P3, 'late' favours P5–P8; specs without
+	 * a timePref contribute 0 (no preference).
+	 */
+	time_pref: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -177,6 +199,7 @@ export interface ScoreWeights {
 	main_run: number;
 	compact_teacher: number;
 	main_early: number;
+	time_pref: number;
 }
 
 /**
@@ -184,8 +207,20 @@ export interface ScoreWeights {
  * v2-specific `min_daily` and `no_p1_start` (which were hard in v1 but soft
  * in v2 — see SOLVER-V2-CONCEPT.md §4 "Was nicht mehr Hard-Constraint ist").
  */
-export function defaultWeights(doc: ScheduleDoc): ScoreWeights {
+/**
+ * Compute the soft-penalty weights for a doc.
+ *
+ * @param strictNoFree When true (default), the "no internal free periods"
+ *   penalty gets a massive multiplier (×50). Local Search will then optimize
+ *   sandwich-gaps away as the dominant signal — practically a hard constraint.
+ *   Used in the first solve pass; a second relaxation pass calls this with
+ *   `false` if the strict pass left gaps behind.
+ */
+export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeights {
 	const c = doc.constraints;
+	const noFreeBase = c.noFreePeriodsForClass.enabled ? c.noFreePeriodsForClass.weight : 0;
+	const noFreeStrict = c.noFreePeriodsForClass.strict !== false; // default true
+	const noFreeWeight = strictNoFree && noFreeStrict ? noFreeBase * 50 : noFreeBase;
 	return {
 		min_daily: 500,
 		no_p1_start: 300,
@@ -194,11 +229,18 @@ export function defaultWeights(doc: ScheduleDoc): ScoreWeights {
 			c.noMainSubjectAfternoon.enabled && c.noMainSubjectAfternoon.applyToAllSubjects
 				? c.noMainSubjectAfternoon.weightAllSubjects
 				: 0,
-		no_free: c.noFreePeriodsForClass.enabled ? c.noFreePeriodsForClass.weight : 0,
+		no_free: noFreeWeight,
 		uneven_days: 150,
 		main_run: c.maxConsecutiveMain.enabled ? c.maxConsecutiveMain.weight : 0,
 		compact_teacher: c.compactTeacherDays.enabled ? c.compactTeacherDays.weight : 0,
-		main_early: c.preferMainEarly.enabled ? c.preferMainEarly.weight : 0
+		main_early: c.preferMainEarly.enabled ? c.preferMainEarly.weight : 0,
+		// Strong push so a flagged spec actually moves to its preferred zone.
+		// Per period of distance from the ideal pole. With weight 100, a
+		// late-pref spec at P2 costs 100×6=600 — high enough to overpower
+		// uneven_days (150 per missing slot) when no_free is satisfied.
+		// Note: 'late' specs are exempted from main_aft/any_aft/main_early
+		// (see score.ts) so the two soft-constraint families don't fight.
+		time_pref: 100,
 	};
 }
 

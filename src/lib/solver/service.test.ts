@@ -34,14 +34,14 @@ describe('startSolve — pre-flight short-circuits', () => {
 		doc.subjects.push({ code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {} });
 		// Fatal: this spec references a non-existent teacher 'tNONE'.
 		doc.specs.push({
-			id: 'sBad', subject: 'M', teacher: 'tNONE', classes: ['1a'], grades: [5],
+			id: 'sBad', subject: 'M', teachers: ['tNONE'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
 		// Add a second valid spec so encode produces L > 0 and we hit diagnose,
 		// not the empty-L short-circuit.
 		doc.specs.push({
-			id: 'sOk', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 'sOk', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});

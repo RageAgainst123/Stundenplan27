@@ -18,7 +18,7 @@ function subject(code: string, opts: Partial<Subject> = {}): Subject {
 }
 function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
-		id, subject: sub, teacher: t, classes: ['1a'], grades,
+		id, subject: sub, teachers: [t], classes: ['1a'], grades,
 		weekPattern: 'every', count,
 		blocks: 'blocks' in opts ? opts.blocks : undefined,
 		includeInSolver: opts.includeInSolver ?? true,
@@ -295,8 +295,88 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.uneven_days * b.uneven_days +
 			w.main_run * b.main_run +
 			w.compact_teacher * b.compact_teacher +
-			w.main_early * b.main_early;
+			w.main_early * b.main_early +
+			w.time_pref * b.time_pref;
 		expect(b.total).toBe(expected);
+	});
+});
+
+describe('computeScore — time_pref (per-spec time-of-day preference)', () => {
+	it('contributes 0 when no spec sets timePref', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 4);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.time_pref).toBe(0);
+	});
+
+	it('penalizes early-pref spec placed late (P=8 → distance 7)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		doc.specs[0].timePref = 'early';
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 8);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.time_pref).toBe(7);
+	});
+
+	it('penalizes late-pref spec placed early (P=1 → distance 7)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP'));
+		doc.specs.push(spec('s', 'BSP', 't', [5], 1));
+		doc.specs[0].timePref = 'late';
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.time_pref).toBe(7);
+	});
+
+	it('zero penalty when late-pref is placed at P8', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP'));
+		doc.specs.push(spec('s', 'BSP', 't', [5], 1));
+		doc.specs[0].timePref = 'late';
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 8);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.time_pref).toBe(0);
+	});
+
+	it("'late'-pref suppresses any_aft / main_aft / main_early so the two penalties don't fight", () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		// EH = main subject for the test (any subject works — we want to see main_aft would normally fire)
+		doc.subjects.push(subject('EH', { isMain: true }));
+		doc.specs.push(spec('s', 'EH', 't', [7], 1));
+		doc.specs[0].timePref = 'late';
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 8); // afternoon, would normally trigger main_aft + any_aft + main_early
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.any_aft).toBe(0);
+		expect(b.main_aft).toBe(0);
+		expect(b.main_early).toBe(0);
+		expect(b.time_pref).toBe(0); // P8 = ideal for late-pref
+	});
+
+	it('multi-grade spec contributes once per (occurrence, blockPos), not per grade', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP'));
+		// grades=[7,8]: two grade-instances per slot. Penalty must NOT double.
+		doc.specs.push(spec('s', 'BSP', 't', [7, 8], 1));
+		doc.specs[0].timePref = 'late';
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		// distance from P8 (idx 7) to P1 (idx 0) = 7. Counted ONCE.
+		expect(b.time_pref).toBe(7);
 	});
 });
 

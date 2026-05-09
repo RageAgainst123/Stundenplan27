@@ -50,9 +50,11 @@ export function wouldViolate(
 		periodsToOccupy.push(p);
 	}
 
-	// H2: Teacher availability — none of the periods can be blocked.
-	const teacher = state.teachersById.get(unit.teacherId);
-	if (teacher) {
+	// H2: Teacher availability — for couplings, EVERY teacher in the team
+	// must be free in every occupied period.
+	for (const tid of unit.teacherIds) {
+		const teacher = state.teachersById.get(tid);
+		if (!teacher) continue;
 		for (const p of periodsToOccupy) {
 			if (teacher.unavailable.some(u => u.day === day && u.period === p)) {
 				return `teacher ${teacher.name} unavailable at ${day} P${p}`;
@@ -83,9 +85,13 @@ export function wouldViolate(
 			// Determine if the two units share couplingId/specIds (allowed parallel)
 			const sameCoupling = sharesCoupling(unit, other, state);
 
-			// H3: same teacher → conflict unless coupled
-			if (other.teacherId === unit.teacherId && !sameCoupling) {
-				return `teacher ${unit.teacherId} double-booked at ${day} P${oP}`;
+			// H3: any shared teacher → conflict unless the two units are coupled
+			// (which means they intentionally occupy the same slot).
+			if (!sameCoupling) {
+				const sharedTeacher = unit.teacherIds.find(tid => other.teacherIds.includes(tid));
+				if (sharedTeacher) {
+					return `teacher ${sharedTeacher} double-booked at ${day} P${oP}`;
+				}
 			}
 
 			// H4: overlapping grade columns → conflict unless coupled
@@ -176,6 +182,37 @@ export function feasibleSlots(state: SolverState, unit: Unit, ignoreUnit?: Unit)
 		}
 	}
 	return out;
+}
+
+/**
+ * Defensive sweep: scan every placed Unit and check whether its current slot
+ * would violate hard constraints given the rest of the placement. Returns
+ * the indices of any offending Units. Used as a safety net at the end of
+ * Construction and after each ILS restart so that a buggy ejection-chain
+ * sub-step or a stale pinned cell can never produce a final plan with
+ * teacher-double or grade-double bookings.
+ *
+ * The caller decides what to do with the offenders — typically they are
+ * un-placed (set to SLOT_UNPLACED) so the solver re-tries them or the UI
+ * lists them as unplaced rather than rendering an impossible schedule.
+ */
+export function findHardViolations(state: SolverState): number[] {
+	const offenders: number[] = [];
+	for (let i = 0; i < state.nUnits; i++) {
+		const slot = state.placement[i];
+		if (slot === SLOT_UNPLACED) continue;
+		const unit = state.units[i];
+		// Temporarily un-place the unit so wouldViolate doesn't see it as
+		// its own conflict, then re-evaluate against everyone else.
+		state.placement[i] = SLOT_UNPLACED;
+		const wasPinned = unit.pinned;
+		unit.pinned = false;
+		const reason = wouldViolate(state, unit, slot);
+		unit.pinned = wasPinned;
+		state.placement[i] = slot;
+		if (reason !== null) offenders.push(i);
+	}
+	return offenders;
 }
 
 void DAY_INDEX;

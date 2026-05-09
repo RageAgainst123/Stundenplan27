@@ -143,7 +143,7 @@ export function encode(doc: ScheduleDoc): SolverInput {
 
 	for (const spec of doc.specs) {
 		if (spec.includeInSolver === false) continue;
-		const tIdx1 = teacherIdx.get(spec.teacher);
+		const tIdx1 = teacherIdx.get(spec.teachers[0]);
 		if (!tIdx1) continue;
 		const sIdx1 = subjectIdx.get(spec.subject) ?? 1;
 		specCounter++;

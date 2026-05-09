@@ -30,7 +30,7 @@ function makeDoc() {
 	const sM: LessonSpec = {
 		id: 'sM',
 		subject: 'M',
-		teacher: 'tA',
+		teachers: ['tA'],
 		classes: ['1a'],
 		grades: [5],
 		weekPattern: 'every',
@@ -42,7 +42,7 @@ function makeDoc() {
 	const sD: LessonSpec = {
 		id: 'sD',
 		subject: 'D',
-		teacher: 'tB',
+		teachers: ['tB'],
 		classes: ['1a'],
 		grades: [5],
 		weekPattern: 'every',
@@ -152,7 +152,7 @@ describe('encode', () => {
 			hoursPerWeek: {}, maxConsecutive: 99
 		});
 		doc.specs.push({
-			id: 's', subject: 'BSP', teacher: 't', classes: ['2a'],
+			id: 's', subject: 'BSP', teachers: ['t'], classes: ['2a'],
 			grades: [7, 8], weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -175,7 +175,7 @@ describe('encode', () => {
 			code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {}
 		});
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'],
 			grades: [5], weekPattern: 'every', count: 2, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -247,7 +247,7 @@ function makeMultiGradeDoc() {
 	const sREL67: LessonSpec = {
 		id: 'sREL67',
 		subject: 'REL',
-		teacher: 'tREL',
+		teachers: ['tREL'],
 		classes: ['1a', '2a'],
 		grades: [6, 7],
 		weekPattern: 'every',
@@ -259,7 +259,7 @@ function makeMultiGradeDoc() {
 	const sREL78: LessonSpec = {
 		id: 'sREL78',
 		subject: 'REL',
-		teacher: 'tREL',
+		teachers: ['tREL'],
 		classes: ['2a'],
 		grades: [7, 8],
 		weekPattern: 'every',
@@ -334,7 +334,7 @@ describe('phase 7A: subject_max_consec edge case', () => {
 			subjects: ['M'], unavailable: []
 		});
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't',
+			id: 's', subject: 'M', teachers: ['t'],
 			classes: ['1a'], grades: [5], weekPattern: 'every',
 			count: 4, blocks: [1,1,1,1], includeInSolver: true, source: 'manual'
 		});
@@ -364,7 +364,7 @@ describe('phase 7B: auto-block mode', () => {
 	it('blocks=undefined → emits count flexible auto-mode instances with blockId=-1', () => {
 		const doc = autoModeDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 3, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -380,7 +380,7 @@ describe('phase 7B: auto-block mode', () => {
 	it('blocks=[2,1] → strict mode, autoMode=false on every instance, blockId set on the doublet', () => {
 		const doc = autoModeDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 3, blocks: [2, 1],
 			includeInSolver: true, source: 'manual'
 		});
@@ -403,7 +403,7 @@ describe('phase 7B: auto-block mode', () => {
 	it('blocks=[1,1,1] → strict mode singles, autoMode=false', () => {
 		const doc = autoModeDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 3, blocks: [1, 1, 1],
 			includeInSolver: true, source: 'manual'
 		});
@@ -423,12 +423,12 @@ describe('phase 7B: auto-block mode', () => {
 			hoursPerWeek: {}, maxConsecutive: 2
 		});
 		doc.specs.push({
-			id: 'sAuto', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 'sAuto', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 3, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
 		doc.specs.push({
-			id: 'sStrict', subject: 'D', teacher: 't', classes: ['1a'], grades: [5],
+			id: 'sStrict', subject: 'D', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 2, blocks: [2],
 			includeInSolver: true, source: 'manual'
 		});
@@ -444,7 +444,7 @@ describe('phase 7B: auto-block mode', () => {
 	it('emits lesson_auto[] in DZN with one bool per instance', () => {
 		const doc = autoModeDoc();
 		doc.specs.push({
-			id: 's1', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's1', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 2, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -458,7 +458,7 @@ describe('phase 7B: auto-block mode', () => {
 	it('blocks=[] (empty array) is treated as auto mode', () => {
 		const doc = autoModeDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 2, blocks: [],
 			includeInSolver: true, source: 'manual'
 		});
@@ -480,7 +480,7 @@ describe('phase 9: encoder DZN parameters', () => {
 			code: 'M', name: 'Mathe', category: 'PG', isMain: true, hoursPerWeek: {}
 		});
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 2, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});

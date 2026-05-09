@@ -12,7 +12,7 @@ function subject(code: string, isMain = false): Subject {
 
 function spec(id: string, sub: string, t: string, grades: number[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
-		id, subject: sub, teacher: t, classes: ['1a'], grades: grades as any,
+		id, subject: sub, teachers: [t], classes: ['1a'], grades: grades as any,
 		weekPattern: 'every', count,
 		blocks: 'blocks' in opts ? opts.blocks : Array(count).fill(1),
 		includeInSolver: opts.includeInSolver ?? true,
@@ -122,6 +122,48 @@ describe('diagnose: bestHint', () => {
 			{ severity: 'error' as const, message: 'real problem' }
 		];
 		expect(bestHint(hints)?.severity).toBe('error');
+	});
+});
+
+describe('diagnose: coupling — Stunden pro Coupling-Gruppe nur einmal', () => {
+	it('zählt zwei gekoppelte Specs (BSP K/M) nicht doppelt für die Stufen-Auslastung', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tNagl', 'Nagl'));
+		doc.teachers.push(teacher('tSchlegel', 'Schlegel'));
+		doc.subjects.push(subject('BSP'));
+		// Knaben + Mädchen 7+8, beide 3h, gekoppelt → zählen zusammen als 3h
+		doc.specs.push(spec('bspK', 'BSP', 'tNagl', [7, 8], 3, { couplingId: 'bsp78' }));
+		doc.specs.push(spec('bspM', 'BSP', 'tSchlegel', [7, 8], 3, { couplingId: 'bsp78' }));
+		// Setze min_daily so, dass die Stunden-Soll-Aggregation aktiv wird
+		doc.constraints.minDailySlotsPerGrade = 4;
+		const hints = diagnose(doc);
+		// Wenn die alte Logik doppelt zählt, sieht es so aus als hätten Stufe 7
+		// und 8 je 6h Sport. Wir prüfen indirekt: bei nur 6h Total dürfte die
+		// Tagespensum-Warnung NICHT auftauchen, wenn doppelt gezählt würde.
+		// Mit korrekter Single-Counting: 3h < 20h Soll → Warnung erscheint.
+		const stufe7Warn = hints.find(
+			h => h.severity === 'warn' && h.message.includes('Schulstufe 7') && h.message.includes('mindestens')
+		);
+		expect(stufe7Warn).toBeTruthy();
+		expect(stufe7Warn!.message).toContain('3 Wochenstunden');
+	});
+
+	it('ungekoppelte Specs zählen weiterhin separat', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.teachers.push(teacher('t2', 'L2'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		// Zwei separate Specs ohne Coupling → 4 + 3 = 7 Stunden für Stufe 5
+		doc.specs.push(spec('m', 'M', 't1', [5], 4));
+		doc.specs.push(spec('d', 'D', 't2', [5], 3));
+		doc.constraints.minDailySlotsPerGrade = 4;
+		const hints = diagnose(doc);
+		const stufe5Warn = hints.find(
+			h => h.severity === 'warn' && h.message.includes('Schulstufe 5') && h.message.includes('mindestens')
+		);
+		expect(stufe5Warn).toBeTruthy();
+		expect(stufe5Warn!.message).toContain('7 Wochenstunden');
 	});
 });
 

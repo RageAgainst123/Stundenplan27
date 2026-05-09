@@ -1,8 +1,7 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
-	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent } from '../lib/solver/service';
+	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput } from '../lib/solver-v2/index';
 	import type { PlacedLesson } from '../lib/types';
-	import type { RelaxationInfo, SolverOutput } from '../lib/solver/decode';
 	const store = useStore();
 
 	// ---- Run state ----
@@ -123,9 +122,8 @@
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
 			// gerne mehrere Minuten laufen — Anytime-Modus heißt der User
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
-			satisfyTimeoutMs: 300_000,    // 5 min  — erste valide Lösung
-			optimizeTimeoutMs: 1_800_000, // 30 min — Optimierung anytime
-			relaxTimeoutMs: 300_000       // 5 min  — pro Lockerungs-Stufe
+			totalBudgetMs: 1_800_000, // 30 min Gesamtbudget (Construct + ILS)
+			innerBudgetMs: 30_000     // 30 s pro inner-LS-Restart-Zyklus
 		});
 		session = s;
 
@@ -198,7 +196,8 @@
 		relaxation !== null && (
 			relaxation.blocksRelaxed.length > 0 ||
 			relaxation.minDailyReducedTo !== null ||
-			relaxation.startInP1Disabled
+			relaxation.startInP1Disabled ||
+			relaxation.noFreeRelaxed
 		)
 	);
 
@@ -278,6 +277,9 @@
 							{#if relaxation.startInP1Disabled}
 								<li>„Beginn in 1. Stunde"-Regel deaktiviert</li>
 							{/if}
+							{#if relaxation.noFreeRelaxed}
+								<li>„Keine Freistunden in Stufe": von strikt auf weich gelockert — der Plan enthält unvermeidbare Sandwich-Lücken</li>
+							{/if}
 						</ul>
 					</div>
 				{/if}
@@ -299,6 +301,9 @@
 							{/if}
 							{#if result.penalties.main_early > 0}
 								<li>Hauptfächer-Spät-Score (niedriger=früher): <strong>{result.penalties.main_early}</strong></li>
+							{/if}
+							{#if result.penalties.time_pref > 0}
+								<li>Tageszeit-Präferenz-Abweichung: <strong>{result.penalties.time_pref}</strong></li>
 							{/if}
 							{#if result.penalties.compact > 0}
 								<li>Lehrer-Freistunden: <strong>{result.penalties.compact}</strong></li>

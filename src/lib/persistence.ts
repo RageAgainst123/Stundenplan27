@@ -38,7 +38,20 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			groupKey?: string;
 			groupLabel?: string;
 			couplingId?: string;
+			teacher?: string;          // v3 single teacher field
+			teachers?: string[];       // v4 team field
 		};
+
+		// v3 → v4: teacher (single) → teachers (array). Idempotent: if v4
+		// data already has `teachers`, we keep it; we still strip `teacher`
+		// to avoid stale state. If the array is empty/missing but `teacher`
+		// is present, populate from it.
+		if (!Array.isArray(s.teachers) || s.teachers.length === 0) {
+			s.teachers = typeof s.teacher === 'string' && s.teacher ? [s.teacher] : [];
+		}
+		if ('teacher' in s) {
+			delete (s as unknown as Record<string, unknown>).teacher;
+		}
 		if (Array.isArray(s.blocks) && s.blocks.length > 0) {
 			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.round(s.count);
 			if (isLegacyAllSingles) {
@@ -90,6 +103,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		}
 		if (!c.mustStartFirstPeriod || typeof c.mustStartFirstPeriod.enabled !== 'boolean') {
 			c.mustStartFirstPeriod = { enabled: true };
+		}
+		// Phase 11: noFreePeriodsForClass.strict (auto-relaxation flag).
+		// Default: true — behave as a hard constraint with auto-relaxation.
+		if (c.noFreePeriodsForClass && typeof (c.noFreePeriodsForClass as { strict?: boolean }).strict !== 'boolean') {
+			(c.noFreePeriodsForClass as { strict?: boolean }).strict = true;
 		}
 	}
 
@@ -178,10 +196,10 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	// schemaVersion is typed as the current literal, but old backups may hold
 	// older numbers → cast to number for the runtime comparison.
 	const v = parsed.meta.schemaVersion as number;
-	// Accept v1, v2 (both auto-migrated by migrateDoc) and the current version.
-	if (v !== 1 && v !== 2 && v !== SCHEMA_VERSION) {
+	// Accept v1, v2, v3 (all auto-migrated by migrateDoc) and the current version.
+	if (v !== 1 && v !== 2 && v !== 3 && v !== SCHEMA_VERSION) {
 		throw new Error(
-			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2 oder ${SCHEMA_VERSION})`
+			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2, 3 oder ${SCHEMA_VERSION})`
 		);
 	}
 	return migrateDoc(parsed);

@@ -69,9 +69,14 @@ export function buildState(doc: ScheduleDoc): SolverState {
 			arr.push(unit);
 			unitsBySpec.set(sid, arr);
 		}
-		const arrT = unitsByTeacher.get(unit.teacherId) ?? [];
-		arrT.push(unit);
-		unitsByTeacher.set(unit.teacherId, arrT);
+		// Index by ALL teachers of the unit. For coupling-units this means
+		// each member teacher's bucket gets the same Unit reference, so
+		// any teacher-bucket scan covers couplings correctly.
+		for (const tid of unit.teacherIds) {
+			const arrT = unitsByTeacher.get(tid) ?? [];
+			arrT.push(unit);
+			unitsByTeacher.set(tid, arrT);
+		}
 		return unit;
 	}
 
@@ -81,8 +86,11 @@ export function buildState(doc: ScheduleDoc): SolverState {
 		if (grades.length === 0) continue;
 
 		const blocks = resolveBlocks(spec);
-		const teacher = teachersById.get(spec.teacher);
-		if (!teacher) continue;
+		// A spec may have a teacher team (parallel team-teaching). The first
+		// id is the primary (display) teacher; all are honored by hard checks.
+		const teacherTeam = (spec.teachers ?? []).filter(tid => teachersById.has(tid));
+		if (teacherTeam.length === 0) continue;
+		const primaryTeacher = teacherTeam[0];
 
 		// Expand: walk through blocks. Each block element is one occurrence-block.
 		// occurrenceCounter: position in the spec.
@@ -94,16 +102,20 @@ export function buildState(doc: ScheduleDoc): SolverState {
 			// instead of creating a Unit immediately. We finalize couplings later.
 			if (spec.couplingId && spec.couplingId.trim()) {
 				const bucket = couplingBuckets.get(spec.couplingId) ?? [];
-				// For coupling we currently only support solo (block_size=1); a
-				// block-coupling would need pairwise alignment which is rare in
-				// the MS-SiG dataset. Treat block_size > 1 as solo for coupling.
-				bucket.push({
-					specId: spec.id,
-					occurrenceIndex,
-					blockId,
-					blockPos: 0,
-					blockSize,
-				});
+				// One bucket entry per block-position, so every period the
+				// block occupies is materialized in `allInstances` later.
+				// (Without this loop a Doppelstunde-coupling would only
+				// produce instances for the first period and the grid
+				// would render an inconsistent placement.)
+				for (let pos = 0; pos < blockSize; pos++) {
+					bucket.push({
+						specId: spec.id,
+						occurrenceIndex,
+						blockId,
+						blockPos: pos,
+						blockSize,
+					});
+				}
 				couplingBuckets.set(spec.couplingId, bucket);
 				occurrenceIndex++;
 				continue;
@@ -139,7 +151,8 @@ export function buildState(doc: ScheduleDoc): SolverState {
 				kind,
 				instances,
 				blockSize,
-				teacherId: spec.teacher,
+				teacherId: primaryTeacher,
+				teacherIds: [...teacherTeam],
 				subjectCode: spec.subject,
 				grades: [...grades],
 				pinned: false,
@@ -167,6 +180,7 @@ export function buildState(doc: ScheduleDoc): SolverState {
 			const allInstances: LessonInstance[] = [];
 			const specIds: string[] = [];
 			const allGrades = new Set<GradeLevel>();
+			const allTeachers = new Set<string>();
 			let teacherId = '';
 			let subjectCode = '';
 			let blockSize = 1;
@@ -186,7 +200,8 @@ export function buildState(doc: ScheduleDoc): SolverState {
 					});
 					allGrades.add(g);
 				}
-				if (!teacherId) teacherId = spec.teacher;
+				for (const tid of spec.teachers ?? []) allTeachers.add(tid);
+				if (!teacherId && spec.teachers && spec.teachers.length > 0) teacherId = spec.teachers[0];
 				if (!subjectCode) subjectCode = spec.subject;
 				blockSize = Math.max(blockSize, e.blockSize);
 				weekPattern = spec.weekPattern;
@@ -198,6 +213,7 @@ export function buildState(doc: ScheduleDoc): SolverState {
 				instances: allInstances,
 				blockSize,
 				teacherId,
+				teacherIds: Array.from(allTeachers),
 				subjectCode,
 				grades: Array.from(allGrades).sort((a, b) => a - b) as GradeLevel[],
 				pinned: false,

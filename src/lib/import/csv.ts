@@ -231,7 +231,7 @@ export function importCsv(content: string): ImportResult {
 		specs.push({
 			id: newId(),
 			subject: row.subjectCode,
-			teacher: teacher.id,
+			teachers: [teacher.id],
 			classes: row.classes,
 			grades: row.grades,
 			weekPattern: 'every',

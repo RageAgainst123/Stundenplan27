@@ -18,7 +18,7 @@ function subject(code: string, opts: Partial<Subject> = {}): Subject {
 }
 function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
-		id, subject: sub, teacher: t, classes: ['1a'], grades,
+		id, subject: sub, teachers: [t], classes: ['1a'], grades,
 		weekPattern: 'every', count,
 		blocks: 'blocks' in opts ? opts.blocks : undefined,
 		includeInSolver: true,

@@ -10,7 +10,7 @@ function subject(code: string): Subject {
 }
 function spec(id: string, sub: string, t: string, grades: number[], count: number, opts: Partial<LessonSpec> = {}): LessonSpec {
 	return {
-		id, subject: sub, teacher: t, classes: ['1a'], grades: grades as any,
+		id, subject: sub, teachers: [t], classes: ['1a'], grades: grades as any,
 		weekPattern: 'every', count,
 		blocks: opts.blocks,
 		includeInSolver: true,

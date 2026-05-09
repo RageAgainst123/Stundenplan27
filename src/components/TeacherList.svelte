@@ -23,10 +23,15 @@
 	function removeTeacher(id: string) {
 		const t = store.doc.teachers.find(x => x.id === id);
 		if (!t) return;
-		const usedBy = store.doc.specs.filter(s => s.teacher === id).length;
+		const usedBy = store.doc.specs.filter(s => s.teachers.includes(id)).length;
 		if (usedBy > 0) {
 			if (!confirm(`Lehrer "${t.name}" hat ${usedBy} Lehreinheiten. Wirklich löschen?`)) return;
-			store.doc.specs = store.doc.specs.filter(s => s.teacher !== id);
+			// Remove the teacher from all specs. Specs that had this teacher
+			// as the ONLY team member are deleted; specs where they were
+			// the second teacher just lose them from the team.
+			store.doc.specs = store.doc.specs
+				.map(s => ({ ...s, teachers: s.teachers.filter(tid => tid !== id) }))
+				.filter(s => s.teachers.length > 0);
 		}
 		store.doc.teachers = store.doc.teachers.filter(x => x.id !== id);
 	}

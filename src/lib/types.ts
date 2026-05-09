@@ -56,7 +56,21 @@ export interface Subject {
 export interface LessonSpec {
 	id: string;
 	subject: SubjectCode;
-	teacher: TeacherId;
+	/**
+	 * Lehrer-Team für diese Lerneinheit. Bei normalen Stunden enthält das Array
+	 * genau eine Teacher-Id. Bei Team-Teaching (z. B. BSP Knaben + Mädchen
+	 * gemeinsam, oder zwei Lehrer einer KU-Stunde) sind es mehrere — sie
+	 * unterrichten parallel im selben Slot.
+	 *
+	 * Solver-Effekt: ALLE Lehrer im Team belegen den Slot, müssen zur Slot-Zeit
+	 * verfügbar sein und dürfen woanders nicht doppelt gebucht werden. Siehe
+	 * `Unit.teacherIds` in `solver-v2/types.ts` für die solver-interne Sicht.
+	 *
+	 * v4-Schema (vorher: `teacher: TeacherId`). Migration füllt das Feld aus
+	 * dem alten Single-Teacher-String. CSV-Import schreibt immer ein 1-elem-
+	 * Array; ein zweiter Lehrer wird im UI per Dropdown ergänzt.
+	 */
+	teachers: TeacherId[];
 	classes: string[];            // ["1a"] or ["1a","2a"] (cross-class) — metadata only
 	grades: GradeLevel[];         // [5] or [5,6] (multi-grade) — drives the column placement
 	weekPattern: WeekPattern;     // every | even | odd (set manually for BBO/EH)
@@ -77,6 +91,18 @@ export interface LessonSpec {
 	 */
 	couplingId?: string;
 	pairedWith?: string[];        // explicit parallel pairings (BSPK|BSPM) — legacy, prefer couplingId
+	/**
+	 * Optionale Tageszeit-Präferenz für diese Lerneinheit. Nur wirksam wenn
+	 * explizit gesetzt — fehlt das Feld, bleibt die Spec überall platzierbar.
+	 *
+	 *  - `'early'` — Solver bevorzugt P1–P3 (Hauptfach-typisch).
+	 *  - `'late'`  — Solver bevorzugt P5–P8 (BSP, BBO, EH, TD, GZ, MU, REL).
+	 *
+	 * Wirkt als linearer Soft-Penalty pro Periode Abstand vom Wunschbereich
+	 * (siehe `time_pref` in `ScoreBreakdown`). Gewicht ist mittel, dominant
+	 * sind weiterhin min_daily und no_free.
+	 */
+	timePref?: 'early' | 'late';
 	count: number;                // Gesamt-Wochenstunden, halbzahlig erlaubt (0.5, 1.5)
 	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
@@ -95,7 +121,18 @@ export interface PlacedLesson {
 }
 
 export interface ConstraintConfig {
-	noFreePeriodsForClass: { enabled: boolean; weight: number };
+	/**
+	 * Sandwich-Lücken (innere Freistunden) zwischen erster und letzter
+	 * belegter Stunde einer (Tag, Stufe).
+	 *
+	 * `strict=true` (Standard): Wird wie eine harte Anforderung behandelt —
+	 * Solver versucht in einer ersten Phase mit massivem Gewicht (10000),
+	 * jede Lücke zu vermeiden. Bleiben am Ende Lücken übrig, läuft eine
+	 * Auto-Lockerungs-Phase mit dem normalen Soft-Gewicht und der UI meldet
+	 * `RelaxationInfo.noFreeRelaxed=true`. Mit `strict=false` läuft direkt
+	 * der Soft-Modus ohne Lockerungs-Hinweis.
+	 */
+	noFreePeriodsForClass: { enabled: boolean; weight: number; strict: boolean };
 	noMainSubjectAfternoon: {
 		enabled: boolean;
 		weight: number;
@@ -129,7 +166,7 @@ export interface ConstraintConfig {
 // avoidance, while shrinking main_early to a tie-breaker.
 export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	// distribution (Mo–Fr balance + no gaps) — must dominate
-	noFreePeriodsForClass: { enabled: true, weight: 200 },
+	noFreePeriodsForClass: { enabled: true, weight: 200, strict: true },
 	// main subjects on afternoon — strong hard-ish push
 	noMainSubjectAfternoon: {
 		enabled: true,
@@ -155,10 +192,10 @@ export interface ScheduleDoc {
 	specs: LessonSpec[];
 	placed: PlacedLesson[];
 	constraints: ConstraintConfig;
-	meta: { schemaVersion: 3; lastModified: string };
+	meta: { schemaVersion: 4; lastModified: string };
 }
 
-export const SCHEMA_VERSION = 3 as const;
+export const SCHEMA_VERSION = 4 as const;
 
 export function emptyDoc(schoolYear = '2026/27'): ScheduleDoc {
 	return {

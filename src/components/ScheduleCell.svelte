@@ -91,27 +91,31 @@
 		}
 	}}
 >
-	{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + cp.placed.grade + '|' + idx)}
-		{@const teacher = teacherById(cp.spec.teacher)}
-		{@const visible = isHighlighted(cp.spec, grade)}
-		<div
-			class="placed"
-			class:filtered={!visible}
-			use:draggable={{
-				container: `cell-${day}-${period}`,
-				dragData: { specId: cp.spec.id, fromCell: { day, period } } as DragPayload
-			}}
-		>
-			<LessonCell
-				spec={cp.spec}
-				teacher={teacher}
-				pinned={cp.placed.pinned}
-				weekParity={weekParity}
-				onTogglePin={() => togglePin(cp.spec.id)}
-				onRemove={() => removePlacement(cp.spec.id)}
-			/>
-		</div>
-	{/each}
+	<div class="row" class:team={couplingBg !== ''}>
+		{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + cp.placed.grade + '|' + idx)}
+			{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
+			{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
+			{@const visible = isHighlighted(cp.spec, grade)}
+			<div
+				class="placed"
+				class:filtered={!visible}
+				use:draggable={{
+					container: `cell-${day}-${period}`,
+					dragData: { specId: cp.spec.id, fromCell: { day, period } } as DragPayload
+				}}
+			>
+				<LessonCell
+					spec={cp.spec}
+					teacher={teacher}
+					teacher2={teacher2}
+					pinned={cp.placed.pinned}
+					weekParity={weekParity}
+					onTogglePin={() => togglePin(cp.spec.id)}
+					onRemove={() => removePlacement(cp.spec.id)}
+				/>
+			</div>
+		{/each}
+	</div>
 </td>
 
 <style>
@@ -131,8 +135,28 @@
 	td.cell.coupled {
 		box-shadow: inset 3px 0 0 rgba(0, 0, 0, 0.25);
 	}
-	td.cell.coupled .placed + .placed {
+	/* Default: stack vertically (multiple non-coupled placements). */
+	.row {
+		display: flex;
+		flex-direction: column;
+		height: 100%;
+	}
+	.row > .placed + .placed {
 		border-top: 1px dashed rgba(0, 0, 0, 0.25);
+	}
+	/* Coupling: render side-by-side as a team-teaching block. The cell
+	   visually stays one block; specs are split horizontally with a
+	   vertical divider between them. */
+	.row.team {
+		flex-direction: row;
+	}
+	.row.team > .placed {
+		flex: 1 1 0;
+		min-width: 0;
+	}
+	.row.team > .placed + .placed {
+		border-top: none;
+		border-left: 1px dashed rgba(0, 0, 0, 0.45);
 	}
 	.placed {
 		min-height: 24px;

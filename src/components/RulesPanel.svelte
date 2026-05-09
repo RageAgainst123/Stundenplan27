@@ -27,6 +27,16 @@
 		</label>
 		<input type="number" min="0" step="5" bind:value={c.noFreePeriodsForClass.weight} disabled={!c.noFreePeriodsForClass.enabled} />
 	</div>
+	<div class="rule sub" title="Wenn aktiv: Solver erzwingt freistundenfreie Pläne. Findet er keine, läuft eine zweite Phase mit Soft-Penalty und meldet die Lockerung im UI.">
+		<label class="lbl">
+			<input
+				type="checkbox"
+				bind:checked={c.noFreePeriodsForClass.strict}
+				disabled={!c.noFreePeriodsForClass.enabled}
+			/>
+			↳ strikt (mit Auto-Lockerung bei Unmöglichkeit)
+		</label>
+	</div>
 
 	<div class="rule">
 		<label class="lbl">
@@ -119,6 +129,12 @@
 		border-bottom: 1px solid var(--border);
 	}
 	.rule:last-child {
+		border-bottom: 0;
+	}
+	.rule.sub {
+		padding-left: 22px;
+		font-size: 12px;
+		color: var(--text-muted);
 		border-bottom: 0;
 	}
 	.lbl {

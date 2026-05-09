@@ -19,7 +19,7 @@
 
 	const filtered = $derived.by(() => {
 		const list = store.doc.specs.filter(s => {
-			if (filterTeacher && s.teacher !== filterTeacher) return false;
+			if (filterTeacher && !s.teachers.includes(filterTeacher)) return false;
 			if (filterSubject && s.subject !== filterSubject) return false;
 			// Filter dropdown lists couplings (solver-relevant).
 			if (filterGroup && s.couplingId !== filterGroup) return false;
@@ -52,13 +52,43 @@
 		return store.doc.teachers.find(t => t.id === id)?.color ?? '#9ca3af';
 	}
 
+	/** Set the primary teacher; preserve a second teacher if one was set
+	 *  (and de-duplicate if the new primary equals the second). */
+	function setPrimaryTeacher(s: LessonSpec, id: string) {
+		const second = s.teachers[1];
+		if (second && second !== id) s.teachers = [id, second];
+		else s.teachers = id ? [id] : [];
+	}
+
+	/** Add or remove the optional second teacher (team-teaching). */
+	function setSecondTeacher(s: LessonSpec, id: string) {
+		const primary = s.teachers[0] ?? '';
+		if (!id || id === primary) s.teachers = primary ? [primary] : [];
+		else s.teachers = [primary, id];
+	}
+
+	/** Set the optional time-of-day preference for a single spec. */
+	function setTimePref(s: LessonSpec, v: string) {
+		if (v === 'early' || v === 'late') s.timePref = v;
+		else s.timePref = undefined;
+	}
+
+	/** Bulk: apply a time-pref to every selected spec. Pass '' to clear. */
+	function bulkSetTimePref(v: '' | 'early' | 'late') {
+		for (const s of store.doc.specs) {
+			if (!selectedIds.has(s.id)) continue;
+			if (v === '') s.timePref = undefined;
+			else s.timePref = v;
+		}
+	}
+
 	function newSpec() {
 		const firstTeacher = store.doc.teachers[0]?.id ?? '';
 		const firstSubject = store.doc.subjects[0]?.code ?? '';
 		const s: LessonSpec = {
 			id: crypto.randomUUID(),
 			subject: firstSubject,
-			teacher: firstTeacher,
+			teachers: firstTeacher ? [firstTeacher] : [],
 			classes: [],
 			grades: [],
 			weekPattern: 'every',
@@ -289,6 +319,12 @@
 			<option value="">Wochen-Muster setzen…</option>
 			{#each weekOptions as w}<option value={w.v}>{w.label}</option>{/each}
 		</select>
+		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; bulkSetTimePref(v as '' | 'early' | 'late'); (e.currentTarget as HTMLSelectElement).value = ''; }} title="Tageszeit-Präferenz für ausgewählte Lerneinheiten">
+			<option value="">Tageszeit setzen…</option>
+			<option value="">Egal (zurücksetzen)</option>
+			<option value="early">Früh (P1–P3)</option>
+			<option value="late">Spät (P5–P8)</option>
+		</select>
 		<button class="btn danger small" onclick={bulkDelete}>🗑 Löschen</button>
 		<span style="margin-left:auto"></span>
 		<button class="btn small" onclick={clearSelection}>Auswahl aufheben</button>
@@ -309,6 +345,7 @@
 				<th>Schulstufen</th>
 				<th>Stunden</th>
 				<th>Block-Pattern</th>
+				<th title="Optionale Tageszeit-Präferenz: bevorzuge frühe oder späte Stunden">Zeit</th>
 				<th>Woche</th>
 				<th>Kopplung</th>
 				<th></th>
@@ -337,9 +374,26 @@
 							{/each}
 						</select>
 					</td>
-					<td>
-						<select bind:value={s.teacher} style:border-left={`4px solid ${teacherColor(s.teacher)}`}>
+					<td class="teachers-cell">
+						<select
+							value={s.teachers[0] ?? ''}
+							onchange={e => setPrimaryTeacher(s, (e.currentTarget as HTMLSelectElement).value)}
+							style:border-left={`4px solid ${teacherColor(s.teachers[0] ?? '')}`}
+						>
 							{#each store.doc.teachers as t}<option value={t.id}>{t.name}</option>{/each}
+						</select>
+						<select
+							value={s.teachers[1] ?? ''}
+							onchange={e => setSecondTeacher(s, (e.currentTarget as HTMLSelectElement).value)}
+							class="second-teacher"
+							class:active={(s.teachers[1] ?? '') !== ''}
+							style:border-left={s.teachers[1] ? `4px solid ${teacherColor(s.teachers[1])}` : undefined}
+							title="Zweiter Lehrer (Team-Teaching). Leer = nur ein Lehrer."
+						>
+							<option value="">+ 2. Lehrer</option>
+							{#each store.doc.teachers as t}
+								{#if t.id !== s.teachers[0]}<option value={t.id}>{t.name}</option>{/if}
+							{/each}
 						</select>
 					</td>
 					<td>
@@ -388,6 +442,19 @@
 							title={"Automatisch: Der Solver wählt zwischen Einzelstunden und maximal einer Doppelstunde. Beispiel: bei 3 Stunden → entweder 3 Einzelne oder 1 Doppel + 1 Einzel an verschiedenen Tagen.\n\nFür eine bestimmte Aufteilung im Dropdown ein konkretes Pattern wählen."}
 							aria-label="Info zum Block-Pattern"
 						>ℹ</span>
+					</td>
+					<td class="time-pref-cell">
+						<select
+							value={s.timePref ?? ''}
+							onchange={e => setTimePref(s, (e.currentTarget as HTMLSelectElement).value)}
+							class="time-pref-select"
+							class:active={!!s.timePref}
+							title="Wenn 'Früh': Solver bevorzugt P1–P3. Wenn 'Spät': Solver bevorzugt P5–P8. Egal = keine Präferenz."
+						>
+							<option value="">Egal</option>
+							<option value="early">Früh</option>
+							<option value="late">Spät</option>
+						</select>
 					</td>
 					<td>
 						<select bind:value={s.weekPattern}>
@@ -578,6 +645,20 @@
 	.block-select {
 		min-width: 110px;
 	}
+	.time-pref-cell {
+		min-width: 70px;
+	}
+	.time-pref-select {
+		min-width: 70px;
+		font-size: 11px;
+	}
+	/* The select shows in a muted style when no preference is set, and
+	   becomes visually prominent once the user picks one. */
+	.time-pref-select:not(.active) {
+		color: var(--text-muted);
+		background: transparent;
+		border-style: dashed;
+	}
 	.block-select.auto {
 		font-style: italic;
 		color: var(--text-muted);
@@ -605,6 +686,25 @@
 		flex-direction: column;
 		gap: 3px;
 		align-items: flex-start;
+	}
+	.teachers-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+	.teachers-cell select {
+		width: 100%;
+	}
+	/* The optional second teacher is greyed out when empty (placeholder) and
+	   becomes solid as soon as a teacher is chosen. */
+	.teachers-cell select.second-teacher {
+		font-size: 11px;
+		color: var(--text-muted);
+		background: transparent;
+	}
+	.teachers-cell select.second-teacher.active {
+		color: var(--text);
+		background: white;
 	}
 	.group-label {
 		display: inline-block;

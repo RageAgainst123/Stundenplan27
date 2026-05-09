@@ -11,7 +11,7 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
 		doc.subjects.push({ code: 'BSP', name: 'BSP', category: 'PG', isMain: false, hoursPerWeek: {} });
 		doc.specs.push({
-			id: 's', subject: 'BSP', teacher: 't', classes: ['1a'], grades: [5, 6],
+			id: 's', subject: 'BSP', teachers: ['t'], classes: ['1a'], grades: [5, 6],
 			weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -35,7 +35,7 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
 		doc.subjects.push({ code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {} });
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true, source: 'manual'
 		});
@@ -58,7 +58,7 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 	it('migrates legacy block patterns ([1,1,1,1] → undefined)', () => {
 		const doc = emptyDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: [], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: [], grades: [5],
 			weekPattern: 'every', count: 4, blocks: [1, 1, 1, 1],
 			includeInSolver: true, source: 'manual'
 		});
@@ -69,7 +69,7 @@ describe('migrateDoc — v1 → v2 PlacedLesson.grade expansion', () => {
 	it('preserves explicit non-default block patterns', () => {
 		const doc = emptyDoc();
 		doc.specs.push({
-			id: 's', subject: 'M', teacher: 't', classes: [], grades: [5],
+			id: 's', subject: 'M', teachers: ['t'], classes: [], grades: [5],
 			weekPattern: 'every', count: 3, blocks: [2, 1],
 			includeInSolver: true, source: 'manual'
 		});
@@ -99,7 +99,7 @@ describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {
 	it('moves old groupKey to groupLabel, never to couplingId', () => {
 		const doc = emptyDoc() as any as ScheduleDoc;
 		(doc.specs as any).push({
-			id: 's', subject: 'BSP', teacher: 't', classes: ['1a'], grades: [5, 6],
+			id: 's', subject: 'BSP', teachers: ['t'], classes: ['1a'], grades: [5, 6],
 			weekPattern: 'every', count: 2, blocks: undefined,
 			includeInSolver: true,
 			groupKey: 'DGB 1/2',
@@ -119,7 +119,7 @@ describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {
 	it('does not overwrite groupLabel/couplingId if already set', () => {
 		const doc = emptyDoc() as any as ScheduleDoc;
 		(doc.specs as any).push({
-			id: 's', subject: 'BSP', teacher: 't', classes: ['1a'], grades: [5],
+			id: 's', subject: 'BSP', teachers: ['t'], classes: ['1a'], grades: [5],
 			weekPattern: 'every', count: 1, blocks: undefined,
 			includeInSolver: true,
 			groupKey: 'old',
@@ -132,5 +132,60 @@ describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {
 		expect(s.groupKey).toBeUndefined();
 		expect(s.groupLabel).toBe('manual');
 		expect(s.couplingId).toBe('kopplung-x');
+	});
+});
+
+describe('migrateDoc — v3 → v4 teacher → teachers[]', () => {
+	it('moves a v3 single teacher string into teachers[0]', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.teachers.push({ id: 'tNagl', name: 'Nagl', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'BSP', name: 'BSP', category: 'PG', isMain: false, hoursPerWeek: {} });
+		// v3-style spec with the legacy `teacher` field, no `teachers` array.
+		(doc.specs as any).push({
+			id: 's', subject: 'BSP', teacher: 'tNagl', classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 1, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+		(doc.meta as any).schemaVersion = 3;
+
+		migrateDoc(doc);
+
+		const s = doc.specs[0] as any;
+		expect(s.teachers).toEqual(['tNagl']);
+		expect(s.teacher).toBeUndefined();
+		expect(doc.meta.schemaVersion).toBe(SCHEMA_VERSION);
+	});
+
+	it('keeps an existing v4 teachers[] array untouched even if a stale teacher string is present', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.teachers.push({ id: 'tA', name: 'A', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.teachers.push({ id: 'tB', name: 'B', shortNumber: 2, color: '#111', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'BSP', name: 'BSP', category: 'PG', isMain: false, hoursPerWeek: {} });
+		(doc.specs as any).push({
+			id: 's', subject: 'BSP', teacher: 'tA', teachers: ['tA', 'tB'],
+			classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 1, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+
+		migrateDoc(doc);
+
+		const s = doc.specs[0] as any;
+		expect(s.teachers).toEqual(['tA', 'tB']);
+		expect(s.teacher).toBeUndefined();
+	});
+
+	it('produces an empty teachers[] when no teacher info is present (defensive)', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.subjects.push({ code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {} });
+		(doc.specs as any).push({
+			id: 's', subject: 'M', classes: [], grades: [5],
+			weekPattern: 'every', count: 1, blocks: undefined,
+			includeInSolver: true, source: 'manual'
+		});
+
+		migrateDoc(doc);
+
+		expect((doc.specs[0] as any).teachers).toEqual([]);
 	});
 });

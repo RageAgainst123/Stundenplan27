@@ -8,7 +8,7 @@
 // solution with a list of unplaced unit indices.
 
 import { Rng } from './moves';
-import { feasibleSlots, wouldViolate } from './hardCheck';
+import { feasibleSlots, findHardViolations, wouldViolate } from './hardCheck';
 import {
 	type SolverState,
 	type Unit,
@@ -75,6 +75,18 @@ export function construct(state: SolverState, opts: ConstructOptions): Construct
 		// No feasible slot found — try ejection chain
 		const ok = ejectionChain(state, unit, maxDepth, rng, opts.weights);
 		if (!ok) unplaced.push(unit.idx);
+	}
+
+	// Safety net: defensive scan for any hard-constraint violation that may
+	// have slipped through (e.g. a partial ejection-chain that left state
+	// inconsistent). Offenders get un-placed so they are reported as
+	// unplaced rather than rendered as a double-booking in the grid.
+	const offenders = findHardViolations(state);
+	for (const idx of offenders) {
+		const u = state.units[idx];
+		if (u.pinned) continue; // never touch pinned placements
+		state.placement[idx] = SLOT_UNPLACED;
+		if (!unplaced.includes(idx)) unplaced.push(idx);
 	}
 
 	return {
@@ -172,16 +184,36 @@ function scoreSlot(
 		if (count === 0 && period === 1) s -= weights.no_p1_start;
 	}
 
-	// Penalize afternoon
+	// Time-of-day preference per spec: 'early' wants P1, 'late' wants P8.
+	// We compute this BEFORE the afternoon-penalty so a 'late'-flagged spec
+	// can suppress its own afternoon penalty (the user explicitly asked
+	// for it to be late — punishing afternoon would defeat that).
+	const prefs = unit.specIds
+		.map(sid => state.specsById.get(sid)?.timePref)
+		.filter((v): v is 'early' | 'late' => v === 'early' || v === 'late');
+	const uniquePrefs = new Set(prefs);
+	const timePref: 'early' | 'late' | undefined =
+		uniquePrefs.size === 1 ? prefs[0] : undefined;
+
+	// Penalize afternoon — but a 'late'-pref spec opts out of these
+	// penalties; otherwise the two soft-constraints would cancel each other.
 	const afternoonStart = state.doc.constraints.noMainSubjectAfternoon.afternoonStartsAtPeriod;
 	const isMain = state.subjectsByCode.get(unit.subjectCode)?.isMain ?? false;
 	for (let pos = 0; pos < unit.blockSize; pos++) {
 		const p = period + pos;
-		if (p >= afternoonStart) {
+		if (p >= afternoonStart && timePref !== 'late') {
 			s += weights.any_aft;
 			if (isMain) s += weights.main_aft;
 		}
-		if (isMain) s += weights.main_early * (p - 1);
+		if (isMain && timePref !== 'late') s += weights.main_early * (p - 1);
+	}
+
+	if (timePref) {
+		for (let pos = 0; pos < unit.blockSize; pos++) {
+			const p = period + pos; // 1..8
+			if (timePref === 'early') s += weights.time_pref * (p - 1);
+			else s += weights.time_pref * (8 - p);
+		}
 	}
 
 	return s;
@@ -265,25 +297,31 @@ function ejectionChain(
 		}
 		const blockers = findBlockers(state, unit, slot);
 		if (blockers.length === 0 || blockers.length > 3) continue; // skip if too many
+		// Reject if any blocker is pinned — we cannot eject a pinned unit
+		// and a partial chain would leave the state inconsistent.
+		if (blockers.some(b => b.pinned)) continue;
 
-		const saved: { idx: number; slot: number }[] = blockers.map(b => ({ idx: b.idx, slot: state.placement[b.idx] }));
+		// Snapshot the WHOLE placement array before we start the ejection
+		// chain. If the chain fails partway through, recursive sub-moves
+		// will have already happened on `state.placement` and a per-blocker
+		// revert is not enough to reach a consistent state. Restoring the
+		// full snapshot is the only reliable way.
+		const snapshot = new Int32Array(state.placement);
+
 		for (const b of blockers) state.placement[b.idx] = SLOT_UNPLACED;
 
 		if (wouldViolate(state, unit, slot) !== null) {
-			for (const s of saved) state.placement[s.idx] = s.slot;
+			state.placement.set(snapshot);
 			continue;
 		}
 
 		state.placement[unit.idx] = slot;
 		let allOk = true;
-		const ejected: Unit[] = [];
 		for (const b of blockers) {
-			if (b.pinned) { allOk = false; break; }
 			if (!ejectionChain(state, b, maxDepth, rng, weights, depth + 1, visited, budget)) {
 				allOk = false;
 				break;
 			}
-			ejected.push(b);
 		}
 
 		if (allOk) {
@@ -291,10 +329,8 @@ function ejectionChain(
 			return true;
 		}
 
-		// Revert
-		state.placement[unit.idx] = SLOT_UNPLACED;
-		for (const e of ejected) state.placement[e.idx] = SLOT_UNPLACED;
-		for (const s of saved) state.placement[s.idx] = s.slot;
+		// Full snapshot revert — undoes everything the recursive chain did.
+		state.placement.set(snapshot);
 	}
 
 	visited.delete(unit.idx);
@@ -330,9 +366,11 @@ function findBlockers(state: SolverState, unit: Unit, slot: number): Unit[] {
 		if (!overlaps) continue;
 
 		// Is this overlap a hard violation (teacher / grade clash)?
-		const sameTeacher = other.teacherId === unit.teacherId;
+		// Coupling-units may carry multiple teachers — any shared teacher
+		// counts as a clash.
+		const sharedTeacher = unit.teacherIds.some(tid => other.teacherIds.includes(tid));
 		const overlapsGrade = unit.grades.some(g => other.grades.includes(g));
-		if (sameTeacher || overlapsGrade) {
+		if (sharedTeacher || overlapsGrade) {
 			out.push(other);
 		}
 	}

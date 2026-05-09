@@ -58,13 +58,32 @@ function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; teacherI
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
 		const unit = state.units[i];
-		const tIdx = teacherIdx.get(unit.teacherId);
-		if (tIdx === undefined) continue;
 		const { dayIndex, period } = dpFromSlot(slot);
-		for (const inst of unit.instances) {
-			const p = period - 1 + inst.blockPos;
-			if (p >= P) continue;
-			tocc[tIdx * D * P + dayIndex * P + p]++;
+		// Coupling-units have multiple teachers — every team member is busy
+		// during this slot, so each one's occupancy bumps. The block-period
+		// loop is per teacher; we use distinct period offsets from `instances`
+		// only for non-coupling units (each instance maps to one grade column
+		// in the same teacher). For couplings, all teachers occupy the same
+		// (day, period[..+blockSize-1]) span once, so we iterate blockSize
+		// directly for them to avoid double-counting per-grade instances.
+		if (unit.kind === 'coupling') {
+			for (const tid of unit.teacherIds) {
+				const tIdx = teacherIdx.get(tid);
+				if (tIdx === undefined) continue;
+				for (let pos = 0; pos < unit.blockSize; pos++) {
+					const p = period - 1 + pos;
+					if (p >= P) continue;
+					tocc[tIdx * D * P + dayIndex * P + p]++;
+				}
+			}
+		} else {
+			const tIdx = teacherIdx.get(unit.teacherId);
+			if (tIdx === undefined) continue;
+			for (const inst of unit.instances) {
+				const p = period - 1 + inst.blockPos;
+				if (p >= P) continue;
+				tocc[tIdx * D * P + dayIndex * P + p]++;
+			}
 		}
 	}
 	return { tocc, teacherIdx };
@@ -87,6 +106,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	const breakdown: ScoreBreakdown = {
 		min_daily: 0,
 		no_p1_start: 0,
+		time_pref: 0,
 		main_aft: 0,
 		any_aft: 0,
 		no_free: 0,
@@ -147,17 +167,47 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		const subj = state.subjectsByCode.get(unit.subjectCode);
 		const isMain = subj?.isMain ?? false;
 		const { dayIndex, period } = dpFromSlot(slot);
+		// timePref applies per Unit (not per instance). For coupling-units we
+		// honour the preference if ANY of the coupled specs has set one —
+		// otherwise a "BSP late + BSP-Mädchen unflagged" coupling would only
+		// pick up the pref when the late-flagged spec happened to be first
+		// in `specIds`. Conflict ('early' on one, 'late' on the other) →
+		// neutral / no penalty.
+		const prefs = unit.specIds
+			.map(sid => state.specsById.get(sid)?.timePref)
+			.filter((v): v is 'early' | 'late' => v === 'early' || v === 'late');
+		const uniquePrefs = new Set(prefs);
+		const timePref: 'early' | 'late' | undefined =
+			uniquePrefs.size === 1 ? prefs[0] : undefined;
+		// A 'late'-pref spec opts out of the afternoon penalties — the user
+		// has explicitly chosen this time band, so charging any_aft/main_aft
+		// would cancel the time_pref signal.
+		const afternoonExempt = timePref === 'late';
 		for (const inst of unit.instances) {
 			const p = period - 1 + inst.blockPos;
 			if (p >= P) continue;
 			const g = inst.grade - 5;
-			if (p + 1 >= afternoonStart) {
+			if (p + 1 >= afternoonStart && !afternoonExempt) {
 				breakdown.any_aft++;
 				if (isMain) breakdown.main_aft++;
 			}
 			if (isMain) {
-				breakdown.main_early += p; // (period-1)
+				if (!afternoonExempt) breakdown.main_early += p; // (period-1)
 				mainMask[dayIndex * G * P + g * P + p] = 1;
+			}
+			// time_pref accumulates once per distinct period the unit occupies.
+			// Deduplicate via (specId === unit.specIds[0]) AND (grade is the
+			// first grade of that spec) so multi-grade tuples and couplings
+			// don't multiply the penalty.
+			if (timePref && inst.specId === unit.specIds[0]) {
+				const firstSpec = state.specsById.get(unit.specIds[0]);
+				if (firstSpec && inst.grade === firstSpec.grades[0]) {
+					if (timePref === 'early') {
+						breakdown.time_pref += p; // distance from P1 (idx 0)
+					} else {
+						breakdown.time_pref += P - 1 - p; // distance from P8 (idx 7)
+					}
+				}
 			}
 		}
 	}
@@ -208,7 +258,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.uneven_days * breakdown.uneven_days +
 		weights.main_run * breakdown.main_run +
 		weights.compact_teacher * breakdown.compact_teacher +
-		weights.main_early * breakdown.main_early;
+		weights.main_early * breakdown.main_early +
+		weights.time_pref * breakdown.time_pref;
 
 	return breakdown;
 }
