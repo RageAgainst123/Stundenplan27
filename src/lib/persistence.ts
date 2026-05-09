@@ -101,8 +101,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 				c.noMainSubjectAfternoon.weightAllSubjects = 15;
 			}
 		}
+		// mustStartFirstPeriod: was previously {enabled} only — promote to {enabled, weight}.
 		if (!c.mustStartFirstPeriod || typeof c.mustStartFirstPeriod.enabled !== 'boolean') {
-			c.mustStartFirstPeriod = { enabled: true };
+			c.mustStartFirstPeriod = { enabled: true, weight: 300 };
+		} else if (typeof (c.mustStartFirstPeriod as { weight?: number }).weight !== 'number') {
+			(c.mustStartFirstPeriod as { weight: number }).weight = 300;
 		}
 		// Phase 11: noFreePeriodsForClass.strict (auto-relaxation flag).
 		// Default: true — behave as a hard constraint with auto-relaxation.
@@ -115,6 +118,26 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		// stay as they are.
 		if (c.compactTeacherDays && c.compactTeacherDays.weight === 30) {
 			c.compactTeacherDays.weight = 80;
+		}
+		// Phase 12: expose previously hard-coded weights + new constraints.
+		const c12 = c as unknown as Record<string, unknown>;
+		if (typeof c12.minDailyWeight !== 'number') c12.minDailyWeight = 500;
+		if (typeof c12.unevenDaysWeight !== 'number') c12.unevenDaysWeight = 150;
+		if (typeof c12.timePrefWeight !== 'number') c12.timePrefWeight = 100;
+		if (typeof c12.subjectMaxOncePerDay !== 'object' || c12.subjectMaxOncePerDay === null) {
+			c12.subjectMaxOncePerDay = { enabled: true, weight: 60 };
+		}
+		if (typeof c12.teacherDailyLoad !== 'object' || c12.teacherDailyLoad === null) {
+			c12.teacherDailyLoad = { enabled: true, weight: 50 };
+		}
+		if (typeof c12.teacherLunchBreak !== 'object' || c12.teacherLunchBreak === null) {
+			c12.teacherLunchBreak = { enabled: true, weight: 40, midayPeriods: [5, 6] };
+		}
+		// Reactivate the previously-defunct preferDoubleLessonsContiguous
+		// (it was tied to no scoring code). Bump its old "20" default so the
+		// re-implementation is actually noticeable.
+		if (c.preferDoubleLessonsContiguous && c.preferDoubleLessonsContiguous.weight === 20) {
+			c.preferDoubleLessonsContiguous.weight = 30;
 		}
 	}
 

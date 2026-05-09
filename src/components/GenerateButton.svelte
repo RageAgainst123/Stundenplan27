@@ -308,6 +308,18 @@
 							{#if result.penalties.compact > 0}
 								<li>Lehrer-Freistunden: <strong>{result.penalties.compact}</strong></li>
 							{/if}
+							{#if result.penalties.subject_twice > 0}
+								<li>Fach mehrfach am selben Tag: <strong>{result.penalties.subject_twice}</strong></li>
+							{/if}
+							{#if result.penalties.spec_spread > 0}
+								<li>Lerneinheit-Spreizung über Wochentage: <strong>{result.penalties.spec_spread}</strong></li>
+							{/if}
+							{#if result.penalties.teacher_overload > 0}
+								<li>Lehrer-Tageslast über Limit: <strong>{result.penalties.teacher_overload}</strong></li>
+							{/if}
+							{#if result.penalties.teacher_no_lunch > 0}
+								<li>Lehrer ohne Mittagspause: <strong>{result.penalties.teacher_no_lunch}</strong></li>
+							{/if}
 							<li class="total">Total (gewichtet): <strong>{result.penalties.total}</strong></li>
 						</ul>
 					</details>

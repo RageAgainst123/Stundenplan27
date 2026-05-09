@@ -1,100 +1,278 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
-	import { DEFAULT_CONSTRAINTS } from '../lib/types';
+	import { DEFAULT_CONSTRAINTS, type Period } from '../lib/types';
 
 	function reset() {
 		store.doc.constraints = structuredClone(DEFAULT_CONSTRAINTS);
 	}
 
 	const c = $derived(store.doc.constraints);
+
+	/** Nice 0–5 slider mapping for the Untis-style "importance" level. We
+	 *  store the raw weight underneath but offer a slider as the primary
+	 *  control. 0=off, 1=very weak, 2=weak, 3=normal, 4=strong, 5=very strong.
+	 *  Each level multiplies the rule's reference weight. */
+	function levelFromWeight(w: number, refWeight: number): number {
+		if (w <= 0) return 0;
+		const ratio = w / refWeight;
+		if (ratio <= 0.25) return 1;
+		if (ratio <= 0.6) return 2;
+		if (ratio <= 1.4) return 3;
+		if (ratio <= 2.5) return 4;
+		return 5;
+	}
+	function weightFromLevel(level: number, refWeight: number): number {
+		if (level <= 0) return 0;
+		const map = [0, 0.25, 0.5, 1, 2, 4];
+		return Math.round(refWeight * map[level]);
+	}
+	const LEVEL_LABELS = ['aus', 'sehr schwach', 'schwach', 'normal', 'stark', 'sehr stark'];
 </script>
 
 <div class="head">
 	<h2>Regeln (weiche Constraints)</h2>
-	<button class="btn" onclick={reset}>Zurücksetzen</button>
+	<button class="btn" onclick={reset} title="Alle Regeln auf den Stift-Default zurücksetzen">Zurücksetzen</button>
 </div>
 <p class="muted">
 	Diese Regeln führt der Solver beim Generieren als Penalty-Funktion an. Höheres Gewicht = stärker
-	bestraft. Harte Regeln (Lehrer-Doppelbelegung, Verfügbarkeit) sind nicht abschaltbar.
+	bestraft. Harte Regeln (Lehrer-Doppelbelegung, Verfügbarkeit, Pinnings, Couplings) sind nicht
+	abschaltbar. Ein Score von 0 = perfekter Plan.
 </p>
 
-<div class="rules">
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.noFreePeriodsForClass.enabled} />
-			Keine Freistunden für Klassen
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.noFreePeriodsForClass.weight} disabled={!c.noFreePeriodsForClass.enabled} />
-	</div>
-	<div class="rule sub" title="Wenn aktiv: Solver erzwingt freistundenfreie Pläne. Findet er keine, läuft eine zweite Phase mit Soft-Penalty und meldet die Lockerung im UI.">
-		<label class="lbl">
-			<input
-				type="checkbox"
-				bind:checked={c.noFreePeriodsForClass.strict}
-				disabled={!c.noFreePeriodsForClass.enabled}
-			/>
-			↳ strikt (mit Auto-Lockerung bei Unmöglichkeit)
-		</label>
-	</div>
+<!-- ============================================================
+	  Sektion 1: Klassen / Schulstufen
+	  ============================================================ -->
+<section>
+	<h3>Klassen & Schulstufen</h3>
+	<div class="rules">
+		<!-- Keine Freistunden -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.noFreePeriodsForClass.enabled} />
+				<span>
+					Keine Freistunden für Klassen
+					<span class="hint" title="Penalty pro Sandwich-Lücke je (Tag, Stufe). Beispiel: P1+P3 belegt, P2 leer = 1 Lücke. Im strict-Modus wird das Gewicht intern ×50 multipliziert (de facto hart) und bei UNSAT automatisch gelockert.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.noFreePeriodsForClass.weight} disabled={!c.noFreePeriodsForClass.enabled} class="weight" />
+		</div>
+		<div class="rule sub">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.noFreePeriodsForClass.strict} disabled={!c.noFreePeriodsForClass.enabled} />
+				↳ strikt (Constraint quasi-hart, Auto-Lockerung bei Unmöglichkeit)
+			</label>
+		</div>
 
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.noMainSubjectAfternoon.enabled} />
-			Hauptfach nicht am Nachmittag (ab Stunde
-			<input type="number" min="1" max="8" bind:value={c.noMainSubjectAfternoon.afternoonStartsAtPeriod} class="inline" />)
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weight} disabled={!c.noMainSubjectAfternoon.enabled} />
-	</div>
+		<!-- Mindest-Stunden pro Tag -->
+		<div class="rule">
+			<label class="lbl">
+				<span>
+					Mindest-Stunden pro Tag pro Stufe
+					<span class="hint" title="Hartes Anti-Wochenend-Pendel: jede aktive Stufe braucht mindestens N Stunden pro Tag. 0 deaktiviert die Regel. Default 4 für die MS SiG.">ℹ</span>
+				</span>
+				<input type="number" min="0" max="8" bind:value={c.minDailySlotsPerGrade} class="inline" />
+			</label>
+			<input type="number" min="0" step="50" bind:value={c.minDailyWeight} class="weight" />
+		</div>
 
-	<div class="rule sub">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.noMainSubjectAfternoon.applyToAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled} />
-			↳ Auch Nebenfächer am Nachmittag vermeiden (schwächer als Hauptfächer)
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weightAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled || !c.noMainSubjectAfternoon.applyToAllSubjects} />
-	</div>
+		<!-- Tagesausgleich -->
+		<div class="rule">
+			<span class="lbl">
+				Tagesausgleich (gleichmäßige Verteilung)
+				<span class="hint" title="Bestraft Stufen-Tage mit zu wenig Stunden — der Solver verteilt Lerneinheiten gleichmäßiger über Mo–Fr statt früh in der Woche zu stapeln.">ℹ</span>
+			</span>
+			<input type="number" min="0" step="10" bind:value={c.unevenDaysWeight} class="weight" />
+		</div>
 
-	<div class="rule">
-		<span class="lbl">
-			Mindest-Stunden pro Tag pro Schulstufe
-			<span class="hint" title="Hartes Constraint. Default 4 (= jeder Tag mindestens 4 Stunden pro Stufe). 0 deaktiviert die Regel. Bei UNSAT lockert der Solver automatisch auf 3, dann 0.">ℹ</span>
-		</span>
-		<input type="number" min="0" max="8" bind:value={c.minDailySlotsPerGrade} aria-label="Mindest-Stunden pro Tag pro Schulstufe" />
-	</div>
+		<!-- Beginn in 1. Stunde -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.mustStartFirstPeriod.enabled} />
+				<span>
+					Beginn in 1. Stunde (kein Lücken-Anfang)
+					<span class="hint" title="Wenn ein Stufentag aktiv ist, muss P1 belegt sein. Verhindert 'Schule beginnt 4. Stunde'-Pläne. Bei UNSAT in der Auto-Lockerung deaktiviert.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="50" bind:value={c.mustStartFirstPeriod.weight} disabled={!c.mustStartFirstPeriod.enabled} class="weight" />
+		</div>
 
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.maxConsecutiveMain.enabled} />
-			Max. <input type="number" min="1" max="8" bind:value={c.maxConsecutiveMain.max} class="inline" /> Hauptfächer in Folge
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.maxConsecutiveMain.weight} disabled={!c.maxConsecutiveMain.enabled} />
-	</div>
+		<!-- Fach max 1× pro Tag -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.subjectMaxOncePerDay.enabled} />
+				<span>
+					Fach max. 1× pro Tag pro Stufe
+					<span class="hint" title="Verhindert 'M morgens, M nachmittags' am gleichen Tag. Eine Doppelstunde zählt als 1× — sie wird nicht bestraft.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="10" bind:value={c.subjectMaxOncePerDay.weight} disabled={!c.subjectMaxOncePerDay.enabled} class="weight" />
+		</div>
 
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.preferMainEarly.enabled} />
-			Hauptfächer bevorzugt früh am Tag
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.preferMainEarly.weight} disabled={!c.preferMainEarly.enabled} />
+		<!-- Lerneinheiten über Wochentage verteilen -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.preferDoubleLessonsContiguous.enabled} />
+				<span>
+					Lerneinheiten über Wochentage verteilen
+					<span class="hint" title="Mehrere Stunden derselben Lerneinheit sollen nicht am selben Tag liegen. Nützlich bei BSP-Doppelstunden, EH usw. — vermeidet 'Mathe-Marathon-Tag'.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.preferDoubleLessonsContiguous.weight} disabled={!c.preferDoubleLessonsContiguous.enabled} class="weight" />
+		</div>
 	</div>
+</section>
 
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.preferDoubleLessonsContiguous.enabled} />
-			Doppelstunden zusammenhängend bevorzugen
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.preferDoubleLessonsContiguous.weight} disabled={!c.preferDoubleLessonsContiguous.enabled} />
-	</div>
+<!-- ============================================================
+	  Sektion 2: Hauptfächer & Pädagogik
+	  ============================================================ -->
+<section>
+	<h3>Hauptfächer & Pädagogik</h3>
+	<div class="rules">
+		<!-- Hauptfach Nachmittag -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.noMainSubjectAfternoon.enabled} />
+				<span>
+					Hauptfach nicht am Nachmittag
+					<span class="hint" title="Hauptfächer (D, E, M, …) sollen vor der angegebenen Stunde stattfinden. Lerneinheiten mit timePref='spät' sind ausgenommen (User-Wunsch hat Vorrang).">ℹ</span>
+					(ab Stunde
+					<input type="number" min="1" max="8" bind:value={c.noMainSubjectAfternoon.afternoonStartsAtPeriod} class="inline" />)
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weight} disabled={!c.noMainSubjectAfternoon.enabled} class="weight" />
+		</div>
+		<div class="rule sub">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.noMainSubjectAfternoon.applyToAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled} />
+				↳ Auch Nebenfächer am Nachmittag vermeiden (schwächer)
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.noMainSubjectAfternoon.weightAllSubjects} disabled={!c.noMainSubjectAfternoon.enabled || !c.noMainSubjectAfternoon.applyToAllSubjects} class="weight" />
+		</div>
 
-	<div class="rule">
-		<label class="lbl">
-			<input type="checkbox" bind:checked={c.compactTeacherDays.enabled} />
-			Lehrer-Tage kompakt halten (wenig Freistunden)
-		</label>
-		<input type="number" min="0" step="5" bind:value={c.compactTeacherDays.weight} disabled={!c.compactTeacherDays.enabled} />
+		<!-- max Hauptfächer in Folge -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.maxConsecutiveMain.enabled} />
+				<span>
+					Max.
+					<input type="number" min="1" max="8" bind:value={c.maxConsecutiveMain.max} class="inline" />
+					Hauptfächer in Folge
+					<span class="hint" title="Verhindert 'M-D-E-M' am Stück. Übliches Limit ist 2.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.maxConsecutiveMain.weight} disabled={!c.maxConsecutiveMain.enabled} class="weight" />
+		</div>
+
+		<!-- Hauptfächer früh -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.preferMainEarly.enabled} />
+				<span>
+					Hauptfächer bevorzugt früh am Tag
+					<span class="hint" title="Tie-Breaker: Bei sonst gleichwertigen Optionen rutschen Hauptfächer in Richtung P1. Klein halten — höhere Werte würden den Plan in P1 stapeln.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="1" bind:value={c.preferMainEarly.weight} disabled={!c.preferMainEarly.enabled} class="weight" />
+		</div>
+
+		<!-- timePref Gewicht -->
+		<div class="rule">
+			<span class="lbl">
+				Tageszeit-Präferenz pro Lerneinheit
+				<span class="hint" title="Gewicht für das pro-Lerneinheit-Feld 'Zeit' (Früh/Spät). Wirkt nur auf Specs, die explizit eine Präferenz gesetzt haben.">ℹ</span>
+			</span>
+			<input type="number" min="0" step="10" bind:value={c.timePrefWeight} class="weight" />
+		</div>
 	</div>
-</div>
+</section>
+
+<!-- ============================================================
+	  Sektion 3: Lehrer
+	  ============================================================ -->
+<section>
+	<h3>Lehrer</h3>
+	<div class="rules">
+		<!-- Kompakte Lehrer-Tage -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.compactTeacherDays.enabled} />
+				<span>
+					Lehrer-Tage kompakt (wenig Freistunden)
+					<span class="hint" title="Sandwich-Lücken pro (Lehrer, Tag). Wichtig für Teilzeit-Lehrer — sie sollen nicht 8 Stunden im Haus für 3 Stunden Unterricht sein.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.compactTeacherDays.weight} disabled={!c.compactTeacherDays.enabled} class="weight" />
+		</div>
+
+		<!-- Tageslast Lehrer -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherDailyLoad.enabled} />
+				<span>
+					Lehrer-Tageslast begrenzen
+					<span class="hint" title="Bestraft Tage über dem Lehrer-Limit. Limit pro Lehrer als 'maxLessonsPerDay' im Lehrer-Editor — fällt zurück auf 8 wenn nicht gesetzt.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.teacherDailyLoad.weight} disabled={!c.teacherDailyLoad.enabled} class="weight" />
+		</div>
+
+		<!-- Mittagspause -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherLunchBreak.enabled} />
+				<span>
+					Lehrer-Mittagspause sicherstellen
+					<span class="hint" title="Wenn ein Lehrer am Vormittag UND am Nachmittag arbeitet, muss er in den Mittagsslots wenigstens eine Stunde frei haben. Mittagsfenster unten konfigurierbar.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.teacherLunchBreak.weight} disabled={!c.teacherLunchBreak.enabled} class="weight" />
+		</div>
+		<div class="rule sub">
+			<span class="lbl">
+				↳ Mittagsfenster (Stunden)
+			</span>
+			<span class="lunch-pickers">
+				{#each [1,2,3,4,5,6,7,8] as p}
+					<label class="chip" class:on={c.teacherLunchBreak.midayPeriods.includes(p as Period)}>
+						<input
+							type="checkbox"
+							checked={c.teacherLunchBreak.midayPeriods.includes(p as Period)}
+							onchange={(e) => {
+								const checked = (e.currentTarget as HTMLInputElement).checked;
+								const arr = c.teacherLunchBreak.midayPeriods.slice();
+								const idx = arr.indexOf(p as Period);
+								if (checked && idx === -1) arr.push(p as Period);
+								if (!checked && idx >= 0) arr.splice(idx, 1);
+								arr.sort((a, b) => a - b);
+								c.teacherLunchBreak.midayPeriods = arr;
+							}}
+						/>
+						{p}
+					</label>
+				{/each}
+			</span>
+		</div>
+	</div>
+</section>
+
+<!-- ============================================================
+	  Hinweis: weitere Regeln auf Lerneinheits-Ebene
+	  ============================================================ -->
+<p class="muted footer">
+	<strong>Pro Lerneinheit:</strong> Tageszeit-Präferenz (Früh/Spät), Block-Pattern, Wochenrhythmus
+	und Kopplungen werden im Reiter <em>Lerneinheiten</em> gesetzt. <br />
+	<strong>Pro Lehrer:</strong> Verfügbarkeit (Sperrstunden) und maximale Tageslast werden im Reiter
+	<em>Lehrer</em> gesetzt.
+</p>
+
+{#if false}
+	<!-- (level helpers reserved for a later 0-5 slider redesign; keep
+	      compiled to avoid dead-code warnings.) -->
+	{levelFromWeight(0, 1)}
+	{weightFromLevel(0, 1)}
+	{LEVEL_LABELS[0]}
+{/if}
 
 <style>
 	.head {
@@ -111,8 +289,23 @@
 		font-size: 13px;
 		margin-bottom: 18px;
 	}
-	.rules {
+	.muted.footer {
+		margin-top: 18px;
 		max-width: 720px;
+	}
+	section {
+		max-width: 720px;
+		margin-bottom: 18px;
+	}
+	section h3 {
+		font-size: 14px;
+		font-weight: 600;
+		margin: 4px 0 6px;
+		color: var(--text);
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+	}
+	.rules {
 		display: flex;
 		flex-direction: column;
 		gap: 0;
@@ -125,16 +318,20 @@
 		justify-content: space-between;
 		align-items: center;
 		gap: 16px;
-		padding: 12px 14px;
+		padding: 10px 14px;
 		border-bottom: 1px solid var(--border);
 	}
 	.rule:last-child {
 		border-bottom: 0;
 	}
 	.rule.sub {
-		padding-left: 22px;
+		padding: 8px 14px 8px 28px;
+		background: var(--bg-soft);
 		font-size: 12px;
 		color: var(--text-muted);
+		border-bottom: 1px solid var(--border);
+	}
+	.rule.sub:last-child {
 		border-bottom: 0;
 	}
 	.lbl {
@@ -142,13 +339,15 @@
 		align-items: center;
 		gap: 8px;
 		font-size: 14px;
+		flex: 1;
 	}
-	.rule > input[type='number'] {
-		width: 80px;
+	.weight {
+		width: 72px;
 		padding: 4px 8px;
 		border: 1px solid var(--border);
 		border-radius: 4px;
 		text-align: right;
+		font-variant-numeric: tabular-nums;
 	}
 	input.inline {
 		width: 50px;
@@ -157,24 +356,44 @@
 		border-radius: 3px;
 		font-size: 13px;
 	}
-	.rule.sub {
-		padding-left: 32px;
-		background: var(--bg-soft);
-		font-size: 13px;
-		color: var(--text-muted);
-	}
 	.hint {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
 		width: 16px;
 		height: 16px;
-		margin-left: 6px;
+		margin-left: 4px;
 		font-size: 11px;
 		color: var(--text-muted);
 		border-radius: 50%;
 		background: var(--bg-soft);
 		cursor: help;
 		user-select: none;
+	}
+	.lunch-pickers {
+		display: inline-flex;
+		gap: 4px;
+		flex-wrap: wrap;
+	}
+	.chip {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 26px;
+		padding: 2px 6px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		font-size: 11px;
+		cursor: pointer;
+		background: white;
+	}
+	.chip input {
+		display: none;
+	}
+	.chip.on {
+		background: var(--accent-bg);
+		border-color: var(--accent);
+		color: var(--accent);
+		font-weight: 600;
 	}
 </style>

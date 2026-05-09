@@ -84,12 +84,12 @@ describe('migrateDoc — Phase 10 ConstraintConfig additions', () => {
 		// simulate an old doc without the new field
 		delete (doc.constraints as any).mustStartFirstPeriod;
 		migrateDoc(doc);
-		expect(doc.constraints.mustStartFirstPeriod).toEqual({ enabled: true });
+		expect(doc.constraints.mustStartFirstPeriod).toEqual({ enabled: true, weight: 300 });
 	});
 
 	it('preserves an explicit mustStartFirstPeriod = false', () => {
 		const doc = emptyDoc();
-		doc.constraints.mustStartFirstPeriod = { enabled: false };
+		doc.constraints.mustStartFirstPeriod = { enabled: false, weight: 300 };
 		migrateDoc(doc);
 		expect(doc.constraints.mustStartFirstPeriod.enabled).toBe(false);
 	});

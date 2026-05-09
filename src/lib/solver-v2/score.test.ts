@@ -380,5 +380,114 @@ describe('computeScore — time_pref (per-spec time-of-day preference)', () => {
 	});
 });
 
+describe('computeScore — subject_twice', () => {
+	it('penalizes the same subject placed twice on the same (day, grade)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.teachers.push(teacher('t2', 'L2'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't1', [5], 1));
+		doc.specs.push(spec('b', 'M', 't2', [5], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 5); // same Mo, same grade 5, same subject M
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.subject_twice).toBe(1);
+	});
+
+	it('does not penalize the same subject across different days', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.teachers.push(teacher('t2', 'L2'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't1', [5], 1));
+		doc.specs.push(spec('b', 'M', 't2', [5], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Di', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.subject_twice).toBe(0);
+	});
+});
+
+describe('computeScore — spec_spread', () => {
+	it('penalizes when two occurrences of the same spec land on the same day', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 5); // both occurrences on Monday → 1 spread violation
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.spec_spread).toBe(1);
+	});
+
+	it('zero penalty when occurrences are on different days', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Di', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.spec_spread).toBe(0);
+	});
+});
+
+describe('computeScore — teacher_overload', () => {
+	it('penalizes a teacher with more lessons in a day than maxLessonsPerDay', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'Overworked'));
+		doc.teachers[0].maxLessonsPerDay = 2;
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		doc.specs.push(spec('c', 'M', 't', [7], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 2);
+		place(state, 'c', 'Mo', 3); // 3 on Mo, cap is 2 → overload 1
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_overload).toBe(1);
+	});
+});
+
+describe('computeScore — teacher_no_lunch', () => {
+	it('penalizes when teacher works morning + afternoon without midday break', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// Lunch window default = [5, 6]. Place one lesson at P1 (morning),
+		// one at P5 (lunch), one at P6 (lunch), one at P8 (afternoon).
+		// All midday slots filled → no_lunch penalty.
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		doc.specs.push(spec('c', 'M', 't', [7], 1));
+		doc.specs.push(spec('d', 'M', 't', [8], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 5);
+		place(state, 'c', 'Mo', 6);
+		place(state, 'd', 'Mo', 8);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_no_lunch).toBe(1);
+	});
+
+	it('zero penalty when teacher only works the morning', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 2);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_no_lunch).toBe(0);
+	});
+});
+
 void (null as unknown as ScheduleDoc);
 void (null as unknown as PlacedLesson);

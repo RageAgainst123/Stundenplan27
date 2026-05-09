@@ -184,6 +184,29 @@ export interface ScoreBreakdown {
 	 * a timePref contribute 0 (no preference).
 	 */
 	time_pref: number;
+	/**
+	 * Soft: count of (day, grade, subject) triples where the same subject
+	 * appears more than once. Avoids "Mathe morgens, Mathe nachmittags"-
+	 * patterns that pedagogy considers fatiguing.
+	 */
+	subject_twice: number;
+	/**
+	 * Soft: count of (spec, day) pairs where two or more occurrences of the
+	 * SAME spec land on the same weekday. Activates the "Doppelstunden über
+	 * verschiedene Tage verteilen"-rule that previously had no effect.
+	 */
+	spec_spread: number;
+	/**
+	 * Soft: per (teacher, day), excess lessons over `maxLessonsPerTeacherDay`.
+	 * Protects part-time teachers and prevents 8-hour days for anyone.
+	 */
+	teacher_overload: number;
+	/**
+	 * Soft: count of (teacher, day) pairs where the teacher is busy both
+	 * in the morning AND in the afternoon, but has no free midday slot
+	 * (configurable lunch window). One penalty per teacher-day.
+	 */
+	teacher_no_lunch: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -200,6 +223,10 @@ export interface ScoreWeights {
 	compact_teacher: number;
 	main_early: number;
 	time_pref: number;
+	subject_twice: number;
+	spec_spread: number;
+	teacher_overload: number;
+	teacher_no_lunch: number;
 }
 
 /**
@@ -221,26 +248,43 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const noFreeBase = c.noFreePeriodsForClass.enabled ? c.noFreePeriodsForClass.weight : 0;
 	const noFreeStrict = c.noFreePeriodsForClass.strict !== false; // default true
 	const noFreeWeight = strictNoFree && noFreeStrict ? noFreeBase * 50 : noFreeBase;
+	// Migration-safe reads: legacy docs may not have the Phase-12 fields yet
+	// (they're added by migrateDoc, but defaultWeights can be called from
+	// tests on a hand-built doc).
+	const cAny = c as unknown as Record<string, unknown>;
+	const minDailyWeight = typeof cAny.minDailyWeight === 'number' ? cAny.minDailyWeight as number : 500;
+	const unevenDaysWeight = typeof cAny.unevenDaysWeight === 'number' ? cAny.unevenDaysWeight as number : 150;
+	const timePrefWeight = typeof cAny.timePrefWeight === 'number' ? cAny.timePrefWeight as number : 100;
+	const p1Cfg = c.mustStartFirstPeriod as { enabled: boolean; weight?: number };
+	const p1Weight = p1Cfg.enabled === false ? 0 : (typeof p1Cfg.weight === 'number' ? p1Cfg.weight : 300);
+	const subjOnce = c.subjectMaxOncePerDay as { enabled?: boolean; weight?: number } | undefined;
+	const subjOnceWeight = subjOnce?.enabled === false ? 0 : (subjOnce?.weight ?? 60);
+	const specSpread = c.preferDoubleLessonsContiguous as { enabled?: boolean; weight?: number } | undefined;
+	const specSpreadWeight = specSpread?.enabled === false ? 0 : (specSpread?.weight ?? 30);
+	const tDay = c.teacherDailyLoad as { enabled?: boolean; weight?: number } | undefined;
+	const tDayWeight = tDay?.enabled === false ? 0 : (tDay?.weight ?? 50);
+	const tLunch = c.teacherLunchBreak as { enabled?: boolean; weight?: number } | undefined;
+	const tLunchWeight = tLunch?.enabled === false ? 0 : (tLunch?.weight ?? 40);
 	return {
-		min_daily: 500,
-		no_p1_start: 300,
+		min_daily: minDailyWeight,
+		no_p1_start: p1Weight,
 		main_aft: c.noMainSubjectAfternoon.enabled ? c.noMainSubjectAfternoon.weight : 0,
 		any_aft:
 			c.noMainSubjectAfternoon.enabled && c.noMainSubjectAfternoon.applyToAllSubjects
 				? c.noMainSubjectAfternoon.weightAllSubjects
 				: 0,
 		no_free: noFreeWeight,
-		uneven_days: 150,
+		uneven_days: unevenDaysWeight,
 		main_run: c.maxConsecutiveMain.enabled ? c.maxConsecutiveMain.weight : 0,
 		compact_teacher: c.compactTeacherDays.enabled ? c.compactTeacherDays.weight : 0,
 		main_early: c.preferMainEarly.enabled ? c.preferMainEarly.weight : 0,
 		// Strong push so a flagged spec actually moves to its preferred zone.
-		// Per period of distance from the ideal pole. With weight 100, a
-		// late-pref spec at P2 costs 100×6=600 — high enough to overpower
-		// uneven_days (150 per missing slot) when no_free is satisfied.
-		// Note: 'late' specs are exempted from main_aft/any_aft/main_early
-		// (see score.ts) so the two soft-constraint families don't fight.
-		time_pref: 100,
+		// 'late' specs are exempted from main_aft/any_aft/main_early in score.ts.
+		time_pref: timePrefWeight,
+		subject_twice: subjOnceWeight,
+		spec_spread: specSpreadWeight,
+		teacher_overload: tDayWeight,
+		teacher_no_lunch: tLunchWeight,
 	};
 }
 

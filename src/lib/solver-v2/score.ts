@@ -114,6 +114,10 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		main_run: 0,
 		compact_teacher: 0,
 		main_early: 0,
+		subject_twice: 0,
+		spec_spread: 0,
+		teacher_overload: 0,
+		teacher_no_lunch: 0,
 		total: 0,
 	};
 
@@ -228,24 +232,88 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		}
 	}
 
-	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps)
+	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps),
+	//     teacher_overload (more than maxLessonsPerDay) and
+	//     teacher_no_lunch (no break in midday window when both halves busy).
 	const T = state.doc.teachers.length;
+	const tLunch = state.doc.constraints.teacherLunchBreak as
+		| { enabled?: boolean; midayPeriods?: Period[] }
+		| undefined;
+	const lunchPeriods: number[] = (tLunch?.midayPeriods ?? [5, 6]).map(p => p - 1);
+	const morningEnd = Math.min(...lunchPeriods); // first lunch period idx
+	const afternoonStartIdx = Math.max(...lunchPeriods); // last lunch period idx
 	for (let t = 0; t < T; t++) {
+		const teacher = state.doc.teachers[t];
+		const cap = teacher.maxLessonsPerDay ?? 8;
 		for (let d = 0; d < D; d++) {
 			let firstP = -1;
 			let lastP = -1;
+			let dayLessons = 0;
+			let busyMorning = false;
+			let busyAfternoon = false;
+			let lunchFree = false;
 			for (let p = 0; p < P; p++) {
-				if (tocc[t * D * P + d * P + p] > 0) {
+				const v = tocc[t * D * P + d * P + p];
+				if (v > 0) {
 					if (firstP === -1) firstP = p;
 					lastP = p;
+					dayLessons += v;
+					if (p < morningEnd) busyMorning = true;
+					if (p > afternoonStartIdx) busyAfternoon = true;
 				}
+			}
+			for (const lp of lunchPeriods) {
+				if (tocc[t * D * P + d * P + lp] === 0) { lunchFree = true; break; }
 			}
 			if (firstP !== -1 && lastP > firstP) {
 				for (let p = firstP + 1; p < lastP; p++) {
 					if (tocc[t * D * P + d * P + p] === 0) breakdown.compact_teacher++;
 				}
 			}
+			if (dayLessons > cap) breakdown.teacher_overload += dayLessons - cap;
+			if (busyMorning && busyAfternoon && !lunchFree) breakdown.teacher_no_lunch++;
 		}
+	}
+
+	// --- subject_twice: same subject more than once per (day, grade).
+	// We use a Map<key, count> on (day, grade, subjectCode) populated by
+	// scanning placed units once. Allowed bonus: same coupling/multi-grade
+	// instances at the same slot don't trigger (they're inherently one
+	// teaching event).
+	const seenSubjAtDayGrade = new Map<string, number>();
+	for (let i = 0; i < state.nUnits; i++) {
+		const slot = state.placement[i];
+		if (slot === SLOT_UNPLACED) continue;
+		const unit = state.units[i];
+		const { dayIndex } = dpFromSlot(slot);
+		// One bump per (day, grade, subject) — multiple block-positions count
+		// as the same lesson event. Use the unit's primary spec to avoid
+		// coupling-double-counting.
+		for (const grade of unit.grades) {
+			const key = `${dayIndex}|${grade}|${unit.subjectCode}`;
+			seenSubjAtDayGrade.set(key, (seenSubjAtDayGrade.get(key) ?? 0) + 1);
+		}
+	}
+	for (const v of seenSubjAtDayGrade.values()) {
+		if (v > 1) breakdown.subject_twice += v - 1;
+	}
+
+	// --- spec_spread: occurrences of the SAME spec on the SAME weekday count
+	// as a violation (we want them spread across the week). One penalty per
+	// extra same-day occurrence beyond the first.
+	const specDayCount = new Map<string, number>();
+	for (let i = 0; i < state.nUnits; i++) {
+		const slot = state.placement[i];
+		if (slot === SLOT_UNPLACED) continue;
+		const unit = state.units[i];
+		const { dayIndex } = dpFromSlot(slot);
+		for (const sid of unit.specIds) {
+			const key = `${sid}|${dayIndex}`;
+			specDayCount.set(key, (specDayCount.get(key) ?? 0) + 1);
+		}
+	}
+	for (const v of specDayCount.values()) {
+		if (v > 1) breakdown.spec_spread += v - 1;
 	}
 
 	// --- Final weighted sum
@@ -259,7 +327,11 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.main_run * breakdown.main_run +
 		weights.compact_teacher * breakdown.compact_teacher +
 		weights.main_early * breakdown.main_early +
-		weights.time_pref * breakdown.time_pref;
+		weights.time_pref * breakdown.time_pref +
+		weights.subject_twice * breakdown.subject_twice +
+		weights.spec_spread * breakdown.spec_spread +
+		weights.teacher_overload * breakdown.teacher_overload +
+		weights.teacher_no_lunch * breakdown.teacher_no_lunch;
 
 	return breakdown;
 }

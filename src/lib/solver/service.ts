@@ -231,7 +231,7 @@ function disableStartInP1(doc: ScheduleDoc): ScheduleDoc {
 		...doc,
 		constraints: {
 			...doc.constraints,
-			mustStartFirstPeriod: { enabled: false }
+			mustStartFirstPeriod: { enabled: false, weight: doc.constraints.mustStartFirstPeriod?.weight ?? 300 }
 		}
 	};
 }
