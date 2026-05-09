@@ -9,7 +9,7 @@
 // All moves come with apply/revert symmetry — applyMove(state, m) followed
 // by revertMove(state, m) restores the state byte-for-byte.
 
-import { feasibleSlots, wouldViolate } from './hardCheck';
+import { wouldViolate } from './hardCheck';
 import {
 	D,
 	dpFromSlot,
@@ -58,14 +58,18 @@ export class Rng {
  * Generate a candidate move. May return null if no valid move can be
  * constructed (e.g. all units pinned).
  *
- * Probabilities follow the concept doc (60/35/5). The function does NOT
- * apply the move — it only proposes one. Caller decides via Hill-Climbing
- * acceptance criterion.
+ * Default mix is slot-move 60% / slot-swap 35% / kempe-chain 5%. The
+ * `kempeBoost` arg can shift the mix toward more diversification — the
+ * caller (typically `iteratedLocalSearchAsync` after an unproductive
+ * plateau) raises this to break out of local optima.
  */
-export function genMove(state: SolverState, rng: Rng): Move | null {
+export function genMove(state: SolverState, rng: Rng, kempeBoost = 0): Move | null {
+	const kempeProb = Math.min(0.4, 0.05 + kempeBoost);
+	const swapProb = 0.35;
+	const moveProb = 1 - swapProb - kempeProb;
 	const r = rng.next();
-	if (r < 0.6) return genSlotMove(state, rng);
-	if (r < 0.95) return genSlotSwap(state, rng);
+	if (r < moveProb) return genSlotMove(state, rng);
+	if (r < moveProb + swapProb) return genSlotSwap(state, rng);
 	return genKempeChain(state, rng);
 }
 
@@ -79,19 +83,24 @@ function genSlotMove(state: SolverState, rng: Rng): Move | null {
 	const unit = rng.pick(candidates);
 	const fromSlot = state.placement[unit.idx];
 
-	// Look for an empty target with no hard violation
-	const feasible = feasibleSlots(state, unit);
-	if (feasible.length === 0) return null;
-
-	// Try a few random picks
-	for (let tries = 0; tries < 8; tries++) {
-		const toSlot = rng.pick(feasible);
+	// Hot-path optimization: instead of building the full feasibleSlots list
+	// (which costs O(D*P*nUnits) wouldViolate calls), we sample random slots
+	// directly and let wouldViolate filter them. This trades a slight chance
+	// of missing a feasible slot for a ~50× speedup at our problem size.
+	const D = 5; // days
+	const P = 8; // periods
+	const maxStartP = P - unit.blockSize + 1;
+	if (maxStartP < 1) return null;
+	for (let tries = 0; tries < 12; tries++) {
+		const d = rng.int(0, D);
+		const p = rng.int(1, maxStartP + 1);
+		const toSlot = d * P + (p - 1);
 		if (toSlot === fromSlot) continue;
-		// Is the target slot already occupied by another unit?
 		const occupant = findOccupantAt(state, toSlot);
 		if (occupant && occupant !== unit) {
 			// Convert to swap
 			if (occupant.pinned) continue;
+			if (wouldViolate(state, unit, toSlot, occupant) !== null) continue;
 			if (wouldViolate(state, occupant, fromSlot, unit) !== null) continue;
 			return {
 				kind: 'slot-swap',
@@ -101,6 +110,8 @@ function genSlotMove(state: SolverState, rng: Rng): Move | null {
 				bSlot: toSlot,
 			};
 		}
+		// Empty target — verify no hard violation
+		if (wouldViolate(state, unit, toSlot) !== null) continue;
 		return { kind: 'slot-move', unitIdx: unit.idx, fromSlot, toSlot };
 	}
 	return null;

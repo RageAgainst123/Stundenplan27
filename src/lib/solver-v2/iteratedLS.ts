@@ -68,6 +68,12 @@ export function iteratedLocalSearch(
 	let lastImprovementMs = 0;
 	let restartCount = 0;
 	let totalIterations = 0;
+	// Adaptive perturbation: each consecutive restart that does NOT yield
+	// a new global best raises the perturbation strength. A fresh global
+	// best resets it. Range is clamped to [base..0.6] — beyond 60% of the
+	// units we'd practically restart from scratch.
+	let consecutiveUnproductive = 0;
+	let bestEverSeenScore = bestBreakdown.total;
 
 	function improvementHook(info: Parameters<NonNullable<LocalSearchOptions['onImprovement']>>[0]) {
 		if (info.breakdown.total < bestBreakdown.total) {
@@ -84,15 +90,32 @@ export function iteratedLocalSearch(
 		const remainingTotal = totalBudget - (Date.now() - tStart);
 		const thisBudget = Math.min(innerBudget, remainingTotal);
 
+		// Reheat + diversify: after an unproductive plateau, raise SA start
+		// temperature AND boost kempe-chain probability so the next LS chunk
+		// explores wider neighbourhoods before settling.
+		const reheat = consecutiveUnproductive >= 2;
+		const tStartLS = reheat ? 200 + 50 * consecutiveUnproductive : 100;
+		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
+
+		const scoreBefore = bestBreakdown.total;
 		const ls = localSearch(state, computeScore(state, opts.weights), {
 			weights: opts.weights,
 			maxIterations: 1_000_000,
 			timeBudgetMs: thisBudget,
 			seed: rng.int(0, 2147483647),
+			tStart: tStartLS,
+			kempeBoost,
 			onImprovement: improvementHook,
 			shouldAbort: opts.shouldAbort,
 		});
 		totalIterations += ls.iterations;
+
+		if (bestBreakdown.total < bestEverSeenScore) {
+			bestEverSeenScore = bestBreakdown.total;
+			consecutiveUnproductive = 0;
+		} else if (bestBreakdown.total >= scoreBefore) {
+			consecutiveUnproductive++;
+		}
 
 		if (Date.now() - tStart >= totalBudget) break;
 		if (opts.shouldAbort?.()) break;
@@ -117,7 +140,14 @@ export function iteratedLocalSearch(
 			const j = rng.int(0, i + 1);
 			[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
 		}
-		const nPerturb = Math.max(1, Math.floor(candidates.length * perturbFraction));
+		// Adaptive perturbation strength: base + 5% per unproductive restart,
+		// clamped at 60%. Empirically this is a good balance — enough to
+		// escape the local minimum without throwing away too much progress.
+		const adaptiveFraction = Math.min(
+			0.6,
+			perturbFraction + 0.05 * consecutiveUnproductive
+		);
+		const nPerturb = Math.max(1, Math.floor(candidates.length * adaptiveFraction));
 		for (let i = 0; i < nPerturb; i++) state.placement[candidates[i]] = SLOT_UNPLACED;
 
 		// Restore the rest from the best placement
@@ -174,6 +204,8 @@ export async function iteratedLocalSearchAsync(
 	let lastImprovementMs = 0;
 	let restartCount = 0;
 	let totalIterations = 0;
+	let consecutiveUnproductive = 0;
+	let bestEverSeenScore = bestBreakdown.total;
 
 	function improvementHook(info: Parameters<NonNullable<LocalSearchOptions['onImprovement']>>[0]) {
 		if (info.breakdown.total < bestBreakdown.total) {
@@ -195,6 +227,14 @@ export async function iteratedLocalSearchAsync(
 		const remainingTotal = totalBudget - (Date.now() - tStart);
 		const thisBudget = Math.min(innerBudget, remainingTotal);
 
+		// Reheat + diversify: after an unproductive plateau, raise SA start
+		// temperature AND boost kempe-chain probability so the next LS chunk
+		// explores wider neighbourhoods before settling.
+		const reheat = consecutiveUnproductive >= 2;
+		const tStartLS = reheat ? 200 + 50 * consecutiveUnproductive : 100;
+		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
+
+		const scoreBefore = bestBreakdown.total;
 		// Split the inner LS budget into ~250 ms chunks and yield between them
 		// so external setTimeout-based aborts (and UI repaints) can fire even
 		// when innerBudgetMs is large (e.g. 30s in tests).
@@ -211,6 +251,7 @@ export async function iteratedLocalSearchAsync(
 				maxIterations: 1_000_000,
 				timeBudgetMs: chunkBudget,
 				seed: rng.int(0, 2147483647),
+				tStart: tStartLS,
 				onImprovement: improvementHook,
 				shouldAbort: opts.shouldAbort,
 			});
@@ -218,6 +259,13 @@ export async function iteratedLocalSearchAsync(
 			if (opts.shouldAbort?.()) { abortedInner = true; break; }
 			// Yield to the macrotask queue between chunks.
 			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		}
+
+		if (bestBreakdown.total < bestEverSeenScore) {
+			bestEverSeenScore = bestBreakdown.total;
+			consecutiveUnproductive = 0;
+		} else if (bestBreakdown.total >= scoreBefore) {
+			consecutiveUnproductive++;
 		}
 
 		if (abortedInner) break;
@@ -241,7 +289,11 @@ export async function iteratedLocalSearchAsync(
 			const j = rng.int(0, i + 1);
 			[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
 		}
-		const nPerturb = Math.max(1, Math.floor(candidates.length * perturbFraction));
+		const adaptiveFraction = Math.min(
+			0.6,
+			perturbFraction + 0.05 * consecutiveUnproductive
+		);
+		const nPerturb = Math.max(1, Math.floor(candidates.length * adaptiveFraction));
 		for (let i = 0; i < nPerturb; i++) state.placement[candidates[i]] = SLOT_UNPLACED;
 		for (let i = nPerturb; i < candidates.length; i++) {
 			state.placement[candidates[i]] = bestPlacement[candidates[i]];

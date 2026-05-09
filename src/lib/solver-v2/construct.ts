@@ -127,12 +127,19 @@ function computeOrdering(state: SolverState): Unit[] {
 		d += 200 * (u.grades.length - 1);
 		// Block
 		if (u.blockSize > 1) d += 100;
-		// Teacher availability
-		const teacher = state.teachersById.get(u.teacherId);
-		if (teacher) {
-			const avail = D * P - (teacher.unavailable?.length ?? 0);
-			d += 30 * (40 - avail);
+		// Teacher availability — for couplings the effective availability is
+		// the INTERSECTION of all team teachers' free slots, which is much
+		// tighter than any single teacher. We approximate by summing each
+		// teacher's blocked-slot count: more total unavailable means tighter.
+		let totalUnavail = 0;
+		for (const tid of u.teacherIds) {
+			const t = state.teachersById.get(tid);
+			if (t) totalUnavail += t.unavailable?.length ?? 0;
 		}
+		d += 30 * totalUnavail;
+		// Bonus penalty for team-teaching: harder to find a slot where ALL
+		// teachers are simultaneously free.
+		if (u.teacherIds.length > 1) d += 150 * (u.teacherIds.length - 1);
 		// Spec count
 		const spec = state.specsById.get(u.specIds[0]);
 		d += 20 * (spec?.count ?? 1);
@@ -177,10 +184,17 @@ function scoreSlot(
 	const { dayIndex, period } = dpFromSlot(slot);
 	let s = 0;
 
-	// Reward filling under-loaded days for unit's grades
+	// Reward filling under-loaded days, penalize over-filling: a stronger
+	// load-balance signal than the binary "<4" check. We compute the day
+	// load relative to a flat target of 6 lessons/grade/day (matches the
+	// MS-SiG average of 30h/week ÷ 5 days). Lower current count = stronger
+	// pull. We also keep the no_p1_start incentive.
+	const TARGET_DAY_LOAD = 6;
 	for (const grade of unit.grades) {
 		const count = dgCounts[dayIndex * G + (grade - 5)];
-		if (count < 4) s -= weights.uneven_days * 0.5;
+		// Linear pull toward under-loaded days, push away from over-loaded.
+		const balance = TARGET_DAY_LOAD - count; // positive if under, negative if over
+		s -= weights.uneven_days * balance * 0.15;
 		if (count === 0 && period === 1) s -= weights.no_p1_start;
 	}
 

@@ -24,6 +24,11 @@ export interface LocalSearchOptions {
 	cooling?: number;
 	/** Tabu tenure (iterations). Default 50. */
 	tabuTenure?: number;
+	/**
+	 * Diversification boost — added to the kempe-chain probability when
+	 * generating moves. ILS raises this after unproductive restarts. 0 = default mix.
+	 */
+	kempeBoost?: number;
 	/** Random seed. Default deterministic. */
 	seed?: number;
 	/**
@@ -73,6 +78,7 @@ export function localSearch(
 	const tMin = opts.tMin ?? 0.1;
 	const cooling = opts.cooling ?? 0.9995;
 	const tabuTenure = opts.tabuTenure ?? 50;
+	const kempeBoost = opts.kempeBoost ?? 0;
 	const rng = new Rng(opts.seed ?? Date.now() & 0x7fffffff);
 	const tStart = Date.now();
 
@@ -92,7 +98,7 @@ export function localSearch(
 		const elapsed = Date.now() - tStart;
 		if (elapsed > timeBudgetMs) break;
 
-		const move = genMove(state, rng);
+		const move = genMove(state, rng, kempeBoost);
 		if (!move) {
 			iterations++;
 			continue;

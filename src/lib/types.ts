@@ -180,7 +180,7 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	// dominate the score (was 10 × 168 = 1680, the runaway leader).
 	preferMainEarly: { enabled: true, weight: 2 },
 	preferDoubleLessonsContiguous: { enabled: true, weight: 20 },
-	compactTeacherDays: { enabled: true, weight: 30 },
+	compactTeacherDays: { enabled: true, weight: 80 },
 	minDailySlotsPerGrade: 4,
 	mustStartFirstPeriod: { enabled: true }
 };

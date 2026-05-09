@@ -109,6 +109,13 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (c.noFreePeriodsForClass && typeof (c.noFreePeriodsForClass as { strict?: boolean }).strict !== 'boolean') {
 			(c.noFreePeriodsForClass as { strict?: boolean }).strict = true;
 		}
+		// Phase 11 tuning: bump the default compactTeacherDays weight from
+		// 30 (too weak — solver ignored teacher sandwich gaps) to 80. We only
+		// touch values still at the legacy default; user-customized weights
+		// stay as they are.
+		if (c.compactTeacherDays && c.compactTeacherDays.weight === 30) {
+			c.compactTeacherDays.weight = 80;
+		}
 	}
 
 	// Phase 8 v1→v2: expand grade-less PlacedLessons. Detect by absence of
