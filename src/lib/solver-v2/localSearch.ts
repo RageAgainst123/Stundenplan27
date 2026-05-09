@@ -153,14 +153,20 @@ export function localSearch(
 	};
 }
 
+// Tabu semantics: after a move U: s_from → s_to we forbid U from going
+// BACK to s_from for `tabuTenure` iterations. So pushTabu writes the slot
+// that was just vacated as forbidden, and isTabu checks whether the move's
+// proposed destination slot is currently tabu for that unit.
 function isTabu(move: Move, tabu: Map<string, number>, iter: number): boolean {
 	switch (move.kind) {
 		case 'slot-move':
-			return checkTabu(`${move.unitIdx}:${move.fromSlot}`, tabu, iter);
+			return checkTabu(`${move.unitIdx}:${move.toSlot}`, tabu, iter);
 		case 'slot-swap':
+			// A swap moves a → b's slot, b → a's slot. We block re-occupying
+			// the slot each unit just left.
 			return (
-				checkTabu(`${move.aIdx}:${move.aSlot}`, tabu, iter) ||
-				checkTabu(`${move.bIdx}:${move.bSlot}`, tabu, iter)
+				checkTabu(`${move.aIdx}:${move.bSlot}`, tabu, iter) ||
+				checkTabu(`${move.bIdx}:${move.aSlot}`, tabu, iter)
 			);
 		case 'kempe-chain':
 			// Don't bother with tabu for kempe — they're rare and hard to oscillate
@@ -181,11 +187,12 @@ function checkTabu(key: string, tabu: Map<string, number>, iter: number): boolea
 function pushTabu(move: Move, tabu: Map<string, number>, expiry: number): void {
 	switch (move.kind) {
 		case 'slot-move':
-			tabu.set(`${move.unitIdx}:${move.toSlot}`, expiry);
+			// Block returning to the slot we just left.
+			tabu.set(`${move.unitIdx}:${move.fromSlot}`, expiry);
 			return;
 		case 'slot-swap':
-			tabu.set(`${move.aIdx}:${move.bSlot}`, expiry);
-			tabu.set(`${move.bIdx}:${move.aSlot}`, expiry);
+			tabu.set(`${move.aIdx}:${move.aSlot}`, expiry);
+			tabu.set(`${move.bIdx}:${move.bSlot}`, expiry);
 			return;
 		case 'kempe-chain':
 			return;

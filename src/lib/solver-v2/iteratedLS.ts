@@ -94,7 +94,12 @@ export function iteratedLocalSearch(
 		// temperature AND boost kempe-chain probability so the next LS chunk
 		// explores wider neighbourhoods before settling.
 		const reheat = consecutiveUnproductive >= 2;
-		const tStartLS = reheat ? 200 + 50 * consecutiveUnproductive : 100;
+		// Cap reheat temperature at 500. Without the cap, very long stuck
+		// sessions push T toward random-walk territory (Math.exp(-delta/T)
+		// → 1 for any realistic delta), which actively degrades the best
+		// solution. 500 is ~5× the normal start temperature — strong
+		// diversification without losing all hill-climb signal.
+		const tStartLS = reheat ? Math.min(500, 200 + 50 * consecutiveUnproductive) : 100;
 		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
 
 		const scoreBefore = bestBreakdown.total;
@@ -231,7 +236,12 @@ export async function iteratedLocalSearchAsync(
 		// temperature AND boost kempe-chain probability so the next LS chunk
 		// explores wider neighbourhoods before settling.
 		const reheat = consecutiveUnproductive >= 2;
-		const tStartLS = reheat ? 200 + 50 * consecutiveUnproductive : 100;
+		// Cap reheat temperature at 500. Without the cap, very long stuck
+		// sessions push T toward random-walk territory (Math.exp(-delta/T)
+		// → 1 for any realistic delta), which actively degrades the best
+		// solution. 500 is ~5× the normal start temperature — strong
+		// diversification without losing all hill-climb signal.
+		const tStartLS = reheat ? Math.min(500, 200 + 50 * consecutiveUnproductive) : 100;
 		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
 
 		const scoreBefore = bestBreakdown.total;
