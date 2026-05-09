@@ -52,6 +52,12 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if ('teacher' in s) {
 			delete (s as unknown as Record<string, unknown>).teacher;
 		}
+		// Phase 12: drop the legacy `pairedWith` field entirely. It was
+		// superseded by `couplingId` in Phase 8 v3 and never written by
+		// recent code; old JSON backups still carry it.
+		if ('pairedWith' in s) {
+			delete (s as unknown as Record<string, unknown>).pairedWith;
+		}
 		if (Array.isArray(s.blocks) && s.blocks.length > 0) {
 			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.round(s.count);
 			if (isLegacyAllSingles) {

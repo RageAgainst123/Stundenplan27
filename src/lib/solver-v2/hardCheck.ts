@@ -144,8 +144,7 @@ export function wouldViolate(
  *
  * For solver-v2 coupling-units, multiple specs are merged into one Unit
  * already, so two DIFFERENT units with overlapping specs is a config bug
- * (we don't create such Units). This helper also defends against legacy
- * `pairedWith` field semantics, kept for safety.
+ * (we don't create such Units).
  */
 function sharesCoupling(a: Unit, b: Unit, state: SolverState): boolean {
 	if (a === b) return true;
@@ -157,8 +156,6 @@ function sharesCoupling(a: Unit, b: Unit, state: SolverState): boolean {
 			if (!bSpec?.couplingId) continue;
 			if (aSpec.couplingId === bSpec.couplingId) return true;
 		}
-		// Legacy pairedWith
-		if (aSpec.pairedWith?.some(pid => b.specIds.includes(pid))) return true;
 	}
 	return false;
 }

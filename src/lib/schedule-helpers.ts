@@ -95,11 +95,9 @@ export function checkPlacementConflict(
 		if (otherSpec.id === spec.id) continue; // same spec already there is fine for repeat
 
 		// Phase 8 v3: coupling check uses couplingId (solver-relevant), NOT
-		// groupLabel (display-only).
-		const sameGroup =
-			(spec.couplingId && otherSpec.couplingId === spec.couplingId) ||
-			spec.pairedWith?.includes(otherSpec.id) ||
-			otherSpec.pairedWith?.includes(spec.id);
+		// groupLabel (display-only). The legacy pairedWith field was removed
+		// in Phase 12 — couplingId is the single source of truth.
+		const sameGroup = !!(spec.couplingId && otherSpec.couplingId === spec.couplingId);
 
 		// Teacher clash (unless paired/group) — any shared team member counts
 		if (!sameGroup) {

@@ -97,7 +97,6 @@ export interface LessonSpec {
 	 * user via the bulk "Koppeln" action; never populated from CSV.
 	 */
 	couplingId?: string;
-	pairedWith?: string[];        // explicit parallel pairings (BSPK|BSPM) — legacy, prefer couplingId
 	/**
 	 * Optionale Tageszeit-Präferenz für diese Lerneinheit. Nur wirksam wenn
 	 * explizit gesetzt — fehlt das Feld, bleibt die Spec überall platzierbar.
