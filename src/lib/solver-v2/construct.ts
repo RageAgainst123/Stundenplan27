@@ -230,6 +230,25 @@ function scoreSlot(
 		}
 	}
 
+	// Teacher compactness during construction: prefer slots adjacent to a
+	// period the teacher already teaches that day. Cheap heuristic: scan
+	// nearby periods (±3) and reward proximity to existing placements.
+	for (const tid of unit.teacherIds) {
+		let proximityBonus = 0;
+		for (let i = 0; i < state.nUnits; i++) {
+			const otherSlot = state.placement[i];
+			if (otherSlot === SLOT_UNPLACED) continue;
+			const other = state.units[i];
+			if (other === unit) continue;
+			if (!other.teacherIds.includes(tid)) continue;
+			const otherDp = dpFromSlot(otherSlot);
+			if (otherDp.dayIndex !== dayIndex) continue;
+			const dist = Math.abs(otherDp.period - period);
+			if (dist <= 3) proximityBonus += (4 - dist);
+		}
+		s -= weights.compact_teacher * 0.05 * proximityBonus;
+	}
+
 	return s;
 }
 

@@ -96,6 +96,19 @@ realListeDescribe('iteratedLocalSearch on real Liste.csv', () => {
 		});
 		// eslint-disable-next-line no-console
 		console.log(`  After ILS: ${ils.bestBreakdown.total}, ${ils.restartCount} restarts, ${ils.totalIterations} total iter, ${ils.tElapsedMs}ms`);
+		// eslint-disable-next-line no-console
+		console.log('  Breakdown:', JSON.stringify({
+			min_daily: ils.bestBreakdown.min_daily,
+			no_p1_start: ils.bestBreakdown.no_p1_start,
+			main_aft: ils.bestBreakdown.main_aft,
+			any_aft: ils.bestBreakdown.any_aft,
+			no_free: ils.bestBreakdown.no_free,
+			uneven_days: ils.bestBreakdown.uneven_days,
+			main_run: ils.bestBreakdown.main_run,
+			compact_teacher: ils.bestBreakdown.compact_teacher,
+			main_early: ils.bestBreakdown.main_early,
+			time_pref: ils.bestBreakdown.time_pref,
+		}));
 		expect(ils.bestBreakdown.total).toBeLessThan(initial.total);
 	}, 30_000);
 });
