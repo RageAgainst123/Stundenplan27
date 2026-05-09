@@ -4,16 +4,12 @@
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
 	import type { Day, GradeLevel, LessonSpec, Period, Teacher } from '../lib/types';
+	import type { DragPayload } from '../lib/types-ui';
 	import { checkPlacementConflict } from '../lib/schedule-helpers';
 	import { groupColor } from '../lib/blocks';
 	import LessonCell from './LessonCell.svelte';
 
 	const store = useStore();
-
-	interface DragPayload {
-		specId: string;
-		fromCell?: { day: Day; period: Period };
-	}
 
 	interface Props {
 		day: Day;

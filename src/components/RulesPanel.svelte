@@ -8,26 +8,6 @@
 	}
 
 	const c = $derived(store.doc.constraints);
-
-	/** Nice 0–5 slider mapping for the Untis-style "importance" level. We
-	 *  store the raw weight underneath but offer a slider as the primary
-	 *  control. 0=off, 1=very weak, 2=weak, 3=normal, 4=strong, 5=very strong.
-	 *  Each level multiplies the rule's reference weight. */
-	function levelFromWeight(w: number, refWeight: number): number {
-		if (w <= 0) return 0;
-		const ratio = w / refWeight;
-		if (ratio <= 0.25) return 1;
-		if (ratio <= 0.6) return 2;
-		if (ratio <= 1.4) return 3;
-		if (ratio <= 2.5) return 4;
-		return 5;
-	}
-	function weightFromLevel(level: number, refWeight: number): number {
-		if (level <= 0) return 0;
-		const map = [0, 0.25, 0.5, 1, 2, 4];
-		return Math.round(refWeight * map[level]);
-	}
-	const LEVEL_LABELS = ['aus', 'sehr schwach', 'schwach', 'normal', 'stark', 'sehr stark'];
 </script>
 
 <div class="head">
@@ -265,14 +245,6 @@
 	<strong>Pro Lehrer:</strong> Verfügbarkeit (Sperrstunden) und maximale Tageslast werden im Reiter
 	<em>Lehrer</em> gesetzt.
 </p>
-
-{#if false}
-	<!-- (level helpers reserved for a later 0-5 slider redesign; keep
-	      compiled to avoid dead-code warnings.) -->
-	{levelFromWeight(0, 1)}
-	{weightFromLevel(0, 1)}
-	{LEVEL_LABELS[0]}
-{/if}
 
 <style>
 	.head {

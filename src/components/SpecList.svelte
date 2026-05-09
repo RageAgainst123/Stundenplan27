@@ -4,6 +4,7 @@
 	import type { GradeLevel, LessonSpec, WeekPattern } from '../lib/types';
 	import { GRADES } from '../lib/types';
 	import { blockPresets, blockLabel, blockKey, parseBlockKey, groupColor } from '../lib/blocks';
+	import { teacherColor as teacherColorH } from '../lib/teacher-helpers';
 
 	let filterTeacher = $state<string>('');
 	let filterSubject = $state<string>('');
@@ -45,12 +46,7 @@
 		return Array.from(set).sort();
 	});
 
-	function teacherName(id: string) {
-		return store.doc.teachers.find(t => t.id === id)?.name ?? '–';
-	}
-	function teacherColor(id: string) {
-		return store.doc.teachers.find(t => t.id === id)?.color ?? '#9ca3af';
-	}
+	const teacherColor = (id: string) => teacherColorH(store.doc, id);
 
 	/** Set the primary teacher; preserve a second teacher if one was set
 	 *  (and de-duplicate if the new primary equals the second). */

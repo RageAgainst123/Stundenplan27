@@ -2,6 +2,8 @@
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
 	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES, type Day, type GradeLevel, type LessonSpec, type Period } from '../lib/types';
+	import type { DragPayload } from '../lib/types-ui';
+	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
 	import { unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
@@ -61,11 +63,6 @@
 	// (Cell rendering moved to ScheduleCell.svelte for proper Svelte 5 reactivity scoping.)
 
 	// ---- Drag & Drop ----
-	interface DragPayload {
-		specId: string;
-		fromCell?: { day: Day; period: Period };
-	}
-
 	let dragHoverConflict = $state<{ day: Day; period: Period; reasons: string[] } | null>(null);
 
 	function handleDropToSidebar(state: DragDropState<DragPayload>) {
@@ -119,9 +116,7 @@
 		);
 	}
 
-	function teacherById(id: string) {
-		return store.doc.teachers.find(t => t.id === id);
-	}
+	const teacherById = (id: string) => teacherByIdH(store.doc, id);
 
 	// Probe a cell for live conflict highlighting while dragging
 	function probeConflict(day: Day, period: Period, draggedSpecId: string | undefined): string[] {
