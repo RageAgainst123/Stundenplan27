@@ -3,6 +3,15 @@
 // When Local Search plateaus, perturb 20% of the units and restart LS from
 // the disturbed state. The best-ever solution is kept across restarts.
 // See SOLVER-V2-CONCEPT.md §8.
+//
+// This module exports two entry points that share the same core algorithm:
+//   - `iteratedLocalSearch`        — synchronous, blocks the event loop
+//   - `iteratedLocalSearchAsync`   — yields to the macrotask queue between
+//                                    LS chunks so abort signals and UI
+//                                    repaints can fire
+// Both call into the shared internals below; this DRY-up replaces ~150
+// lines of previously-duplicated logic and removed a kempeBoost-drift bug
+// (the async variant didn't pass kempeBoost to localSearch).
 
 import { Rng } from './moves';
 import { construct } from './construct';
@@ -43,286 +52,253 @@ export interface IteratedLSResult {
 	tElapsedMs: number;
 }
 
+/** Internal mutable bookkeeping shared between sync and async runs. */
+interface IlsState {
+	bestPlacement: Int32Array;
+	bestBreakdown: ScoreBreakdown;
+	bestEverSeenScore: number;
+	lastImprovementMs: number;
+	restartCount: number;
+	totalIterations: number;
+	consecutiveUnproductive: number;
+}
+
+/** Read-only context passed to inner helpers. */
+interface IlsCtx {
+	state: SolverState;
+	weights: ScoreWeights;
+	totalBudget: number;
+	innerBudget: number;
+	perturbFraction: number;
+	plateauMs: number;
+	rng: Rng;
+	tStart: number;
+	opts: IteratedLSOptions;
+}
+
+function makeImprovementHook(ils: IlsState, ctx: IlsCtx): NonNullable<LocalSearchOptions['onImprovement']> {
+	return (info) => {
+		if (info.breakdown.total < ils.bestBreakdown.total) {
+			ils.bestBreakdown = { ...info.breakdown };
+			ils.bestPlacement = new Int32Array(info.bestPlacement);
+			ils.lastImprovementMs = Date.now() - ctx.tStart;
+			ctx.opts.onImprovement?.(info);
+		}
+	};
+}
+
 /**
- * Run iterated local search. Calls localSearch repeatedly with perturbations
- * in between. Returns the best-ever placement.
+ * Compute the SA-temperature and kempe-chain boost for the next LS chunk
+ * based on how many recent restarts produced no improvement. Cap at 500
+ * so very long stuck sessions don't drift into pure random-walk territory.
+ */
+function reheatParams(consecutiveUnproductive: number): { tStartLS: number; kempeBoost: number } {
+	const reheat = consecutiveUnproductive >= 2;
+	if (!reheat) return { tStartLS: 100, kempeBoost: 0 };
+	return {
+		tStartLS: Math.min(500, 200 + 50 * consecutiveUnproductive),
+		kempeBoost: Math.min(0.3, 0.05 * consecutiveUnproductive),
+	};
+}
+
+/** Update the unproductive-restart counter after one LS chunk. */
+function updateProductivity(ils: IlsState, scoreBefore: number): void {
+	if (ils.bestBreakdown.total < ils.bestEverSeenScore) {
+		ils.bestEverSeenScore = ils.bestBreakdown.total;
+		ils.consecutiveUnproductive = 0;
+	} else if (ils.bestBreakdown.total >= scoreBefore) {
+		ils.consecutiveUnproductive++;
+	}
+}
+
+/** Run a single LS chunk and bookkeeping. Returns true if we should keep going. */
+function runOneChunkSync(ils: IlsState, ctx: IlsCtx): boolean {
+	if (ctx.opts.shouldAbort?.()) return false;
+	const remainingTotal = ctx.totalBudget - (Date.now() - ctx.tStart);
+	if (remainingTotal <= 0) return false;
+	const thisBudget = Math.min(ctx.innerBudget, remainingTotal);
+	const { tStartLS, kempeBoost } = reheatParams(ils.consecutiveUnproductive);
+	const scoreBefore = ils.bestBreakdown.total;
+	const ls = localSearch(ctx.state, computeScore(ctx.state, ctx.weights), {
+		weights: ctx.weights,
+		maxIterations: 1_000_000,
+		timeBudgetMs: thisBudget,
+		seed: ctx.rng.int(0, 2147483647),
+		tStart: tStartLS,
+		kempeBoost,
+		onImprovement: makeImprovementHook(ils, ctx),
+		shouldAbort: ctx.opts.shouldAbort,
+	});
+	ils.totalIterations += ls.iterations;
+	updateProductivity(ils, scoreBefore);
+	return true;
+}
+
+/** Decide if a restart-perturbation is due (plateau detection). */
+function shouldPerturb(ils: IlsState, ctx: IlsCtx): boolean {
+	const elapsed = Date.now() - ctx.tStart;
+	if (elapsed >= ctx.totalBudget) return false;
+	const sinceImprovement = elapsed - ils.lastImprovementMs;
+	// Stay in inner LS if we're still making progress AND not yet 70% through
+	// the total budget (heuristic: late in the budget we always perturb).
+	if (sinceImprovement < ctx.plateauMs && elapsed < ctx.totalBudget * 0.7) {
+		return false;
+	}
+	return true;
+}
+
+/** Apply perturbation: clear `nPerturb` non-pinned units and re-construct. */
+function perturbAndRestart(ils: IlsState, ctx: IlsCtx): boolean {
+	const candidates: number[] = [];
+	for (let i = 0; i < ctx.state.nUnits; i++) {
+		if (ctx.state.units[i].pinned) continue;
+		candidates.push(i);
+	}
+	if (candidates.length === 0) return false;
+	for (let i = candidates.length - 1; i > 0; i--) {
+		const j = ctx.rng.int(0, i + 1);
+		[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+	}
+	// Adaptive perturbation strength: base + 5% per unproductive restart,
+	// clamped at 60%. Empirically a good escape-vs.-keep-progress balance.
+	const adaptiveFraction = Math.min(
+		0.6,
+		ctx.perturbFraction + 0.05 * ils.consecutiveUnproductive
+	);
+	const nPerturb = Math.max(1, Math.floor(candidates.length * adaptiveFraction));
+	for (let i = 0; i < nPerturb; i++) ctx.state.placement[candidates[i]] = SLOT_UNPLACED;
+	// Restore the rest from the global best so we restart from a known-good
+	// vicinity, not from intermediate LS state.
+	for (let i = nPerturb; i < candidates.length; i++) {
+		ctx.state.placement[candidates[i]] = ils.bestPlacement[candidates[i]];
+	}
+	construct(ctx.state, { weights: ctx.weights, seed: ctx.rng.int(0, 2147483647) });
+	ils.restartCount++;
+	ctx.opts.onRestart?.({
+		iteration: ils.totalIterations,
+		tElapsedMs: Date.now() - ctx.tStart,
+		reason: 'plateau',
+	});
+	return true;
+}
+
+/** Build the initial bookkeeping + context block. */
+function init(state: SolverState, initialBreakdown: ScoreBreakdown, opts: IteratedLSOptions): { ils: IlsState; ctx: IlsCtx } {
+	const totalBudget = opts.totalBudgetMs ?? 60_000;
+	const innerBudget = opts.innerBudgetMs ?? 15_000;
+	const perturbFraction = opts.perturbFraction ?? 0.2;
+	const plateauMs = opts.plateauMs ?? 8_000;
+	const rng = new Rng(opts.seed ?? Date.now() & 0x7fffffff);
+	const tStart = Date.now();
+	const bestPlacement = new Int32Array(state.placement);
+	const bestBreakdown = { ...initialBreakdown };
+	const ils: IlsState = {
+		bestPlacement,
+		bestBreakdown,
+		bestEverSeenScore: bestBreakdown.total,
+		lastImprovementMs: 0,
+		restartCount: 0,
+		totalIterations: 0,
+		consecutiveUnproductive: 0,
+	};
+	const ctx: IlsCtx = { state, weights: opts.weights, totalBudget, innerBudget, perturbFraction, plateauMs, rng, tStart, opts };
+	return { ils, ctx };
+}
+
+/** Final cleanup: copy best placement back into state, return the result. */
+function finalize(ils: IlsState, ctx: IlsCtx): IteratedLSResult {
+	for (let i = 0; i < ctx.state.nUnits; i++) {
+		ctx.state.placement[i] = ils.bestPlacement[i];
+	}
+	return {
+		bestPlacement: ils.bestPlacement,
+		bestBreakdown: ils.bestBreakdown,
+		restartCount: ils.restartCount,
+		totalIterations: ils.totalIterations,
+		tElapsedMs: Date.now() - ctx.tStart,
+	};
+}
+
+/**
+ * Run iterated local search synchronously. Calls localSearch repeatedly with
+ * perturbations in between. Returns the best-ever placement.
  *
- * Synchronous variant. For UI integration, use `iteratedLocalSearchAsync` —
- * it yields to the microtask queue between inner LS runs so abort signals
- * can fire and the UI thread isn't blocked indefinitely.
+ * For UI integration, use `iteratedLocalSearchAsync` — it yields to the
+ * macrotask queue between inner LS runs so abort signals can fire and the
+ * UI thread isn't blocked indefinitely.
  */
 export function iteratedLocalSearch(
 	state: SolverState,
 	initialBreakdown: ScoreBreakdown,
 	opts: IteratedLSOptions
 ): IteratedLSResult {
-	const totalBudget = opts.totalBudgetMs ?? 60_000;
-	const innerBudget = opts.innerBudgetMs ?? 15_000;
-	const perturbFraction = opts.perturbFraction ?? 0.2;
-	const plateauMs = opts.plateauMs ?? 8_000;
-	const rng = new Rng(opts.seed ?? Date.now() & 0x7fffffff);
-	const tStart = Date.now();
+	const { ils, ctx } = init(state, initialBreakdown, opts);
 
-	let bestPlacement = new Int32Array(state.placement);
-	let bestBreakdown = { ...initialBreakdown };
-	let lastImprovementMs = 0;
-	let restartCount = 0;
-	let totalIterations = 0;
-	// Adaptive perturbation: each consecutive restart that does NOT yield
-	// a new global best raises the perturbation strength. A fresh global
-	// best resets it. Range is clamped to [base..0.6] — beyond 60% of the
-	// units we'd practically restart from scratch.
-	let consecutiveUnproductive = 0;
-	let bestEverSeenScore = bestBreakdown.total;
-
-	function improvementHook(info: Parameters<NonNullable<LocalSearchOptions['onImprovement']>>[0]) {
-		if (info.breakdown.total < bestBreakdown.total) {
-			bestBreakdown = { ...info.breakdown };
-			bestPlacement = new Int32Array(info.bestPlacement);
-			lastImprovementMs = Date.now() - tStart;
-			opts.onImprovement?.(info);
-		}
+	while (Date.now() - ctx.tStart < ctx.totalBudget) {
+		if (!runOneChunkSync(ils, ctx)) break;
+		if (Date.now() - ctx.tStart >= ctx.totalBudget) break;
+		if (ctx.opts.shouldAbort?.()) break;
+		if (!shouldPerturb(ils, ctx)) continue;
+		if (!perturbAndRestart(ils, ctx)) break;
 	}
 
-	while (Date.now() - tStart < totalBudget) {
-		if (opts.shouldAbort?.()) break;
-
-		const remainingTotal = totalBudget - (Date.now() - tStart);
-		const thisBudget = Math.min(innerBudget, remainingTotal);
-
-		// Reheat + diversify: after an unproductive plateau, raise SA start
-		// temperature AND boost kempe-chain probability so the next LS chunk
-		// explores wider neighbourhoods before settling.
-		const reheat = consecutiveUnproductive >= 2;
-		// Cap reheat temperature at 500. Without the cap, very long stuck
-		// sessions push T toward random-walk territory (Math.exp(-delta/T)
-		// → 1 for any realistic delta), which actively degrades the best
-		// solution. 500 is ~5× the normal start temperature — strong
-		// diversification without losing all hill-climb signal.
-		const tStartLS = reheat ? Math.min(500, 200 + 50 * consecutiveUnproductive) : 100;
-		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
-
-		const scoreBefore = bestBreakdown.total;
-		const ls = localSearch(state, computeScore(state, opts.weights), {
-			weights: opts.weights,
-			maxIterations: 1_000_000,
-			timeBudgetMs: thisBudget,
-			seed: rng.int(0, 2147483647),
-			tStart: tStartLS,
-			kempeBoost,
-			onImprovement: improvementHook,
-			shouldAbort: opts.shouldAbort,
-		});
-		totalIterations += ls.iterations;
-
-		if (bestBreakdown.total < bestEverSeenScore) {
-			bestEverSeenScore = bestBreakdown.total;
-			consecutiveUnproductive = 0;
-		} else if (bestBreakdown.total >= scoreBefore) {
-			consecutiveUnproductive++;
-		}
-
-		if (Date.now() - tStart >= totalBudget) break;
-		if (opts.shouldAbort?.()) break;
-
-		// Decide whether to restart: plateau detection.
-		const sinceImprovement = Date.now() - tStart - lastImprovementMs;
-		if (sinceImprovement < plateauMs && Date.now() - tStart < totalBudget * 0.7) {
-			// Still improving — keep going (LS exited because of inner-budget,
-			// but we have wall budget left).
-			continue;
-		}
-
-		// Perturbation: knock out a fraction of non-pinned units, then re-construct.
-		const candidates: number[] = [];
-		for (let i = 0; i < state.nUnits; i++) {
-			if (state.units[i].pinned) continue;
-			candidates.push(i);
-		}
-		if (candidates.length === 0) break;
-		// Shuffle and pick the first N
-		for (let i = candidates.length - 1; i > 0; i--) {
-			const j = rng.int(0, i + 1);
-			[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-		}
-		// Adaptive perturbation strength: base + 5% per unproductive restart,
-		// clamped at 60%. Empirically this is a good balance — enough to
-		// escape the local minimum without throwing away too much progress.
-		const adaptiveFraction = Math.min(
-			0.6,
-			perturbFraction + 0.05 * consecutiveUnproductive
-		);
-		const nPerturb = Math.max(1, Math.floor(candidates.length * adaptiveFraction));
-		for (let i = 0; i < nPerturb; i++) state.placement[candidates[i]] = SLOT_UNPLACED;
-
-		// Restore the rest from the best placement
-		for (let i = nPerturb; i < candidates.length; i++) {
-			state.placement[candidates[i]] = bestPlacement[candidates[i]];
-		}
-
-		// Re-construct the perturbed units
-		construct(state, { weights: opts.weights, seed: rng.int(0, 2147483647) });
-
-		restartCount++;
-		opts.onRestart?.({ iteration: totalIterations, tElapsedMs: Date.now() - tStart, reason: 'plateau' });
-	}
-
-	// Restore best
-	for (let i = 0; i < state.nUnits; i++) state.placement[i] = bestPlacement[i];
-
-	return {
-		bestPlacement,
-		bestBreakdown,
-		restartCount,
-		totalIterations,
-		tElapsedMs: Date.now() - tStart,
-	};
+	return finalize(ils, ctx);
 }
 
 /**
- * Async variant of {@link iteratedLocalSearch} for UI / service-wrapper
- * integration. Yields to the macrotask queue (`setTimeout(..., 0)`) before
- * each inner LS run so that:
- *
- *  - external `setTimeout`-scheduled aborts can fire and flip `shouldAbort`,
- *  - the host event loop (browser UI, vitest worker) is not blocked for the
- *    full `totalBudgetMs`.
- *
- * The inner `localSearch` itself stays synchronous — it polls `shouldAbort`
- * every iteration and exits within ms once the flag flips, so per-chunk
- * latency is bounded by `innerBudgetMs`.
+ * Async variant. Same algorithm as the sync version, but splits the inner
+ * LS budget into ~250 ms chunks with `await new Promise(setTimeout(..., 0))`
+ * yields between chunks. That lets external setTimeout-scheduled aborts fire
+ * and keeps the host event loop (browser UI, vitest worker) responsive.
  */
 export async function iteratedLocalSearchAsync(
 	state: SolverState,
 	initialBreakdown: ScoreBreakdown,
 	opts: IteratedLSOptions
 ): Promise<IteratedLSResult> {
-	const totalBudget = opts.totalBudgetMs ?? 60_000;
-	const innerBudget = opts.innerBudgetMs ?? 15_000;
-	const perturbFraction = opts.perturbFraction ?? 0.2;
-	const plateauMs = opts.plateauMs ?? 8_000;
-	const rng = new Rng(opts.seed ?? Date.now() & 0x7fffffff);
-	const tStart = Date.now();
+	const { ils, ctx } = init(state, initialBreakdown, opts);
+	const CHUNK_MS = 250;
 
-	let bestPlacement = new Int32Array(state.placement);
-	let bestBreakdown = { ...initialBreakdown };
-	let lastImprovementMs = 0;
-	let restartCount = 0;
-	let totalIterations = 0;
-	let consecutiveUnproductive = 0;
-	let bestEverSeenScore = bestBreakdown.total;
-
-	function improvementHook(info: Parameters<NonNullable<LocalSearchOptions['onImprovement']>>[0]) {
-		if (info.breakdown.total < bestBreakdown.total) {
-			bestBreakdown = { ...info.breakdown };
-			bestPlacement = new Int32Array(info.bestPlacement);
-			lastImprovementMs = Date.now() - tStart;
-			opts.onImprovement?.(info);
-		}
-	}
-
-	while (Date.now() - tStart < totalBudget) {
-		// Yield to the macrotask queue so external setTimeout-based aborts
-		// (and UI repaints) get a chance to run between LS chunks.
+	while (Date.now() - ctx.tStart < ctx.totalBudget) {
+		// Macrotask yield so abort timers can fire even if we just entered.
 		await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		if (ctx.opts.shouldAbort?.()) break;
+		if (Date.now() - ctx.tStart >= ctx.totalBudget) break;
 
-		if (opts.shouldAbort?.()) break;
-		if (Date.now() - tStart >= totalBudget) break;
-
-		const remainingTotal = totalBudget - (Date.now() - tStart);
-		const thisBudget = Math.min(innerBudget, remainingTotal);
-
-		// Reheat + diversify: after an unproductive plateau, raise SA start
-		// temperature AND boost kempe-chain probability so the next LS chunk
-		// explores wider neighbourhoods before settling.
-		const reheat = consecutiveUnproductive >= 2;
-		// Cap reheat temperature at 500. Without the cap, very long stuck
-		// sessions push T toward random-walk territory (Math.exp(-delta/T)
-		// → 1 for any realistic delta), which actively degrades the best
-		// solution. 500 is ~5× the normal start temperature — strong
-		// diversification without losing all hill-climb signal.
-		const tStartLS = reheat ? Math.min(500, 200 + 50 * consecutiveUnproductive) : 100;
-		const kempeBoost = reheat ? Math.min(0.3, 0.05 * consecutiveUnproductive) : 0;
-
-		const scoreBefore = bestBreakdown.total;
-		// Split the inner LS budget into ~250 ms chunks and yield between them
-		// so external setTimeout-based aborts (and UI repaints) can fire even
-		// when innerBudgetMs is large (e.g. 30s in tests).
-		const CHUNK_MS = 250;
+		const remainingTotal = ctx.totalBudget - (Date.now() - ctx.tStart);
+		const thisBudget = Math.min(ctx.innerBudget, remainingTotal);
+		const { tStartLS, kempeBoost } = reheatParams(ils.consecutiveUnproductive);
+		const scoreBefore = ils.bestBreakdown.total;
 		const lsTStart = Date.now();
 		let abortedInner = false;
+		// Slice the inner LS into CHUNK_MS pieces with macrotask yields between.
 		while (true) {
 			const chunkRemaining = thisBudget - (Date.now() - lsTStart);
 			if (chunkRemaining <= 0) break;
-			if (opts.shouldAbort?.()) { abortedInner = true; break; }
+			if (ctx.opts.shouldAbort?.()) { abortedInner = true; break; }
 			const chunkBudget = Math.min(CHUNK_MS, chunkRemaining);
-			const ls = localSearch(state, computeScore(state, opts.weights), {
-				weights: opts.weights,
+			const ls = localSearch(ctx.state, computeScore(ctx.state, ctx.weights), {
+				weights: ctx.weights,
 				maxIterations: 1_000_000,
 				timeBudgetMs: chunkBudget,
-				seed: rng.int(0, 2147483647),
+				seed: ctx.rng.int(0, 2147483647),
 				tStart: tStartLS,
-				onImprovement: improvementHook,
-				shouldAbort: opts.shouldAbort,
+				kempeBoost,
+				onImprovement: makeImprovementHook(ils, ctx),
+				shouldAbort: ctx.opts.shouldAbort,
 			});
-			totalIterations += ls.iterations;
-			if (opts.shouldAbort?.()) { abortedInner = true; break; }
-			// Yield to the macrotask queue between chunks.
+			ils.totalIterations += ls.iterations;
+			if (ctx.opts.shouldAbort?.()) { abortedInner = true; break; }
 			await new Promise<void>((resolve) => setTimeout(resolve, 0));
 		}
-
-		if (bestBreakdown.total < bestEverSeenScore) {
-			bestEverSeenScore = bestBreakdown.total;
-			consecutiveUnproductive = 0;
-		} else if (bestBreakdown.total >= scoreBefore) {
-			consecutiveUnproductive++;
-		}
+		updateProductivity(ils, scoreBefore);
 
 		if (abortedInner) break;
-		if (Date.now() - tStart >= totalBudget) break;
-		if (opts.shouldAbort?.()) break;
-
-		// Decide whether to restart: plateau detection.
-		const sinceImprovement = Date.now() - tStart - lastImprovementMs;
-		if (sinceImprovement < plateauMs && Date.now() - tStart < totalBudget * 0.7) {
-			continue;
-		}
-
-		// Perturbation: knock out a fraction of non-pinned units, then re-construct.
-		const candidates: number[] = [];
-		for (let i = 0; i < state.nUnits; i++) {
-			if (state.units[i].pinned) continue;
-			candidates.push(i);
-		}
-		if (candidates.length === 0) break;
-		for (let i = candidates.length - 1; i > 0; i--) {
-			const j = rng.int(0, i + 1);
-			[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-		}
-		const adaptiveFraction = Math.min(
-			0.6,
-			perturbFraction + 0.05 * consecutiveUnproductive
-		);
-		const nPerturb = Math.max(1, Math.floor(candidates.length * adaptiveFraction));
-		for (let i = 0; i < nPerturb; i++) state.placement[candidates[i]] = SLOT_UNPLACED;
-		for (let i = nPerturb; i < candidates.length; i++) {
-			state.placement[candidates[i]] = bestPlacement[candidates[i]];
-		}
-
-		construct(state, { weights: opts.weights, seed: rng.int(0, 2147483647) });
-
-		restartCount++;
-		opts.onRestart?.({ iteration: totalIterations, tElapsedMs: Date.now() - tStart, reason: 'plateau' });
+		if (Date.now() - ctx.tStart >= ctx.totalBudget) break;
+		if (ctx.opts.shouldAbort?.()) break;
+		if (!shouldPerturb(ils, ctx)) continue;
+		if (!perturbAndRestart(ils, ctx)) break;
 	}
 
-	// Restore best
-	for (let i = 0; i < state.nUnits; i++) state.placement[i] = bestPlacement[i];
-
-	return {
-		bestPlacement,
-		bestBreakdown,
-		restartCount,
-		totalIterations,
-		tElapsedMs: Date.now() - tStart,
-	};
+	return finalize(ils, ctx);
 }
