@@ -5,7 +5,7 @@
 // Construction → Local Search → Iterated Local Search.
 
 import type { PlacedLesson, ScheduleDoc } from '../types';
-import { diagnose, bestHint, type Hint } from '../solver/diagnose';
+import { diagnose, bestHint, type Hint } from './diagnose';
 import { buildState } from './units';
 import { computeScore } from './score';
 import { construct } from './construct';
