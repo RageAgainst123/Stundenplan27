@@ -174,14 +174,31 @@
 		session?.abort();
 	}
 
-	// ---- Convergence hint ----
-	const convergenceHint = $derived.by(() => {
+	// ---- Convergence status ----
+	// Three states based on how long ago the last score improvement was:
+	//   active       — improvement in the last few seconds (green, "läuft")
+	//   exploring    — between 5s and 20s without improvement (orange, "sucht")
+	//   stable       — over 20s no improvement, total runtime > 30s (gray)
+	type ConvStatus = 'active' | 'exploring' | 'stable';
+	const convergenceStatus = $derived.by((): ConvStatus | '' => {
 		if (!session || phase !== 'optimize') return '';
 		const idleMs = tElapsed - lastImprovementMs;
-		if (idleMs > 8000 && tElapsed > 15000) {
-			return 'Letzte Verbesserung vor ' + Math.round(idleMs / 1000) + ' s — Solver scheint konvergiert. Abbrechen lohnt sich evtl.';
+		if (idleMs < 5000) return 'active';
+		if (idleMs < 20000 || tElapsed < 30000) return 'exploring';
+		return 'stable';
+	});
+	const convergenceText = $derived.by(() => {
+		const idleSec = Math.round((tElapsed - lastImprovementMs) / 1000);
+		switch (convergenceStatus) {
+			case 'active':
+				return `🟢 Aktiv — gerade ${bestScore !== null ? `bei Score ${bestScore}` : 'am Suchen'}`;
+			case 'exploring':
+				return `🟠 Sucht weiter — letzte Verbesserung vor ${idleSec} s`;
+			case 'stable':
+				return `⚪ Wahrscheinlich fertig — seit ${idleSec} s keine Verbesserung. Du kannst abbrechen.`;
+			default:
+				return '';
 		}
-		return '';
 	});
 
 	const progressPercent = $derived(
@@ -245,8 +262,10 @@
 			{:else}
 				<div class="muted small">Erste Lösung wird gesucht — kann bei großen Plänen einige Minuten dauern.</div>
 			{/if}
-			{#if convergenceHint}
-				<div class="hint-line">ℹ {convergenceHint}</div>
+			{#if convergenceText}
+				<div class="status-line" class:status-active={convergenceStatus === 'active'} class:status-exploring={convergenceStatus === 'exploring'} class:status-stable={convergenceStatus === 'stable'}>
+					{convergenceText}
+				</div>
 			{/if}
 			<div class="muted small">
 				💡 Lass den Solver gerne lange laufen — er liefert kontinuierlich bessere Lösungen.
@@ -416,6 +435,25 @@
 		color: var(--text-muted);
 		font-size: 12px;
 		font-style: italic;
+	}
+	.status-line {
+		font-size: 13px;
+		padding: 4px 8px;
+		border-radius: 4px;
+		font-weight: 500;
+	}
+	.status-active {
+		color: #15803d;
+		background: #dcfce7;
+	}
+	.status-exploring {
+		color: #b45309;
+		background: #fef3c7;
+	}
+	.status-stable {
+		color: #475569;
+		background: #f1f5f9;
+		border: 1px solid #cbd5e1;
 	}
 	.abort {
 		align-self: flex-start;

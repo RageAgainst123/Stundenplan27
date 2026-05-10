@@ -116,8 +116,8 @@
 
 <style>
 	td.cell {
-		min-height: 50px;
-		height: 50px;
+		min-height: 44px;
+		height: 44px;
 		vertical-align: top;
 		background: white;
 		padding: 0;

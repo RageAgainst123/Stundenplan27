@@ -68,10 +68,10 @@
 	.lesson {
 		position: relative;
 		height: 100%;
-		min-height: 50px;
-		padding: 3px 6px;
+		min-height: 44px;
+		padding: 2px 4px;
 		font-size: 11px;
-		line-height: 1.2;
+		line-height: 1.15;
 		display: flex;
 		flex-direction: column;
 		justify-content: space-between;
@@ -93,7 +93,7 @@
 	}
 	.subj {
 		font-weight: 700;
-		font-size: 12px;
+		font-size: 11px;
 	}
 	.teachers {
 		display: inline-flex;

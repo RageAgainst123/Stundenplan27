@@ -126,14 +126,40 @@
 		return checkPlacementConflict(store.doc, spec, day, period).reasons;
 	}
 
-	function resetPlan() {
-		const n = store.doc.placed.length;
-		if (n === 0) return;
-		const pinnedCount = store.doc.placed.filter(p => p.pinned).length;
+	/** Verwirft die nicht-gepinnten Stunden und behält alle 🔒 Pins.
+	 *  Standard-Aktion: trifft den häufigen Fall "neu generieren mit
+	 *  meinen Vorgaben". */
+	function resetUnpinned() {
+		const total = store.doc.placed.length;
+		if (total === 0) return;
+		const removable = store.doc.placed.filter(p => !p.pinned).length;
+		const pinnedCount = total - removable;
+		if (removable === 0) {
+			alert(`Es gibt nichts zu verwerfen — alle ${total} Stunden sind gepinnt.`);
+			return;
+		}
 		const msg = pinnedCount > 0
-			? `Wirklich alle ${n} platzierten Stunden löschen (inkl. ${pinnedCount} gepinnten)? Lehrer, Fächer und Lehreinheiten bleiben erhalten.`
-			: `Wirklich alle ${n} platzierten Stunden löschen? Lehrer, Fächer und Lehreinheiten bleiben erhalten.`;
+			? `${removable} nicht-gepinnte Stunden verwerfen? ${pinnedCount} gepinnte Stunden 🔒 bleiben erhalten. Lehrer, Fächer und Lehreinheiten bleiben sowieso erhalten.`
+			: `${removable} platzierte Stunden verwerfen? Lehrer, Fächer und Lehreinheiten bleiben erhalten.`;
 		if (!confirm(msg)) return;
+		store.doc.placed = store.doc.placed.filter(p => p.pinned);
+		store.persistNow();
+	}
+
+	/** Verwirft ALLES inklusive Pins. Zweistufige Bestätigung weil es
+	 *  zerstörerisch ist und manuelle Vorgaben löscht. */
+	function resetAll() {
+		const total = store.doc.placed.length;
+		if (total === 0) return;
+		const pinnedCount = store.doc.placed.filter(p => p.pinned).length;
+		if (pinnedCount === 0) {
+			// Kein Pin im Spiel — gleicher Effekt wie resetUnpinned, also
+			// einfache Bestätigung.
+			if (!confirm(`Wirklich alle ${total} Stunden verwerfen?`)) return;
+		} else {
+			if (!confirm(`Wirklich ALLE ${total} Stunden verwerfen — INKLUSIVE der ${pinnedCount} gepinnten 🔒? Manuelle Vorgaben gehen verloren.`)) return;
+			if (!confirm(`Sicher? Auch die ${pinnedCount} gepinnten Stunden werden gelöscht.`)) return;
+		}
 		store.doc.placed = [];
 		store.persistNow();
 	}
@@ -175,9 +201,26 @@
 	<span class="sep"></span>
 	<GenerateButton />
 	{#if store.doc.placed.length > 0}
-		<button class="btn danger small" onclick={resetPlan} title="Alle platzierten Stunden löschen">
+		{@const pinnedCount = store.doc.placed.filter(p => p.pinned).length}
+		<button
+			class="btn danger small"
+			onclick={resetUnpinned}
+			title="Nur die nicht-gepinnten Stunden löschen — gepinnte Stunden 🔒 bleiben"
+		>
 			🗑 Planung verwerfen
+			{#if pinnedCount > 0}
+				<span class="muted-inline">(🔒 {pinnedCount} bleiben)</span>
+			{/if}
 		</button>
+		{#if pinnedCount > 0}
+			<button
+				class="btn danger small ghost"
+				onclick={resetAll}
+				title="ALLES inklusive der gepinnten Stunden löschen"
+			>
+				🗑 Alles inkl. Pins
+			</button>
+		{/if}
 	{/if}
 </section>
 
@@ -411,11 +454,11 @@
 		font-size: 11px;
 	}
 	.schedule .time-col {
-		width: 64px;
-		min-width: 64px;
+		width: 52px;
+		min-width: 52px;
 		background: var(--bg-soft);
 		text-align: center;
-		padding: 6px 4px;
+		padding: 4px 3px;
 	}
 	.time-cell {
 		display: flex;
@@ -426,8 +469,9 @@
 		font-weight: 700;
 	}
 	.time-cell .period-time {
-		font-size: 10px;
+		font-size: 9px;
 		color: var(--text-muted);
+		white-space: nowrap;
 	}
 	.day-head {
 		text-align: center;
@@ -437,17 +481,23 @@
 	}
 	.grade-head {
 		text-align: center;
-		padding: 4px 0;
+		padding: 3px 0;
 		background: var(--bg-soft);
 		font-weight: 600;
 		font-size: 11px;
 		color: var(--text-muted);
-		min-width: 70px;
+		min-width: 56px;
 	}
+	/* Tagestrennung: schmaler aber visuell deutlich. Vorher 10px Leerraum,
+	   jetzt 4px farbiger Streifen — klare Tagesgrenze, mehr Platz für die
+	   Stunden-Spalten daneben. */
 	.day-gap {
-		width: 10px;
-		background: transparent !important;
+		width: 4px;
+		min-width: 4px;
+		max-width: 4px;
+		background: var(--border) !important;
 		border: 0 !important;
+		padding: 0 !important;
 	}
 	:global(.drag-over) {
 		background: var(--accent-bg) !important;
@@ -456,5 +506,14 @@
 	.muted.small {
 		color: var(--text-muted);
 		font-size: 12px;
+	}
+	.muted-inline {
+		opacity: 0.75;
+		font-size: 11px;
+		margin-left: 4px;
+	}
+	.btn.ghost {
+		background: transparent;
+		border: 1px dashed var(--danger, #c44);
 	}
 </style>
