@@ -498,14 +498,14 @@ describe('computeScore — uneven_days', () => {
 	});
 });
 
-describe('computeScore — compact_teacher', () => {
-	it('penalizes sandwich gaps in a teacher day', () => {
+describe('computeScore — compact_teacher (quadratic)', () => {
+	it('1 sandwich gap → 1 penalty (1²)', () => {
 		const doc = emptyDoc();
 		doc.teachers.push(teacher('t', 'L'));
 		doc.subjects.push(subject('M'));
 		doc.specs.push(spec('s', 'M', 't', [5], 2));
 		const state = buildState(doc);
-		// Mo P1 + Mo P3 → P2 is a sandwich gap for the teacher
+		// Mo P1 + Mo P3 → P2 is a single sandwich gap for the teacher
 		place(state, 's', 'Mo', 1);
 		place(state, 's', 'Mo', 3);
 		const b = computeScore(state, defaultWeights(doc));
@@ -522,6 +522,52 @@ describe('computeScore — compact_teacher', () => {
 		place(state, 's', 'Mo', 2);
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.compact_teacher).toBe(0);
+	});
+
+	it('2 gaps on the SAME day → 4 penalty (2², not 2)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		// Mo P1 + Mo P4 → P2 + P3 are TWO sandwich gaps in one day
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 4);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.compact_teacher).toBe(4);
+	});
+
+	it('3 gaps on the same day → 9 penalty', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		// Mo P1 + Mo P5 → P2, P3, P4 are three sandwich gaps
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.compact_teacher).toBe(9);
+	});
+
+	it('1 gap on Mo + 1 gap on Di → 2 penalty (1² + 1², per-day)', () => {
+		// Important: the penalty is squared PER DAY, not over the whole week.
+		// Two separate days with 1 gap each = 1 + 1 = 2, NOT (1+1)² = 4.
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		doc.specs.push(spec('c', 'M', 't', [7], 1));
+		doc.specs.push(spec('d', 'M', 't', [8], 1));
+		const state = buildState(doc);
+		// Mo: P1 + P3 (gap at P2). Di: P1 + P3 (gap at P2). Each day 1 gap.
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 3);
+		place(state, 'c', 'Di', 1);
+		place(state, 'd', 'Di', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.compact_teacher).toBe(2);
 	});
 });
 

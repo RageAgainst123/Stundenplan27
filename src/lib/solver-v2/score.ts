@@ -260,10 +260,17 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 					occupiedPeriods++;
 				}
 			}
+			// compact_teacher uses QUADRATIC penalty per (teacher, day):
+			// N gaps cost N² instead of N. Means 0 gaps = 0, 1 gap = 1
+			// (same as before), 2 gaps = 4 (vs. 2 before), 3 gaps = 9.
+			// User-Logik: 1 Freistunde ist ok, 2 ist schlecht, 3+ ist
+			// inakzeptabel — exponentielle Eskalation passt das ab.
 			if (firstP !== -1 && lastP > firstP) {
+				let gapsThisDay = 0;
 				for (let p = firstP + 1; p < lastP; p++) {
-					if (tocc[t * D * P + d * P + p] === 0) breakdown.compact_teacher++;
+					if (tocc[t * D * P + d * P + p] === 0) gapsThisDay++;
 				}
+				breakdown.compact_teacher += gapsThisDay * gapsThisDay;
 			}
 			// teacher_late_start: only counts when teacher has lessons that
 			// day AND was actually free in P1 (otherwise the late start was

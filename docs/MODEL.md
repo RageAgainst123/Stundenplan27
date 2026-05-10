@@ -107,7 +107,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `no_free`          | Sandwich-Lücken pro (day,grade)                                            | 200×50  | `noFreePeriodsForClass.{enabled, weight, strict}` | enabled=false|
 | `uneven_days`      | (day,grade) unter Tagespensum-Ziel — fehlende Slots                        | 150     | `unevenDaysWeight` (Top-Level)                    | nie 0 (immer aktiv)|
 | `main_run`         | Hauptfach-Folge länger als `maxConsecutiveMain.max`                        | 40      | `maxConsecutiveMain.{enabled, weight, max}`       | enabled=false|
-| `compact_teacher`  | Sandwich-Lücken pro (teacher,day)                                          | 80      | `compactTeacherDays.{enabled, weight}`            | enabled=false|
+| `compact_teacher`  | Sandwich-Lücken pro (teacher,day) — **quadratisch**: N Lücken/Tag = N². 1=1, 2=4, 3=9 | 80 | `compactTeacherDays.{enabled, weight}`            | enabled=false|
 | `main_early`       | Hauptfach: sum(period-1) — Tie-Breaker für früher                          | 2       | `preferMainEarly.{enabled, weight}`               | enabled=false|
 | `time_pref`        | Spec mit `timePref`: lin. Distanz zum Wunsch-Pol (P1 oder P8)              | 100     | `timePrefWeight` (Top-Level)                      | keine timePref-Specs |
 | `subject_twice`    | (day,grade,subject) mit Count > 1                                          | 60      | `subjectMaxOncePerDay.{enabled, weight}`          | enabled=false|

@@ -180,7 +180,7 @@
 				<input type="checkbox" bind:checked={c.compactTeacherDays.enabled} />
 				<span>
 					Lehrer-Tage kompakt (wenig Freistunden)
-					<span class="hint" title="Sandwich-Lücken pro (Lehrer, Tag). Wichtig für Teilzeit-Lehrer — sie sollen nicht 8 Stunden im Haus für 3 Stunden Unterricht sein.">ℹ</span>
+					<span class="hint" title="Sandwich-Lücken pro (Lehrer, Tag), QUADRATISCH gewichtet. 0 Lücken = 0 Strafe, 1 Lücke = 1, 2 Lücken = 4, 3 Lücken = 9. So ist 1 Freistunde ok, 2 sind deutlich schlechter, 3+ praktisch tabu.">ℹ</span>
 				</span>
 			</label>
 			<input type="number" min="0" step="5" bind:value={c.compactTeacherDays.weight} disabled={!c.compactTeacherDays.enabled} class="weight" />
