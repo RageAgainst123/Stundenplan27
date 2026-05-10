@@ -7,11 +7,43 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
-### Geplant (Phase 16)
+### Geplant (Phase 17)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
 - Diff-View zwischen zwei Snapshots
 - Echte zweite Engine (LNS, Backtracking-Verifier)
 - Web Worker, falls Solver auf größeren Schulen langsam wird
+
+## [0.16.0] - 2026-05-10 — Phase 16: Wochenplan-View
+
+User-Wunsch: Snapshots oder aktuellen Plan in einer **schönen,
+übersichtlichen Anzeige** ansehen — nicht im Editor-Chrome, ohne
+Drag&Drop, optimiert für Lesbarkeit. Filterbar nach Lehrer / Stufe / Fach.
+
+### Added
+- **Neuer Tab „Wochenplan 📋"** in `App.svelte`. Read-only-Anzeige
+  des Plans.
+- **`src/components/WeekView.svelte`** (neue Komponente, ~480 Zeilen):
+  - **Plan-Quelle-Dropdown** oben: „Aktueller Plan" oder beliebiger
+    Snapshot aus der Galerie
+  - **Filter-Bar** mit Lehrer-Chips (mit Lehrer-Farbe als Border-Akzent),
+    Stufen-Chips, Fach-Dropdown
+  - Filter-Modus: **Highlight** (Treffer normal, Rest mit `opacity: 0.18`
+    gedimpft)
+  - **Grid-Layout** wie Editor (5 Tage × 4 Stufen × 8 Periods), aber
+    größere Zellen, ruhigere Typografie, kein Drag&Drop, keine Pin-Toggles
+  - **Multi-Grade- und Coupling-Visualisierung** identisch zum Editor
+    (gleiche Subject-Farben, Coupling-Hintergrund, Team-Teaching-Split)
+  - **Aktuelle-Stunde-Highlight** (gold) und KW/G-U-Wochen-Anzeige im Header
+  - **Stats** im Header: Anzahl Stunden + Lerneinheiten
+
+### Architektur-Hinweis
+WeekView reagiert reaktiv auf `snapshots-changed` Window-Event aus
+GenerateButton — neue Snapshots erscheinen sofort im Dropdown ohne
+Reload. Die View ändert NIE `store.doc` — Editor-Stand bleibt
+unangetastet egal welcher Snapshot angezeigt wird.
+
+Bundle: 61.97 KB gz (+2 KB für neue Komponente). Über ursprünglicher
+60-KB-Empfehlung, aber im akzeptablen Bereich für die Funktionalität.
 
 ## [0.15.0] - 2026-05-10 — Phase 15: Diversify-Button + Plan-Snapshot-Galerie
 

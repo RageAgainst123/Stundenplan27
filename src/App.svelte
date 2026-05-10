@@ -7,8 +7,9 @@
 	import ScheduleGrid from './components/ScheduleGrid.svelte';
 	import RulesPanel from './components/RulesPanel.svelte';
 	import ImportExport from './components/ImportExport.svelte';
+	import WeekView from './components/WeekView.svelte';
 
-	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'rules' | 'import';
+	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'weekview' | 'rules' | 'import';
 	let active: Tab = $state('import');
 
 	const tabs: { id: Tab; label: string }[] = [
@@ -17,6 +18,7 @@
 		{ id: 'subjects', label: 'Fächer' },
 		{ id: 'specs', label: 'Lehreinheiten' },
 		{ id: 'schedule', label: 'Stundenplan' },
+		{ id: 'weekview', label: 'Wochenplan 📋' },
 		{ id: 'rules', label: 'Regeln' }
 	];
 </script>
@@ -54,6 +56,8 @@
 		<SpecList />
 	{:else if active === 'schedule'}
 		<ScheduleGrid />
+	{:else if active === 'weekview'}
+		<WeekView />
 	{:else if active === 'rules'}
 		<RulesPanel />
 	{/if}
