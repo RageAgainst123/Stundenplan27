@@ -70,6 +70,70 @@
 		return out;
 	}
 
+	/**
+	 * Berechne die Cell-Layout-Sequence für eine (day, period)-Zeile.
+	 * Multi-Grade-Specs werden als EINE Cell mit colspan=N statt N
+	 * separate Cells gerendert — wenn deren Stufen-Set konsekutiv ist
+	 * (z.B. [5,6] oder [5,6,7,8]). Sonst Fallback auf separate Cells.
+	 *
+	 * Subtle: wenn an der gleichen (day, period) eine Single-Grade-Spec
+	 * UND eine Multi-Grade-Spec liegen die Stufe X teilen, ist das ein
+	 * Daten-Problem (Hard-Constraint sollte das verhindern). Wir gehen
+	 * davon aus dass der Solver das nicht produziert; falls doch,
+	 * sortieren wir Multi-Grade als first-come und ignorieren Konflikte.
+	 */
+	interface CellSlot {
+		colspan: number;
+		startGrade: GradeLevel;
+		placements: CellPlacement[];
+	}
+
+	function rowLayout(day: Day, period: Period): CellSlot[] {
+		const slots: CellSlot[] = [];
+		// Set zur Track: welche Grades sind in dieser (day, period) schon
+		// von einem multi-Grade-Slot abgedeckt → überspringen.
+		const consumed = new Set<GradeLevel>();
+		for (const grade of GRADES) {
+			if (consumed.has(grade)) continue;
+			const cps = placementsAt(day, period, grade);
+			// Suche nach einer Multi-Grade-Spec deren niedrigste Stufe = grade
+			// und deren Stufen konsekutiv sind. Erste passende wird als
+			// breite Zelle gerendert.
+			let multiCp: CellPlacement | null = null;
+			for (const cp of cps) {
+				const gs = [...cp.spec.grades].sort((a, b) => a - b);
+				if (gs.length < 2) continue;
+				if (gs[0] !== grade) continue;
+				let consec = true;
+				for (let i = 1; i < gs.length; i++) {
+					if (gs[i] !== gs[i - 1] + 1) { consec = false; break; }
+				}
+				if (!consec) continue;
+				multiCp = cp;
+				break;
+			}
+			if (multiCp) {
+				const span = multiCp.spec.grades.length;
+				// Filtere placements so dass nur Multi-Grade-Spec im Slot
+				// erscheint. Andere Single-Grade-Specs derselben (day, period, grade)
+				// sind ein Konflikt — extrem selten, wir ignorieren sie hier.
+				slots.push({
+					colspan: span,
+					startGrade: grade,
+					placements: [multiCp]
+				});
+				for (const g of multiCp.spec.grades) consumed.add(g);
+			} else {
+				slots.push({
+					colspan: 1,
+					startGrade: grade,
+					placements: cps
+				});
+			}
+		}
+		return slots;
+	}
+
 	// ---- Filter ----
 	let selectedTeachers = $state<Set<string>>(new Set());
 	let selectedGrades = $state<Set<GradeLevel>>(new Set());
@@ -139,6 +203,11 @@
 		Array.from(new Set(store.doc.specs.map(s => s.subject))).sort()
 	);
 
+	// Wochentag-Vollnamen für Header.
+	const DAY_FULL: Record<Day, string> = {
+		Mo: 'Montag', Di: 'Dienstag', Mi: 'Mittwoch', Do: 'Donnerstag', Fr: 'Freitag'
+	};
+
 	// ---- Stats für Header ----
 	const stats = $derived.by(() => {
 		const total = placed.length;
@@ -168,24 +237,23 @@
 			</span>
 		</div>
 
-		<div class="hd-row filters">
-			<button class="btn-filter clear" class:active={showAll} onclick={clearFilters}>Alle anzeigen</button>
-			<span class="filter-divider">|</span>
-			<span class="filter-label">Lehrer:</span>
+		<div class="hd-row teachers-row">
+			<button class="big-btn primary-clear" class:active={showAll} onclick={clearFilters}>Alle anzeigen</button>
 			{#each store.doc.teachers as t (t.id)}
 				<button
 					type="button"
-					class="chip teacher-chip"
+					class="big-btn teacher-btn"
 					class:active={selectedTeachers.has(t.id)}
 					style:--tcolor={t.color}
 					onclick={() => toggleTeacher(t.id)}
+					title={t.name}
 				>
-					{t.name.split(' ')[0]} <span class="lbadge">L{t.shortNumber}</span>
+					{t.name.split(' ')[0].toUpperCase()} {t.shortNumber}
 				</button>
 			{/each}
 		</div>
 
-		<div class="hd-row filters">
+		<div class="hd-row sub-filters">
 			<span class="filter-label">Stufen:</span>
 			{#each GRADES as g (g)}
 				<button
@@ -212,7 +280,7 @@
 				<tr class="day-row">
 					<th class="time-col" rowspan="2"></th>
 					{#each DAYS as d (d)}
-						<th colspan={GRADES.length} class="day-head" class:today={nowState?.day === d}>{d}</th>
+						<th colspan={GRADES.length} class="day-head" class:today={nowState?.day === d}>{DAY_FULL[d]}</th>
 					{/each}
 				</tr>
 				<tr class="grade-row">
@@ -231,22 +299,24 @@
 							<div class="period-time">{DEFAULT_PERIOD_TIMES[p - 1]}</div>
 						</td>
 						{#each DAYS as d (d)}
-							{#each GRADES as g (d + '-' + g + '-' + p)}
-								{@const cps = placementsAt(d, p, g)}
-								{@const couplingBg = couplingBgFor(cps)}
+							{#each rowLayout(d, p) as slot, sidx (d + '-' + p + '-' + sidx + '-' + slot.startGrade)}
+								{@const couplingBg = couplingBgFor(slot.placements)}
 								{@const isNow = isNowCell(d, p)}
+								{@const isLastInDay = (slot.startGrade + slot.colspan - 1) === GRADES[GRADES.length - 1]}
 								<td
 									class="cell"
 									class:now={isNow}
 									class:coupled={couplingBg !== ''}
+									class:end-of-day={isLastInDay}
+									colspan={slot.colspan}
 									style:background={couplingBg || undefined}
 								>
-									{#if cps.length > 0}
+									{#if slot.placements.length > 0}
 										<div class="row" class:team={couplingBg !== ''}>
-											{#each cps as cp, idx (cp.placed.specId + '|' + idx)}
+											{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
 												{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
 												{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
-												{@const visible = isHighlighted(cp.spec, g)}
+												{@const visible = isHighlighted(cp.spec, slot.startGrade)}
 												{@const tcol = teacher?.color ?? '#9ca3af'}
 												{@const t2col = teacher2?.color ?? tcol}
 												{@const dimmedByWeek = cp.spec.weekPattern !== 'every' && cp.spec.weekPattern !== weekInfo.parity}
@@ -257,24 +327,15 @@
 													style:--tcol={tcol}
 													style:--t2col={t2col}
 													style:background={teacher2
-														? `linear-gradient(to right, color-mix(in srgb, ${tcol} 30%, white) 0 50%, color-mix(in srgb, ${t2col} 30%, white) 50% 100%)`
-														: `color-mix(in srgb, ${tcol} 30%, white)`}
+														? `linear-gradient(to right, color-mix(in srgb, ${tcol} 45%, white) 0 50%, color-mix(in srgb, ${t2col} 45%, white) 50% 100%)`
+														: `color-mix(in srgb, ${tcol} 45%, white)`}
 												>
-													<div class="placed-top">
-														<span class="subj">{cp.spec.subject}</span>
-														<span class="teach-row">
-															<span class="lbadge" title={teacher?.name}>L{teacher?.shortNumber ?? '?'}</span>
-															{#if teacher2}
-																<span class="lbadge two" title={teacher2.name}>L{teacher2.shortNumber}</span>
-															{/if}
-														</span>
-													</div>
-													<div class="placed-bot">
-														<span class="grades">{cp.spec.grades.join('+')}</span>
-														{#if cp.spec.weekPattern !== 'every'}
-															<span class="week">{cp.spec.weekPattern === 'even' ? 'G' : 'U'}</span>
-														{/if}
-													</div>
+													<span class="subj" title={teacher?.name + (teacher2 ? ' + ' + teacher2.name : '')}>
+														{cp.spec.subject}
+													</span>
+													{#if cp.spec.weekPattern !== 'every'}
+														<span class="week-badge">{cp.spec.weekPattern === 'even' ? 'G' : 'U'}</span>
+													{/if}
 												</div>
 											{/each}
 										</div>
@@ -293,18 +354,18 @@
 	.weekview {
 		display: flex;
 		flex-direction: column;
-		gap: 12px;
+		gap: 16px;
 	}
 
 	/* ---- Header ---- */
 	.wv-header {
 		display: flex;
 		flex-direction: column;
-		gap: 6px;
-		padding: 10px 12px;
+		gap: 10px;
+		padding: 12px 14px;
 		background: var(--bg-panel);
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 10px;
 	}
 	.hd-row {
 		display: flex;
@@ -312,85 +373,98 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.hd-row.filters {
-		gap: 4px;
-	}
 	.src-label {
 		display: flex;
 		align-items: center;
-		gap: 6px;
-		font-size: 13px;
+		gap: 8px;
+		font-size: 14px;
 		font-weight: 600;
 	}
 	.src-select {
-		min-width: 240px;
-		padding: 4px 8px;
+		min-width: 280px;
+		padding: 6px 10px;
 		font-size: 13px;
+		border-radius: 6px;
+		border: 1px solid var(--border);
 	}
 	.src-info {
 		margin-left: auto;
+		font-size: 13px;
 	}
 	.filter-label {
 		font-size: 12px;
 		font-weight: 600;
 		color: var(--text-muted);
-		margin-right: 2px;
+		margin-right: 4px;
 	}
 	.filter-divider {
 		color: var(--border);
-		margin: 0 4px;
+		margin: 0 6px;
 	}
 	.subject-select {
-		min-width: 120px;
-		font-size: 12px;
-		padding: 2px 6px;
-	}
-	.btn-filter {
-		font-size: 12px;
-		padding: 3px 10px;
-		border-radius: 12px;
+		min-width: 140px;
+		font-size: 13px;
+		padding: 4px 8px;
+		border-radius: 6px;
 		border: 1px solid var(--border);
-		background: white;
-		cursor: pointer;
 	}
-	.btn-filter.active {
-		background: var(--accent);
+
+	/* Lehrer-Filter im Bild-2-Stil: gross, mit Lehrer-Farbe, gerundet */
+	.teachers-row {
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.big-btn {
+		font-size: 13px;
+		font-weight: 600;
+		padding: 8px 16px;
+		border-radius: 24px;
+		border: 1px solid transparent;
+		cursor: pointer;
+		transition: transform 0.1s ease, box-shadow 0.1s ease;
+		letter-spacing: 0.02em;
+	}
+	.big-btn:hover {
+		transform: translateY(-1px);
+		box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+	}
+	.big-btn.primary-clear {
+		background: #4f9858;
 		color: white;
-		border-color: var(--accent);
+		border-color: #4f9858;
+	}
+	.big-btn.primary-clear:not(.active) {
+		background: white;
+		color: #4f9858;
+	}
+	.big-btn.teacher-btn {
+		background: color-mix(in srgb, var(--tcolor) 65%, white);
+		color: rgba(0, 0, 0, 0.85);
+	}
+	.big-btn.teacher-btn:not(.active) {
+		opacity: 0.55;
+	}
+	.big-btn.teacher-btn.active {
+		opacity: 1;
+		box-shadow: 0 0 0 2px white, 0 0 0 4px var(--tcolor);
+	}
+
+	.sub-filters {
+		gap: 6px;
+		font-size: 13px;
 	}
 	.chip {
 		font-size: 12px;
-		padding: 3px 10px;
-		border-radius: 12px;
+		padding: 4px 12px;
+		border-radius: 16px;
 		border: 1px solid var(--border);
 		background: white;
 		cursor: pointer;
-		display: inline-flex;
-		align-items: center;
-		gap: 4px;
-	}
-	.chip.teacher-chip {
-		border-left: 3px solid var(--tcolor);
-	}
-	.chip.active {
-		background: color-mix(in srgb, var(--tcolor, var(--accent)) 25%, white);
-		font-weight: 600;
 	}
 	.chip.grade-chip.active {
 		background: var(--accent);
 		color: white;
 		border-color: var(--accent);
-	}
-	.lbadge {
-		display: inline-block;
-		font-size: 10px;
-		padding: 0 4px;
-		border-radius: 3px;
-		background: rgba(0, 0, 0, 0.06);
-		font-weight: 600;
-	}
-	.lbadge.two {
-		background: rgba(0, 0, 0, 0.12);
 	}
 
 	/* ---- Grid ---- */
@@ -398,99 +472,94 @@
 		overflow-x: auto;
 		background: white;
 		border: 1px solid var(--border);
-		border-radius: 8px;
+		border-radius: 10px;
+		padding: 10px;
 	}
 	table.wv-grid {
 		border-collapse: separate;
-		border-spacing: 0;
+		/* Cell-Spacing für aufgelockerte Optik (Bild 2) */
+		border-spacing: 4px;
 		width: 100%;
 		min-width: 1100px;
 		font-size: 12px;
+		/* Fixed Layout: alle Stufen-Spalten gleich breit, time-col fix */
+		table-layout: fixed;
 	}
-	thead th {
-		padding: 6px 4px;
-		text-align: center;
-		font-weight: 600;
-		background: var(--bg-soft);
-		border-bottom: 1px solid var(--border);
-		color: var(--text);
+
+	/* Spalten-Breiten via colgroup wäre sauberer aber wir haben keine.
+	   Stattdessen via th width + first td width: */
+	thead th.time-col,
+	td.time-cell {
+		width: 80px;
 	}
 	thead th.day-head {
-		font-size: 14px;
-		padding: 8px 4px;
-		border-right: 2px solid var(--border);
-		background: linear-gradient(to bottom, var(--bg-panel), var(--bg-soft));
+		font-size: 16px;
+		font-weight: 700;
+		padding: 10px 6px;
+		text-align: center;
+		color: var(--text);
+		background: transparent;
+		border: none;
 	}
 	thead th.day-head.today {
-		background: linear-gradient(to bottom, rgba(255, 215, 0, 0.20), rgba(255, 215, 0, 0.10));
 		color: #8a6500;
 	}
 	thead th.grade-head {
-		font-size: 11px;
-		font-weight: 500;
+		font-size: 12px;
+		font-weight: 600;
 		color: var(--text-muted);
-		border-right: 1px solid var(--border);
+		text-align: center;
 		padding: 4px;
+		background: var(--bg-soft);
+		border-radius: 4px;
 	}
 	thead th.grade-head.today {
-		background: rgba(255, 215, 0, 0.06);
+		background: rgba(255, 215, 0, 0.15);
+		color: #8a6500;
 	}
 
 	td.time-cell {
 		text-align: center;
-		padding: 8px 6px;
+		padding: 10px 6px;
 		background: var(--bg-soft);
-		border-right: 2px solid var(--border);
-		border-bottom: 1px solid var(--border);
-		min-width: 70px;
+		border-radius: 6px;
 		vertical-align: middle;
 	}
 	.period-num {
-		font-size: 16px;
+		font-size: 18px;
 		font-weight: 700;
 	}
 	.period-time {
 		font-size: 10px;
 		color: var(--text-muted);
-		margin-top: 2px;
+		margin-top: 3px;
 	}
 
 	td.cell {
-		min-height: 56px;
-		height: 56px;
-		vertical-align: top;
-		background: white;
+		min-height: 60px;
+		height: 60px;
+		vertical-align: middle;
+		background: var(--bg-soft);
 		padding: 0;
-		border-right: 1px solid var(--border);
-		border-bottom: 1px solid var(--border);
+		border-radius: 8px;
+		text-align: center;
+		overflow: hidden;
 	}
-	/* Verstärkter Tag-Trenner: jede 4. (= GRADES.length) Spalte hat einen
-	   stärkeren Rand rechts. Über CSS-Selector pro Zelle nicht trivial,
-	   stattdessen am letzten <th> der Tag-Gruppe und am letzten <td> via
-	   nth-child Logik (wir wissen GRADES = [5,6,7,8] → jede 4. cell-Spalte
-	   nach time-col bekommt verstärkten Right-Border). */
-	tbody tr td.cell:nth-of-type(4n+1) {
-		border-right: 2px solid var(--border);
-	}
-	thead th.grade-head:nth-of-type(4n) {
-		border-right: 2px solid var(--border);
-	}
-
 	td.cell.now {
-		background: rgba(255, 215, 0, 0.10);
-		box-shadow: inset 0 0 0 2px gold;
+		box-shadow: inset 0 0 0 3px gold;
 	}
 	td.cell.coupled {
-		box-shadow: inset 3px 0 0 rgba(0, 0, 0, 0.25);
+		box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25);
 	}
 
 	.row {
 		display: flex;
 		flex-direction: column;
 		height: 100%;
+		gap: 0;
 	}
 	.row > .placed + .placed {
-		border-top: 1px dashed rgba(0, 0, 0, 0.20);
+		border-top: 1px dashed rgba(255, 255, 255, 0.5);
 	}
 	.row.team {
 		flex-direction: row;
@@ -501,58 +570,43 @@
 	}
 	.row.team > .placed + .placed {
 		border-top: none;
-		border-left: 1px dashed rgba(0, 0, 0, 0.45);
+		border-left: 1px dashed rgba(255, 255, 255, 0.6);
 	}
 
 	.placed {
-		min-height: 28px;
-		padding: 4px 6px;
-		border-left: 3px solid var(--tcol);
-		font-size: 11px;
-		line-height: 1.15;
+		flex: 1 1 0;
 		display: flex;
-		flex-direction: column;
-		justify-content: space-between;
+		align-items: center;
+		justify-content: center;
+		gap: 4px;
+		padding: 6px 4px;
+		font-size: 14px;
+		font-weight: 700;
+		letter-spacing: 0.02em;
+		color: rgba(0, 0, 0, 0.85);
 		transition: opacity 0.15s ease;
+		position: relative;
+		border-radius: 6px;
 	}
 	.placed.filtered {
-		opacity: 0.18;
+		opacity: 0.15;
 	}
 	.placed.dimmed-week {
 		opacity: 0.55;
 	}
-	.placed-top {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 4px;
-	}
-	.placed-bot {
-		display: flex;
-		justify-content: space-between;
-		align-items: baseline;
-		gap: 4px;
-		margin-top: 2px;
-	}
 	.subj {
 		font-weight: 700;
-		font-size: 13px;
-		letter-spacing: 0.02em;
+		font-size: 14px;
 	}
-	.teach-row {
-		display: flex;
-		gap: 2px;
-	}
-	.grades {
-		font-size: 10px;
-		color: rgba(0, 0, 0, 0.55);
-	}
-	.week {
-		font-size: 10px;
+	.week-badge {
+		position: absolute;
+		bottom: 2px;
+		right: 4px;
+		font-size: 9px;
 		font-weight: 700;
-		color: rgba(0, 0, 0, 0.55);
+		color: rgba(0, 0, 0, 0.5);
 		padding: 0 3px;
 		border-radius: 2px;
-		background: rgba(0, 0, 0, 0.08);
+		background: rgba(255, 255, 255, 0.6);
 	}
 </style>
