@@ -181,3 +181,84 @@ describe('solve() — Promise-based wrapper', () => {
 		expect(result.placed.length).toBeGreaterThan(0);
 	});
 });
+
+describe('Phase 14: Hot-Start (Weiter optimieren)', () => {
+	it('hotStart=true skips Pool, even when poolBudgetMs > 0', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		// Vorhandene Placements als Hot-Start-Basis
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 2, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 3, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 4, grade: 5, pinned: false });
+
+		const session = startSolve(doc, {
+			totalBudgetMs: 2000,
+			innerBudgetMs: 800,
+			poolBudgetMs: 5000,  // wäre groß, aber hotStart überschreibt
+			hotStart: true
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		await new Promise<void>((resolve) => session.on('done', () => resolve()));
+		// Pool darf NICHT laufen
+		const hasPool = phaseLogs.some(m => m.includes('Pool-Construction'));
+		expect(hasPool).toBe(false);
+		// Hot-Start-Log muss da sein
+		const hasHotStart = phaseLogs.some(m => m.includes('Hot-Start'));
+		expect(hasHotStart).toBe(true);
+	});
+
+	it('hotStart loads non-pinned placements as starting position', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		// Eine Spec hat 2 Stunden — wir geben beide als Startposition
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 2, grade: 5, pinned: false });
+
+		const session = startSolve(doc, {
+			totalBudgetMs: 1500,
+			innerBudgetMs: 500,
+			hotStart: true
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		const done = await new Promise<{ final: { status: string; placed: any[] } }>(
+			(resolve) => session.on('done', e => resolve(e as any))
+		);
+		expect(['SAT', 'TIMEOUT']).toContain(done.final.status);
+		// Hot-Start sollte 2/2 Units übernommen haben
+		const hsLog = phaseLogs.find(m => m.includes('Hot-Start: 2/2'));
+		expect(hsLog).toBeTruthy();
+	});
+
+	it('hotStart with no existing placements falls through to Construction', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		// Keine Placements
+
+		const session = startSolve(doc, {
+			totalBudgetMs: 1500,
+			innerBudgetMs: 500,
+			hotStart: true
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		await new Promise<void>((resolve) => session.on('done', () => resolve()));
+		// Hot-Start läuft, aber 0/2 übernommen → Mini-Construction für 2 Units
+		const hsLog = phaseLogs.find(m => m.includes('Hot-Start: 0/'));
+		expect(hsLog).toBeTruthy();
+	});
+});

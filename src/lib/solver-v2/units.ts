@@ -48,8 +48,23 @@ function resolveBlocks(spec: LessonSpec): number[] {
  *     occurrence-Units of matching positions become a coupling-Unit.
  *  5) Pinned placements from `doc.placed` get pre-filled into the placement
  *     array; those Units are marked `pinned=true` and never moved.
+ *  6) Phase 14 — Hot-Start: wenn `opts.hotStart=true`, werden auch
+ *     nicht-pinned Placements als Startposition übernommen (Units bleiben
+ *     `pinned=false`, dürfen also vom Solver bewegt werden). Hard-Violations
+ *     werden trotzdem rausgefiltert.
  */
-export function buildState(doc: ScheduleDoc): SolverState {
+export interface BuildStateOpts {
+	/**
+	 * Wenn true: nicht-pinned Placements aus `doc.placed` werden als
+	 * Startposition (Hot-Start) ins `state.placement` geschrieben. Solver
+	 * darf sie bewegen — sie sind keine Pins. Default false (= heutiges
+	 * Verhalten: nur pinned Placements landen im State, der Rest startet
+	 * unplaced und Construction muss sie platzieren).
+	 */
+	hotStart?: boolean;
+}
+
+export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverState {
 	const units: Unit[] = [];
 	const unitsBySpec = new Map<string, Unit[]>();
 	const unitsByTeacher = new Map<string, Unit[]>();
@@ -334,6 +349,42 @@ export function buildState(doc: ScheduleDoc): SolverState {
 		u.pinnedDay = undefined;
 		u.pinnedPeriod = undefined;
 		placement[idx] = SLOT_UNPLACED;
+	}
+
+	// Phase 14 — Hot-Start: nach Pin-Validation auch nicht-pinned Placements
+	// als Startposition übernehmen. Units bleiben `pinned=false` — Solver
+	// darf sie verschieben. Hard-Violations werden via `wouldViolate`
+	// gegen die schon belegten Slots gefiltert: wenn ein Hot-Start-Slot
+	// kollidiert (z. B. mit einem Pin), wird die Unit ohne Placement
+	// gelassen und Local Search/Construction macht sie später.
+	if (opts.hotStart && doc.placed && doc.placed.length > 0) {
+		// Dedup wie beim Pin-Loop, aber für nicht-pinned Placements.
+		const seenHotSlot = new Set<string>();
+		for (const pl of doc.placed) {
+			if (pl.pinned) continue; // Pins sind oben schon eingetragen
+			const slotKey = `${dedupGroup(pl.specId)}|${pl.day}|${pl.period}`;
+			if (seenHotSlot.has(slotKey)) continue;
+			seenHotSlot.add(slotKey);
+			const unitsForSpec = unitsBySpec.get(pl.specId) ?? [];
+			const dayIdx = DAY_INDEX[pl.day];
+			const slot = slotFromDP(dayIdx, pl.period);
+			// Finde eine noch unplaced Unit dieser Spec mit passender Stufe.
+			const target = unitsForSpec.find(
+				u => placement[u.idx] === SLOT_UNPLACED && u.grades.includes(pl.grade)
+			);
+			if (!target) continue;
+			// Prüfe ob diese Position gegen aktuell belegte Slots
+			// (Pins + bereits hot-gestartete Units) verstößt.
+			const stateForViol: SolverState = {
+				doc, nUnits: units.length, units, placement,
+				unitsBySpec, unitsByTeacher, specsById, subjectsByCode, teachersById
+			};
+			if (wouldViolate(stateForViol, target, slot) === null) {
+				placement[target.idx] = slot;
+				// pinned bleibt FALSE — Solver darf bewegen.
+			}
+			// Bei Konflikt einfach skip — Construction/LS platziert die Unit später.
+		}
 	}
 
 	return {

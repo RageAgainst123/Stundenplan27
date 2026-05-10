@@ -137,6 +137,15 @@ export interface StartSolveOptions {
 	 * den Pool im Grid live wachsen.
 	 */
 	poolBudgetMs?: number;
+	/**
+	 * Phase 14 — Hot-Start: aktueller Plan-Stand aus `doc.placed` wird als
+	 * Startposition für Local Search verwendet. Pool-Phase und initiale
+	 * Construction werden übersprungen. Wenn nach Hot-Start-Loading noch
+	 * Units unplaced sind (z. B. neue Specs hinzugekommen oder Hot-Start-
+	 * Placements via Hard-Validation gefiltert), platziert eine Mini-
+	 * Construction sie zuerst. Default false.
+	 */
+	hotStart?: boolean;
 }
 
 // ----- Tiny event emitter ---------------------------------------------------
@@ -316,7 +325,10 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			}
 
 			// --- Build state ---
-			const state = buildState(doc);
+			// Phase 14: hotStart aus Options durchreichen — wenn true, übernimmt
+			// buildState die nicht-pinned Placements als Startposition.
+			const hotStart = opts.hotStart === true;
+			const state = buildState(doc, { hotStart });
 			stateForDump = state;
 			const strictNoFree = doc.constraints.noFreePeriodsForClass.strict !== false &&
 				doc.constraints.noFreePeriodsForClass.enabled !== false;
@@ -354,24 +366,47 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				return;
 			}
 
-			// --- Phase 1: Construction (Pool oder Single) ---
+			// --- Phase 1: Construction (Pool, Single, oder Hot-Start) ---
 			emit('phase', 'satisfy');
 			const poolBudget = opts.poolBudgetMs ?? 0;
-			const usePool = poolBudget > 0;
+			// Phase 14: Hot-Start überschreibt Pool. Wenn beides angegeben,
+			// gewinnt Hot-Start (User wollte explizit weiter optimieren).
+			const usePool = poolBudget > 0 && !hotStart;
 			emit('progress', {
 				phase: 'satisfy',
-				phaseLabel: usePool
-					? `Phase 1/2: Pool-Suche (${Math.round(poolBudget / 1000)}s)`
-					: 'Phase 1/2: Erste valide Lösung suchen',
+				phaseLabel: hotStart
+					? 'Phase 1/2: Hot-Start (aktueller Plan als Basis)'
+					: usePool
+						? `Phase 1/2: Pool-Suche (${Math.round(poolBudget / 1000)}s)`
+						: 'Phase 1/2: Erste valide Lösung suchen',
 				tElapsedMs: Date.now() - tStart,
-				tLimitMs: usePool ? poolBudget : 5_000,
+				tLimitMs: hotStart ? 1_000 : (usePool ? poolBudget : 5_000),
 				phaseIndex: 1,
 				phaseCount: 2,
 			});
 
 			let constructResult: { unplacedUnitIdxs: number[]; complete: boolean };
 
-			if (usePool) {
+			if (hotStart) {
+				// Hot-Start: buildState hat schon Placements geladen. Prüfe ob
+				// noch Units unplaced sind (z. B. neue Specs). Dafür Mini-
+				// Construction. Sonst direkt zu Phase 2.
+				let unplacedIdxs: number[] = [];
+				for (let i = 0; i < state.nUnits; i++) {
+					if (state.placement[i] === SLOT_UNPLACED) unplacedIdxs.push(i);
+				}
+				const placedCount = state.nUnits - unplacedIdxs.length;
+				emitLog('phase', `Hot-Start: ${placedCount}/${state.nUnits} Units aus aktuellem Plan übernommen`);
+				if (unplacedIdxs.length > 0) {
+					emitLog('info', `${unplacedIdxs.length} Units brauchen Construction (neu oder konfliktbehaftet)`);
+					// Nutze normale construct() — die respektiert bereits
+					// platzierte Units (sie überspringt Units mit
+					// placement[idx] !== SLOT_UNPLACED).
+					constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+				} else {
+					constructResult = { unplacedUnitIdxs: [], complete: true };
+				}
+			} else if (usePool) {
 				// Pool-Phase: N Constructions mit verschiedenen Seeds, beste
 				// behalten. Live-Updates an UI für jede neue Best-Lösung.
 				emitLog('phase', `Phase 1: Pool-Construction (${Math.round(poolBudget / 1000)}s Budget)`);

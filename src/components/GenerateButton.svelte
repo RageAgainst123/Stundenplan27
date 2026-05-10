@@ -32,6 +32,9 @@
 	let lastDzn = $state<string>('');
 
 	const busy = $derived(session !== null);
+	// Phase 14: Hot-Start-Button nur enabled wenn ein Plan existiert
+	// (mind. 1 Placement, egal ob pinned oder nicht).
+	const hasExistingPlan = $derived(store.doc.placed.length > 0);
 
 	function applyPlacements(placed: PlacedLesson[]): void {
 		// Replace non-pinned placements; keep pinned ones intact.
@@ -155,10 +158,21 @@
 	}
 
 	function generate(): void {
+		runSolver({ poolBudgetMs: poolDurationSec * 1000, hotStart: false });
+	}
+
+	function continueOptimize(): void {
+		// Phase 14: Hot-Start. Aktueller Plan-Stand wird als Startlösung
+		// verwendet. Pool-Phase wird übersprungen — User will GENAU diesen
+		// Plan weiteroptimieren, nicht eine neue Variante.
+		runSolver({ poolBudgetMs: 0, hotStart: true });
+	}
+
+	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean }): void {
 		reset();
 		poolAttempts = 0;
 		poolBestScore = null;
-		poolPhaseActive = poolDurationSec > 0;
+		poolPhaseActive = !extra.hotStart && extra.poolBudgetMs > 0;
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
@@ -166,7 +180,8 @@
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
 			totalBudgetMs: 1_800_000, // 30 min Gesamtbudget (Construct + ILS)
 			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
-			poolBudgetMs: poolDurationSec * 1000  // 0 = Pool aus
+			poolBudgetMs: extra.poolBudgetMs,
+			hotStart: extra.hotStart
 		});
 		session = s;
 
@@ -319,8 +334,13 @@
 		</div>
 	</div>
 
-	<button class="btn primary" onclick={generate} disabled={busy}>
+	<button class="btn primary" onclick={generate} disabled={busy} title="Neuen Plan von Grund auf erzeugen (Pool-Phase + Construction + Local Search). Bisherige nicht-gepinnten Placements werden überschrieben.">
 		{busy ? 'Solver läuft…' : 'Plan generieren'}
+	</button>
+	<button class="btn" onclick={continueOptimize} disabled={busy || !hasExistingPlan} title={hasExistingPlan
+		? 'Aktuellen Plan als Startpunkt nehmen und weiter optimieren. Kein Pool, keine Random-Phase — Solver baut auf dem bestehenden Score auf.'
+		: 'Erst einen Plan erzeugen — dann kann der Solver darauf weiter optimieren.'}>
+		Weiter optimieren
 	</button>
 
 	{#if busy}
