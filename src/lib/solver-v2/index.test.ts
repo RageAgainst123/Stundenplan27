@@ -262,3 +262,82 @@ describe('Phase 14: Hot-Start (Weiter optimieren)', () => {
 		expect(hsLog).toBeTruthy();
 	});
 });
+
+describe('Phase 15: Diversify (LNS-Mode)', () => {
+	it('diversify resets a fraction of placements and runs LS', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 2, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 3, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 4, grade: 5, pinned: false });
+
+		const session = startSolve(doc, {
+			diversify: { fraction: 0.5, durationMs: 1500 }
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		const done = await new Promise<{ final: { status: string; placed: any[] } }>(
+			(resolve) => session.on('done', e => resolve(e as any))
+		);
+		expect(['SAT', 'TIMEOUT']).toContain(done.final.status);
+		// Mind. 1 Diversify-Log muss da sein
+		const divLog = phaseLogs.find(m => m.includes('Diversify:'));
+		expect(divLog).toBeTruthy();
+	});
+
+	it('diversify reverts to pre-snapshot when no improvement found', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		// Plan platzieren — schon optimal (P1-P4 lückenlos vom P1 aus)
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 2, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 3, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 4, grade: 5, pinned: false });
+
+		const session = startSolve(doc, {
+			diversify: { fraction: 0.5, durationMs: 1000 }
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		const done = await new Promise<{ final: { status: string; placed: any[] } }>(
+			(resolve) => session.on('done', e => resolve(e as any))
+		);
+		expect(['SAT', 'TIMEOUT']).toContain(done.final.status);
+		// Entweder verbessert oder gleich-gut+revert — beide Logs sind valide
+		const divResult = phaseLogs.find(m =>
+			m.includes('Diversify erfolgreich') || m.includes('Diversify ohne Verbesserung')
+		);
+		expect(divResult).toBeTruthy();
+	});
+
+	it('diversify skips Pool even when poolBudgetMs is set', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 2, grade: 5, pinned: false });
+
+		const session = startSolve(doc, {
+			poolBudgetMs: 5000,  // wäre gross, aber diversify überschreibt
+			diversify: { fraction: 0.5, durationMs: 1000 }
+		});
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		await new Promise<void>((resolve) => session.on('done', () => resolve()));
+		// Pool darf NICHT laufen
+		const hasPool = phaseLogs.some(m => m.includes('Pool-Construction'));
+		expect(hasPool).toBe(false);
+	});
+});

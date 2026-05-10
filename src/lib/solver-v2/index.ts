@@ -146,6 +146,23 @@ export interface StartSolveOptions {
 	 * Construction sie zuerst. Default false.
 	 */
 	hotStart?: boolean;
+	/**
+	 * Phase 15 — Diversify (LNS-Mode): bei aktivem Plan wird ein Anteil
+	 * `fraction` der nicht-pinned Units zurückgesetzt und neu platziert,
+	 * gefolgt von Local Search mit Budget `durationMs`. Wenn der End-Score
+	 * NICHT besser ist als vor dem Lauf, wird der Pre-Snapshot
+	 * wiederhergestellt — Plan bleibt bit-identisch. Best-Tracking
+	 * absolut, kein Verlust möglich.
+	 *
+	 * Setzt `hotStart=true` implizit (aktueller Plan ist Basis). Pool-Phase
+	 * wird übersprungen. Nutzbar nur wenn `doc.placed.length > 0`.
+	 */
+	diversify?: {
+		/** Anteil zurückzusetzender nicht-pinned Units (0.05 - 0.5). */
+		fraction: number;
+		/** Local-Search-Budget nach Reset in ms (5000 - 120000). */
+		durationMs: number;
+	};
 }
 
 // ----- Tiny event emitter ---------------------------------------------------
@@ -258,7 +275,12 @@ function emptyRelaxation(): RelaxationInfo {
 export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): SolveSession {
 	const emitter = new Emitter();
 	const tStart = Date.now();
-	const totalBudget = opts.totalBudgetMs ?? 60_000;
+	// Phase 15: Diversify überschreibt totalBudgetMs mit eigenem
+	// durationMs — der ganze Lauf (Construction-Mini + LS) soll innerhalb
+	// dieses Budgets bleiben.
+	const totalBudget = opts.diversify
+		? opts.diversify.durationMs
+		: (opts.totalBudgetMs ?? 60_000);
 	const innerBudget = opts.innerBudgetMs ?? 15_000;
 
 	let aborted = false;
@@ -327,7 +349,11 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			// --- Build state ---
 			// Phase 14: hotStart aus Options durchreichen — wenn true, übernimmt
 			// buildState die nicht-pinned Placements als Startposition.
-			const hotStart = opts.hotStart === true;
+			// Phase 15: Diversify impliziert hotStart (wir starten vom aktuellen
+			// Plan und schütteln einen Anteil durch).
+			const diversifyOpts = opts.diversify;
+			const isDiversify = !!diversifyOpts;
+			const hotStart = opts.hotStart === true || isDiversify;
 			const state = buildState(doc, { hotStart });
 			stateForDump = state;
 			const strictNoFree = doc.constraints.noFreePeriodsForClass.strict !== false &&
@@ -364,6 +390,42 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 					totalElapsedMs: Date.now() - tStart,
 				});
 				return;
+			}
+
+			// --- Phase 15: Diversify Pre-Snapshot + Random Reset ---
+			// Vor allem anderen: snapshotten was wir haben, dann einen Anteil
+			// der nicht-pinned Units zurücksetzen. Construction (im hotStart-
+			// Pfad) wird sie neu platzieren, LS optimiert auf neuem Basis.
+			let diversifyPreSnapshot: Int32Array | null = null;
+			let diversifyPreScore: number | null = null;
+			let diversifyResetCount = 0;
+			if (isDiversify) {
+				diversifyPreSnapshot = new Int32Array(state.placement);
+				diversifyPreScore = computeScore(state, weights).total;
+				const fraction = Math.max(0.05, Math.min(0.5, diversifyOpts!.fraction));
+				// Sammle alle nicht-pinned, aktuell platzierten Units
+				const candidates: number[] = [];
+				for (let i = 0; i < state.nUnits; i++) {
+					if (!state.units[i].pinned && state.placement[i] !== SLOT_UNPLACED) {
+						candidates.push(i);
+					}
+				}
+				const resetCount = Math.max(1, Math.floor(candidates.length * fraction));
+				// Fisher-Yates Partial Shuffle für resetCount zufällige Indices
+				const seedR = ((Date.now()) & 0x7fffffff) || 1;
+				let rngState = seedR;
+				const rand = () => {
+					rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
+					return rngState / 0x7fffffff;
+				};
+				for (let i = 0; i < resetCount && i < candidates.length; i++) {
+					const j = i + Math.floor(rand() * (candidates.length - i));
+					[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+				}
+				const toReset = candidates.slice(0, resetCount);
+				for (const idx of toReset) state.placement[idx] = SLOT_UNPLACED;
+				diversifyResetCount = toReset.length;
+				emitLog('phase', `Diversify: ${diversifyResetCount} von ${candidates.length} nicht-pinned Units zurückgesetzt (${Math.round(fraction * 100)}%)`);
 			}
 
 			// --- Phase 1: Construction (Pool, Single, oder Hot-Start) ---
@@ -601,6 +663,21 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				? { ...emptyRelaxation(), noFreeRelaxed: true }
 				: emptyRelaxation();
 			if (noFreeRelaxed) emit('relaxation', relaxation);
+
+			// Phase 15: Diversify-Revert. Wenn Diversify-Lauf KEINE Verbesserung
+			// gefunden hat, stelle Pre-Snapshot wieder her. Best-Tracking ist
+			// absolut: Plan kann nie schlechter werden.
+			if (isDiversify && diversifyPreSnapshot && diversifyPreScore !== null) {
+				const newScore = bestBreakdown.total;
+				if (newScore < diversifyPreScore) {
+					emitLog('phase', `Diversify erfolgreich: Score ${Math.round(diversifyPreScore)} → ${Math.round(newScore)} (verbessert um ${Math.round(diversifyPreScore - newScore)})`);
+					// Plan bleibt wie er ist (= verbesserter Stand)
+				} else {
+					emitLog('phase', `Diversify ohne Verbesserung: ${Math.round(diversifyPreScore)} → ${Math.round(newScore)} — Plan wird zurückgesetzt`);
+					state.placement.set(diversifyPreSnapshot);
+					bestBreakdown = computeScore(state, weights);
+				}
+			}
 
 			emitDone(state, weights, bestBreakdown, constructResult.unplacedUnitIdxs, true, relaxation);
 		} catch (e) {
