@@ -369,5 +369,66 @@ describe('wouldViolate — coupling team teachers (regression)', () => {
 	});
 });
 
+describe('buildState — pin-apply dedup for multi-grade specs', () => {
+	// Regression: a multi-grade spec like REL grades=[7,8] count=2 has
+	// exactly TWO Units in the solver (one per occurrence), but the doc
+	// stores FOUR PlacedLessons (2 occurrences × 2 grades). Without dedup
+	// the pin loop matches the second PlacedLesson (Mi P3 grade=8) to the
+	// SECOND occurrence of the spec and pins it ALSO at Mi P3, leaving
+	// the actual second occurrence (Mi P4) unplaced — the solver then
+	// places it elsewhere and the spec ends up with extra hours.
+	it('pinning 4 PlacedLessons for a multi-grade spec results in only 2 pinned units, on the right slots', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tREL', 'REL-Lehrer'));
+		doc.subjects.push(subject('REL'));
+		// REL multi-grade [7,8] count=2 → 2 multigrade Units in solver
+		doc.specs.push(spec('rel78', 'REL', 'tREL', [7, 8], 2));
+		// User pins both occurrences (Mi P3 + Mi P4), each on both grade columns
+		doc.placed.push({ specId: 'rel78', day: 'Mi', period: 3, grade: 7, pinned: true });
+		doc.placed.push({ specId: 'rel78', day: 'Mi', period: 3, grade: 8, pinned: true });
+		doc.placed.push({ specId: 'rel78', day: 'Mi', period: 4, grade: 7, pinned: true });
+		doc.placed.push({ specId: 'rel78', day: 'Mi', period: 4, grade: 8, pinned: true });
+
+		const state = buildState(doc);
+
+		// Expect exactly 2 Units, both pinned, on Mi P3 and Mi P4.
+		const relUnits = state.units.filter(u => u.specIds.includes('rel78'));
+		expect(relUnits).toHaveLength(2);
+		const pinned = relUnits.filter(u => u.pinned);
+		expect(pinned).toHaveLength(2);
+		const slots = pinned.map(u => state.placement[u.idx]).sort();
+		// Mi = day index 2, P3 = idx 2*8+2=18, P4 = idx 2*8+3=19
+		expect(slots).toEqual([18, 19]);
+	});
+
+	it('pinning a coupling spec dedups across occurrence × grade pairs', () => {
+		// Coupling: 2 specs sharing couplingId, each grades=[7,8] count=2.
+		// → 2 coupling-Units (one per occurrence).
+		// Doc has 8 PlacedLessons (2 specs × 2 occurrences × 2 grades).
+		// All 8 reference the same 2 Units; dedup must reduce to 2 pin operations.
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'Lehrer A'));
+		doc.teachers.push(teacher('tB', 'Lehrer B'));
+		doc.subjects.push(subject('BSP'));
+		doc.specs.push(spec('bspA', 'BSP', 'tA', [7, 8], 2, { couplingId: 'bsp78' }));
+		doc.specs.push(spec('bspB', 'BSP', 'tB', [7, 8], 2, { couplingId: 'bsp78' }));
+		// Pin both occurrences (Mo P1, Mo P2) on both grade columns of both specs
+		for (const period of [1, 2] as const) {
+			for (const grade of [7, 8] as const) {
+				doc.placed.push({ specId: 'bspA', day: 'Mo', period, grade, pinned: true });
+				doc.placed.push({ specId: 'bspB', day: 'Mo', period, grade, pinned: true });
+			}
+		}
+		const state = buildState(doc);
+		const couplingUnits = state.units.filter(u => u.kind === 'coupling');
+		expect(couplingUnits).toHaveLength(2);
+		const pinned = couplingUnits.filter(u => u.pinned);
+		expect(pinned).toHaveLength(2);
+		const slots = pinned.map(u => state.placement[u.idx]).sort();
+		// Mo = 0, P1 = 0, P2 = 1
+		expect(slots).toEqual([0, 1]);
+	});
+});
+
 void DAY_INDEX;
 void SLOT_UNPLACED;

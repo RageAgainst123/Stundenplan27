@@ -230,13 +230,28 @@ export function buildState(doc: ScheduleDoc): SolverState {
 	placement.fill(SLOT_UNPLACED);
 
 	// Apply pinned placements from doc.placed.
-	// We try to match each pinned PlacedLesson to one Unit. Multi-grade pins:
-	// the user pins ONE PlacedLesson per grade. We accept the first-seen
-	// pin for the matching Unit and ignore duplicates (the others are
-	// implicit).
+	//
+	// CRITICAL: dedup BEFORE pinning by an equivalence-class that respects
+	// both multi-grade and coupling. A multi-grade spec (e.g. REL grades=[7,8]
+	// count=2) has ONE Unit per occurrence but the doc stores ONE PlacedLesson
+	// PER grade — so 4 PlacedLessons match 2 Units. A coupling group adds
+	// another dimension: spec_A and spec_B with the same couplingId share
+	// ONE coupling-Unit per occurrence — so 8 PlacedLessons match 2 Units.
+	//
+	// Dedup-Key: per (coupling-or-spec, day, period). Within one such key
+	// only the FIRST PlacedLesson triggers a pin; the rest are redundant.
+	const seenSlot = new Set<string>();
+	const dedupGroup = (specId: string): string => {
+		const sp = specsById.get(specId);
+		if (sp?.couplingId && sp.couplingId.trim()) return `cpl:${sp.couplingId}`;
+		return `spec:${specId}`;
+	};
 	if (doc.placed && doc.placed.length > 0) {
 		for (const pl of doc.placed) {
 			if (!pl.pinned) continue;
+			const slotKey = `${dedupGroup(pl.specId)}|${pl.day}|${pl.period}`;
+			if (seenSlot.has(slotKey)) continue;
+			seenSlot.add(slotKey);
 			const unitsForSpec = unitsBySpec.get(pl.specId) ?? [];
 			const dayIdx = DAY_INDEX[pl.day];
 			const slot = slotFromDP(dayIdx, pl.period);
