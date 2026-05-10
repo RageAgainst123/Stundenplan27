@@ -638,8 +638,23 @@
 							{#if result.penalties.compact > 0}
 								<li>Lehrer-Freistunden: <strong>{result.penalties.compact}</strong></li>
 							{/if}
+							{#if result.penalties.uneven_days > 0}
+								<li>Ungleichmäßige Tagesverteilung: <strong>{result.penalties.uneven_days}</strong></li>
+							{/if}
+							{#if result.penalties.target_daily > 0}
+								<li>Zieltagespensum-Abweichung (quadratisch): <strong>{result.penalties.target_daily}</strong></li>
+							{/if}
+							{#if result.penalties.afternoon_preferred > 0}
+								<li>Bevorzugt-Nachmittag-Fächer im Vormittag: <strong>{result.penalties.afternoon_preferred}</strong></li>
+							{/if}
 							{#if result.penalties.subject_twice > 0}
 								<li>Fach mehrfach am selben Tag: <strong>{result.penalties.subject_twice}</strong></li>
+							{/if}
+							{#if result.penalties.main_twice > 0}
+								<li>Hauptfach 3+ am selben Tag: <strong>{result.penalties.main_twice}</strong></li>
+							{/if}
+							{#if result.penalties.main_block_split > 0}
+								<li>Hauptfach 2× am Tag mit Lücke: <strong>{result.penalties.main_block_split}</strong></li>
 							{/if}
 							{#if result.penalties.spec_spread > 0}
 								<li>Lerneinheit-Spreizung über Wochentage: <strong>{result.penalties.spec_spread}</strong></li>

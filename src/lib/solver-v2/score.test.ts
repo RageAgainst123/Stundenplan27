@@ -133,10 +133,9 @@ describe('computeScore — empty state', () => {
 		expect(breakdown.main_early).toBe(0);
 		// min_daily only counts active days (none placed → 0)
 		expect(breakdown.min_daily).toBe(0);
-		// uneven_days counts UNDER-LOAD, even if 0 lessons (empty day = 4 missing)
-		// but we only count active days for `uneven_days` per the comments?
-		// In our impl we count ALL (d,g): 5 days × 4 grades × 4 missing = 80
-		expect(breakdown.uneven_days).toBe(D_TIMES_G * 4);
+		// uneven_days counts only ACTIVE days (under-loaded but >0 lessons).
+		// Empty days are handled by min_daily/target_daily, not uneven_days.
+		expect(breakdown.uneven_days).toBe(0);
 	});
 });
 
@@ -500,7 +499,7 @@ describe('computeScore — min_daily', () => {
 });
 
 describe('computeScore — uneven_days', () => {
-	it('penalizes every (day, grade) under the target load — empty days included', () => {
+	it('penalizes only ACTIVE (day, grade) tuples under the target load', () => {
 		const doc = emptyDoc();
 		doc.constraints.minDailySlotsPerGrade = 4;
 		doc.teachers.push(teacher('t', 'L'));
@@ -511,21 +510,21 @@ describe('computeScore — uneven_days', () => {
 		place(state, 's', 'Mo', 2);
 		place(state, 's', 'Mo', 3);
 		const b = computeScore(state, defaultWeights(doc));
-		// uneven_days target = max(minDaily, 4) = 4. We have 5 days × 4 grades.
-		// Only Mo/Stufe 5 has 3 occupied periods (so 1 missing). All other
-		// 19 (day,grade) tuples have 0 occupied → 4 missing each.
-		// Total: 1 + 19 × 4 = 77.
-		expect(b.uneven_days).toBe(77);
+		// uneven_days target = max(minDaily, 4) = 4. Mo/Stufe 5 has 3 occupied
+		// periods → 1 missing. Other (day,grade) tuples have 0 occupied →
+		// EXEMPT (uneven_days zählt nur aktive Tage; leere Tage werden durch
+		// min_daily/target_daily abgedeckt).
+		expect(b.uneven_days).toBe(1);
 	});
 
-	it('zero penalty when every (day, grade) is filled to target', () => {
+	it('zero penalty when no (day, grade) is active', () => {
 		const doc = emptyDoc();
 		doc.constraints.minDailySlotsPerGrade = 4;
 		const state = buildState(doc);
-		// Empty doc, no specs → no occupied periods, all empty → target 4
-		// per (day, grade) = 5×4×4 = 80 missing.
+		// Empty doc, no specs → no occupied periods → no active days →
+		// uneven_days = 0 (komplett leere Tage zählen NICHT).
 		const b = computeScore(state, defaultWeights(doc));
-		expect(b.uneven_days).toBe(80);
+		expect(b.uneven_days).toBe(0);
 	});
 });
 

@@ -5,9 +5,54 @@ Alle erwähnenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unreleased]
+## [1.0.0] - 2026-05-10 — Erste stabile Version 🎉
 
-### Geplant (Phase 17)
+**Die App funktioniert.** Nach 16 Phasen Entwicklung erstellt der
+Stundenplan-Generator MS SiG zuverlässig brauchbare Pläne aus dem
+Sokrates-CSV-Import. Alle wichtigen Features sind implementiert,
+207 Tests sind grün, Build ist clean (62.7 KB gz).
+
+### Was funktioniert
+- **CSV-Import** aus Sokrates mit Vorschau-Diff (Phase 1-3)
+- **Stammdaten-Editor** für Lehrer, Fächer, Lehreinheiten mit
+  Bulk-Toolbar und Verfügbarkeits-Raster (Phase 4-5)
+- **Solver v2** (TypeScript Construct + Local Search): Pool-Phase,
+  Hot-Start, Diversify (LNS), automatische Constraint-Lockerung
+  (Phase 11-15)
+- **18 Score-Komponenten** mit Untis-Style RulesPanel,
+  10 Hard-Constraints inkl. H10 (Hauptfach Nachmittag verboten)
+- **Drag&Drop-Editor** mit Live-Konflikterkennung, Pinning,
+  Multi-Grade-Visualisierung (Phase 5b-5d)
+- **Wochenplan-View** als read-only Vergleichsansicht mit bis zu
+  4 Plänen nebeneinander (Phase 16)
+- **Snapshot-Galerie** mit Auto-Snapshot bei großen Verbesserungen,
+  Restore und Diversify-from-Snapshot (Phase 15)
+- **JSON-Export/Import** als Backup, Schema-Migration v1→v5
+- **GitHub-Pages-Deploy** unter https://rageagainst123.github.io/Stundenplan27/
+
+### Fixed (Audit-Pass 2026-05-10)
+- **`uneven_days`**-Score zählt jetzt nur noch **aktive Tage** (Tage mit
+  ≥1 Stunde) und nicht mehr komplett leere Tage. Komplett-freie Tage
+  werden bereits durch `min_daily` und `target_daily` abgedeckt — sonst
+  würde der Solver Stunden zu Klassen-freien Tagen verschieben. Bench:
+  künstliche Penalty 80 (leerer Doc) → 0.
+- **Diversify überspringt Phase-3 Auto-Relax**: Pre-/Post-Score wurden
+  vorher mit unterschiedlichen Gewichten verglichen (strict no_free vs.
+  weich gelockert), was Best-Tracking inkonsistent machen konnte.
+  Diversify ist ein lokaler LNS-Stoß und braucht keine Constraint-
+  Lockerung; daher wird Phase 3 in Diversify-Mode geskippt.
+- **ScheduleGrid-Filter**: Multi-Grade-Specs wurden bei Filter auf eine
+  ihrer Stufen nicht angezeigt (z.B. REL für [5,6] verschwand bei Filter
+  „6. SSt."). Gleicher Fix wie WeekView Phase 16.5 — Filter prüft jetzt
+  ob EINE der Spec-Stufen im Filter ist statt nur die Rendering-Stufe.
+- **Score-Aufschlüsselung im Result-Block** zeigt jetzt alle 17 sichtbaren
+  Komponenten an (vorher fehlten `uneven_days`, `target_daily`,
+  `afternoon_preferred`, `main_twice`, `main_block_split`). Total bleibt
+  unverändert berechnet, nur die Anzeige war unvollständig.
+- **Doku-Kommentar `score.ts`** sprach noch von „14 Score-Komponenten" —
+  aktualisiert auf 18 (Stand Phase 13.3).
+
+### Geplant (Post-1.0 / Phase 17)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
 - Diff-View zwischen zwei Snapshots
 - Echte zweite Engine (LNS, Backtracking-Verifier)

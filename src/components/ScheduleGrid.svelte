@@ -40,7 +40,15 @@
 		if (showAll) return true;
 		if (selectedTeachers.size > 0 && !spec.teachers.some(t => selectedTeachers.has(t))) return false;
 		if (selectedSubject && spec.subject !== selectedSubject) return false;
-		if (selectedGrades.size > 0 && !selectedGrades.has(gradeOfCell)) return false;
+		if (selectedGrades.size > 0) {
+			// Multi-Grade-Specs: matched wenn EINE der Spec-Stufen im Filter ist
+			// (sonst wird REL (5+6) bei Filter "6. SSt." nicht gehighlightet weil
+			// die Zelle zur Anzeige in Spalte 5 gerendert wird).
+			const matchByGrades = spec.grades.length > 0
+				? spec.grades.some(g => selectedGrades.has(g))
+				: selectedGrades.has(gradeOfCell);
+			if (!matchByGrades) return false;
+		}
 		return true;
 	}
 

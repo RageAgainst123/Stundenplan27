@@ -7,10 +7,15 @@
 //
 // Hot path during Local Search uses scoreDelta.ts (incremental, O(1) per move).
 //
-// Canonical reference for ALL 14 score components:
-//   docs/MODEL.md §3 "Score-Komponenten (alle 14)"
-// The table there lists default weights, ConstraintConfig sources, and edge
-// cases. If you add or change a component here, update MODEL.md §3.
+// Canonical reference for ALL 18 score components (Stand Phase 13.3):
+//   docs/MODEL.md §3 "Score-Komponenten"
+// Komponenten: min_daily, no_p1_start, time_pref, main_aft, any_aft, no_free,
+// uneven_days, main_run, compact_teacher, main_early, subject_twice,
+// spec_spread, teacher_late_start, teacher_under_min, target_daily,
+// afternoon_preferred, main_twice, main_block_split.
+// Wenn hier eine Komponente geändert/hinzugefügt wird → MODEL.md §3 nachziehen
+// UND defaultWeights() in types.ts + UI in GenerateButton.svelte (Score-
+// Aufschlüsselung) UND PenaltyBreakdown in index.ts erweitern.
 
 import type { GradeLevel, Period, ScheduleDoc } from '../types';
 import {
@@ -175,9 +180,13 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 					if (occ[d * G * P + g * P + p] === 0) breakdown.no_free++;
 				}
 			}
-			// uneven_days: under-load penalty (re-uses minDaily target)
+			// uneven_days: under-load penalty (re-uses minDaily target).
+			// Inaktive Tage (0 Stunden) sind ausgenommen — sonst würden komplett
+			// freie Tage (z.B. Freitag Stufe 8) den Solver dazu drängen, Stunden
+			// hinzuschieben, obwohl min_daily und target_daily diesen Fall schon
+			// korrekt behandeln (beide skippen occupiedPeriods===0).
 			const target = Math.max(minDaily, 4);
-			if (occupiedPeriods < target) {
+			if (occupiedPeriods > 0 && occupiedPeriods < target) {
 				breakdown.uneven_days += target - occupiedPeriods;
 			}
 			// Phase 13: target_daily — quadratische Penalty für Abweichung

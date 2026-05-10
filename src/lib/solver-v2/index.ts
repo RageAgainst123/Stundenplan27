@@ -625,8 +625,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			// quasi-infeasible objective. The relaxed pass starts from the
 			// current state (best-effort), keeps any improvement, but never
 			// lets the score get worse than the strict result.
+			// Phase 15: Diversify überspringt Auto-Relax. Diversify ist ein
+			// kurzer LNS-Stoß auf einem bestehenden Plan; Relax-Lockerung
+			// würde den Vergleich Pre-/Post-Score mit unterschiedlichen
+			// Gewichten machen und Best-Tracking inkonsistent werden lassen.
 			if (
 				strictNoFree &&
+				!isDiversify &&
 				ils.bestBreakdown.no_free > 0 &&
 				!aborted &&
 				Date.now() - tStart < totalBudget
