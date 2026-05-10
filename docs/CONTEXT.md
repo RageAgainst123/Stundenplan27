@@ -78,10 +78,12 @@ manuell**. Erfolgreich ist die App wenn:
 ## Technische Mindest-Stützpunkte
 
 - Browser-only (kein Node-Runtime im Produktiv-Pfad)
-- Hostbar auf GitHub Pages (statisches Bundle)
-- MiniZinc-WASM-Solver lokal im Browser (~17 MB)
+- Hostbar auf GitHub Pages (statisches Bundle, ~50 KB gz)
+- TypeScript-Solver lokal im Browser (Construct + Local Search,
+  `src/lib/solver-v2/`). Phase 12 hat den ursprünglichen MiniZinc-WASM-
+  Solver komplett entfernt.
 - Datenmodell stabil: localStorage-Key `stundenplan27.doc`, Schema-Migration
-  über `persistence.ts → migrateDoc()`
+  über `persistence.ts → migrateDoc()` (akzeptiert v1, v2, v3, v4)
 
 ## Live-URL
 

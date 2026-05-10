@@ -40,18 +40,19 @@ Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklasse
 
 Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-eigener Solver (`src/lib/solver-v2/`)
 
-**Phase 11 in progress:** alter Solver `src/lib/solver/` (MiniZinc) wird abgelöst durch `src/lib/solver-v2/` (Construct + Local Search). Während Migration läuft: beide parallel im Repo, UI nutzt erst v2 ab Schritt 11-8.
+**Phase 12 abgeschlossen:** der alte MiniZinc-WASM-Solver ist komplett entfernt. Solver-Code lebt nur noch in `src/lib/solver-v2/` (Construct + Local Search). `minizinc` ist keine Dependency mehr.
 
 ## Architektur (eine Zeile pro Modul)
 
-- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec, PlacedLesson, ScheduleDoc, ConstraintConfig). Schema v3.
+- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec, PlacedLesson, ScheduleDoc, ConstraintConfig). Schema v4.
+- **`src/lib/types-ui.ts`** — UI-spezifische Typen (DragPayload).
+- **`src/lib/teacher-helpers.ts`** — kleine Pure-Helpers für Teacher-Lookups (id → Teacher / color / name).
 - **`src/lib/store.svelte.ts`** — Singleton-Store via `setContext`/`getContext`, `$state` für ScheduleDoc, Auto-Save in localStorage via `$effect.root`.
-- **`src/lib/persistence.ts`** — localStorage save/load + JSON-Im/Export, Migrationen v1→v2→v3.
+- **`src/lib/persistence.ts`** — localStorage save/load + JSON-Im/Export, Migrationen v1→v2→v3→v4.
 - **`src/lib/import/csv.ts`** — Sokrates-Liste-Parser (PG_/VÜ_/FÖ_/KU_, Klassen-Kopplungen `1a+2a`, Mehrstufen, Wochen-Pattern).
 - **`src/lib/blocks.ts`** — Block-Pattern-Helpers (`blockPresets`, `blockLabel`, `groupColor`).
-- **`src/lib/diagnose.ts`** — Pre-Flight-Checks (Lehrer-Überlast, fehlende Refs, Wochenstunden-Constraints).
-- **`src/lib/solver/{model.mzn, encode.ts, decode.ts, service.ts, diagnose.ts}`** — **alter** MiniZinc-CSP-Solver (Phase 5–10). Wird durch v2 abgelöst.
-- **`src/lib/solver-v2/{score, scoreDelta, moves, hardCheck, units, construct, ejectionChain, localSearch, restart, index}.ts`** — **neuer** TypeScript Construct + Local Search Solver. Siehe `docs/SOLVER-V2-CONCEPT.md`.
+- **`src/lib/schedule-helpers.ts`** — `placementsAt`, `unplacedSpecs`, `checkPlacementConflict` für Drag/Drop.
+- **`src/lib/solver-v2/`** — TypeScript Construct + Local Search Solver. Module: types, units, score, scoreDelta, moves, hardCheck, construct, localSearch, iteratedLS, diagnose, index. Siehe `docs/SOLVER-V2-CONCEPT.md`.
 - **`src/components/`** — UI: ImportExport, TeacherList (mit AvailabilityGrid), SubjectList, SpecList (Bulk-Toolbar + Coupling), ScheduleGrid (mit ScheduleCell + GenerateButton), RulesPanel.
 
 ## Stolperfallen (CRITICAL — bitte erst lesen, bevor du Bugs jagst)
@@ -66,26 +67,22 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 
 - Im Dev-Mode (`npm run dev`) akkumulieren mehrere onclick-Listener bei HMR — beim Bug-Hunting **immer** mit `npm run build && npm run preview` arbeiten, nicht im Dev-Server.
 - Bei Cache-Problemen: `rm -rf node_modules/.vite dist && npm run build`.
-- WASM-Asset für MiniZinc ist 17 MB — der erste Solver-Lauf dauert ~10s länger weil der WASM-Worker initialisiert wird.
 
-### Solver (Architektur-Wechsel in Phase 11)
+### Solver (TypeScript Construct + Local Search, Phase 11/12)
 
-**Slot-Modell (gilt für v1 und v2):**
-- Slot ist 3D: `(day, period, grade)`, NSLOTS = 5×8×4 = 160. `slotFromDPG()` in encode.ts (v1) bzw. units.ts (v2).
-- LessonSpec mit `count=4, blocks=[2,2]` wird zu 4 lesson-instances mit zwei block-ids — Block-Constraint erzwingt Kontiguität.
-- LessonSpec mit `grades=[5,6]` wird pro grade zu eigenen Instanzen expandiert, occurrence-Tupel müssen denselben (day,period) belegen.
-- Specs mit `includeInSolver=false` werden vom Solver übersprungen.
+**Slot-Modell:**
+- Slot ist 3D: `(day, period, grade)`, NSLOTS = 5×8×4 = 160. Helpers in `solver-v2/types.ts` (`slotFromDP`, `dpFromSlot`).
+- LessonSpec mit `count=4, blocks=[2,2]` wird zu Block-Units mit `blockSize=2` — Block-Constraint erzwingt Kontiguität.
+- LessonSpec mit `grades=[5,6]` wird zu einer multigrade-Unit, deren Instanzen alle den selben (day, period) belegen.
+- Specs mit `includeInSolver=false` werden übersprungen.
 
-**v1-spezifisch (alter MiniZinc-Solver, wird abgelöst):**
-- DZN-Encoding (statt JSON-Encoding wegen Set-of-Set-Bugs).
-- `solve minimize total_penalty` mit `:: int_search([assign[l] | l in LESSON], input_order, indomain_min, complete) :: restart_luby(150)`.
-- Auf Liste.csv (128 Instanzen): erste Lösung in ~14 s, Score-Plateau bei ~4700 nach 5 min.
-
-**v2-spezifisch (neuer TypeScript-Solver):**
-- Siehe `docs/SOLVER-V2-CONCEPT.md` §6–§9 für Algorithmus-Details.
-- Construction in <5 s, Local Search 50.000+ Iter/sec, Iterated LS bei Plateau.
-- Score-Komponenten + Delta-Update sind das Performance-Herzstück.
-- `min_daily=4` und `must_start_p1` werden zu Soft-Constraints (kein UNSAT-Schock).
+**Solver-v2-Algorithmus:**
+- Siehe `docs/SOLVER-V2-CONCEPT.md` §6–§9 für Details.
+- Phase 1: Construction (greedy + ejection chain) in <5 s.
+- Phase 2: Local Search (Hill-Climbing + Simulated Annealing + Tabu) ~50k Iter/sec.
+- Phase 3: Iterated LS mit adaptiver Perturbation, SA-Reheat (Cap 500), Kempe-Boost.
+- 2-Phase-Solve: bei `noFreePeriodsForClass.strict=true` läuft nach Phase 2 eine Auto-Lockerung mit normalem Soft-Gewicht falls Lücken übrig.
+- 14 Score-Komponenten, alle in `solver-v2/score.ts`. Konfigurierbar im `RulesPanel`.
 
 ### Bekannte offene Bugs
 
@@ -117,8 +114,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 ## Verbotene Aktionen
 
 - Niemals localStorage löschen ohne Bestätigung — der User verliert sonst seinen aktuellen Plan.
-- Niemals `model.mzn` Constraints aggressiv verschärfen ohne UNSAT-Test mit Fixture-Daten.
-- Niemals Bundle-Größe ohne Grund vergrößern. MiniZinc-WASM (17 MB) ist die Grenze; alles drüber ist verdächtig.
+- Niemals Bundle-Größe ohne Grund vergrößern. JS-Bundle ohne MiniZinc liegt bei ~50 KB gz; alles drüber ist verdächtig.
 - Niemals `package.json` Hauptversionen anheben ohne ausdrücklichen Auftrag — wir hatten genug Reactivity-Pannen, lass das Stack-Stack stabil.
 
 ## Phasen-Status (Stand 2026-05-08)
@@ -134,8 +130,9 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - ✅ Phase 8: Schema v1→v2 (PlacedLesson.grade) + v2→v3 (groupLabel/couplingId-Trennung)
 - ✅ Phase 9: Tagespensum + Doppel/Einzel-Cohesion + Nachmittag-für-alle + 3-stufige Auto-Lockerung
 - ✅ Phase 10: Anytime-Solver + Streaming-UI + „Beginn in P1" + RelaxationInfo
-- ⚙️ Phase 11: **Solver-Wechsel** MiniZinc → TypeScript Construct + Local Search (siehe `docs/SOLVER-V2-CONCEPT.md`)
-- 🔜 Phase 12: Variantenmodus, Print-Layout, pairedWith entfernen, Hot-Start
+- ✅ Phase 11: Solver-Wechsel MiniZinc → TypeScript Construct + Local Search (`solver-v2/`), 4 neue Constraints (subject_twice, spec_spread, teacher_overload, teacher_no_lunch), Untis-Style RulesPanel
+- ✅ Phase 12: Aufräumen — v1-MiniZinc-Solver komplett entfernt, pairedWith aus Datenmodell, Tabu-Asymmetrie gefixt, ILS-DRY-Refactor, Score-Test-Lücken geschlossen
+- 🔜 Phase 13: Print-Layout (A4 pro Lehrer/Stufe), Variantenmodus, Hot-Start, Web Worker (falls Solver auf größeren Schulen langsam wird)
 
 ## Plan-Datei für Detail-Recherche
 

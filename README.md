@@ -1,21 +1,24 @@
 # Stundenplan MS SiG
 
-Eine Browser-App für Stundenplan-Erstellung an einer kleinen Mittelschule mit Mehrstufenklassen, mit eigenem Constraint-Solver auf WebAssembly-Basis und Drag-&-Drop-Editor.
+Eine Browser-App für Stundenplan-Erstellung an einer kleinen Mittelschule mit Mehrstufenklassen, mit eigenem TypeScript-Solver (Construct + Local Search) und Drag-&-Drop-Editor.
 
 **Live-Demo:** [rageagainst123.github.io/Stundenplan27](https://rageagainst123.github.io/Stundenplan27/)
 
-**Stack:** Vite · TypeScript · Svelte 5 · MiniZinc-JS (WASM Solver) · sveltednd
+**Stack:** Vite · TypeScript · Svelte 5 · sveltednd
 
 ## Features
 
 - **CSV-Import** des Sokrates-Exports „Liste" als Startbasis (Lehrer, Fächer, ~50 Lehreinheiten in einem Klick)
 - **Editor** für Lehrer (mit Farb-Picker und Verfügbarkeits-Mini-Raster), Fächer und Lehreinheiten — alles im Browser, alles änderbar
 - **Mehrstufen-Modell:** Schulstufen 5–8 als Stundenplan-Spalten, Mehrstufen-Kopplungen (5+6, 7+8) und klassenübergreifende Gruppen werden korrekt abgebildet
-- **Constraint-Solver** im Browser via MiniZinc-WASM: harte Regeln (Lehrer/Klasse nicht doppelt, Verfügbarkeit, Pinning, Wochen-Pattern) werden erfüllt
+- **Solver** (TypeScript, im Browser, kein WASM): Construction (greedy + ejection chain) + Iterated Local Search mit Simulated Annealing und Tabu. Harte Regeln (Lehrer-Doppel, Verfügbarkeit, Pinning, Wochen-Pattern, Coupling-Cohesion) sind unverletzlich; weiche Regeln werden als Score-Penalty optimiert.
+- **Untis-Style Regeln**: 14 Score-Komponenten (Hohlstunden, Mittagspause, Hauptfach-Vormittag, Tagesausgleich, Lehrer-Tageslast …), alle einzeln gewichtbar im RulesPanel
+- **Team-Teaching**: Lerneinheiten können mehrere Lehrer haben (z. B. BSP K + BSP M parallel)
 - **Drag-&-Drop**: Lehreinheiten von Sidebar in Slots ziehen, Live-Konfliktwarnungen, Pin-Toggle
-- **Filter:** farbige Lehrer-Chips, Schulstufen-Toggles, Fach-Dropdown — wie das alte Vorbild
+- **Filter:** farbige Lehrer-Chips, Schulstufen-Toggles, Fach-Dropdown
 - **Wochen-G/U-Logik** für 2-wöchige Fächer (BBO, EH)
 - **JSON-Backup**: Export & Import des kompletten Plans als Datei
+- **Lokal-only**: kein Backend, alles im Browser (localStorage). JS-Bundle ~50 KB gz.
 
 ## Schnellstart
 
@@ -69,12 +72,20 @@ src/
 │   │   ├── csv.test.ts              # 21 Tests gegen echte Liste.csv
 │   │   ├── subject-names.ts         # Code → Klartext + Hauptfach-Default
 │   │   └── __fixtures__/sokrates-liste.csv
-│   └── solver/
-│       ├── model.mzn                # MiniZinc-Schulmodell (harte Constraints)
-│       ├── encode.ts                # ScheduleDoc → DZN
-│       ├── decode.ts                # Solver-Output → PlacedLesson[]
-│       ├── encode.test.ts           # 14 Tests
-│       └── service.ts               # Browser-seitiger Solver-Aufruf
+│   ├── teacher-helpers.ts          # teacherById/Color/Name lookups
+│   ├── types-ui.ts                 # UI-Typen (DragPayload)
+│   └── solver-v2/
+│       ├── types.ts                # Unit/SolverState/ScoreBreakdown
+│       ├── units.ts                # buildState — Specs zu Units expandieren
+│       ├── score.ts                # 14 Score-Komponenten (computeScore)
+│       ├── scoreDelta.ts           # Score-Delta für Local Search
+│       ├── moves.ts                # slot-move / slot-swap / kempe-chain
+│       ├── hardCheck.ts            # H1–H9 wouldViolate + findHardViolations
+│       ├── construct.ts            # Greedy + ejection chain Construction
+│       ├── localSearch.ts          # Hill-Climbing + SA + Tabu
+│       ├── iteratedLS.ts           # ILS mit adaptivem Restart + Reheat
+│       ├── diagnose.ts             # Pre-Flight-Diagnose
+│       └── index.ts                # startSolve() Public API
 └── components/
     ├── ImportExport.svelte
     ├── TeacherList.svelte
@@ -89,40 +100,19 @@ src/
 
 ## Status
 
-- ✅ **Phase 1–4** (Datenmodell, CSV-Import, Editor, Anzeige) — vollständig, 54 Tests grün, `npm run build` sauber.
-- ✅ **Phase 5** (Solver) — MiniZinc-WASM-Toolchain verifiziert, harte Constraints abgedeckt.
-- ✅ **Phase 5b** (Reactivity & Solver 3D-Slots) — Solver findet auf echter Liste.csv (52 Specs) Plan in ~25 s mit 155 Lessons.
-- ✅ **Phase 5c** (Block-Pattern, Solver-Ignore, Bulk-Edit, maxConsecutive, Reset) — siehe CHANGELOG.
-- ✅ **Phase 5d** (Lehreinheiten-Kopplung-UX: Bulk Koppeln/Entkoppeln, Hover-×, gestapelte Cells).
-- ⚙️ **Phase 6** (Projekt-Hygiene: CLAUDE.md, LICENSE, CHANGELOG, GitHub-Pages-Deploy).
-- 🔜 **Phase 7** (Soft-Constraints, Print-Layout, `PlacedLesson.grade`-Bugfix).
-
-## Was Phase 5b geändert hat
-
-**Bug-Klasse 1 (eigentlicher Render-Bug):** Der each-block in ScheduleCell warf `each_key_duplicate`, weil der Solver mehrere Lesson-Instanzen derselben Spec auf denselben Slot legte (kein alldifferent-Constraint im MiniZinc-Modell). Das brach Svelte's Reactivity ab → DOM zeigte nur 4 alte Cells.
-
-**Fixes:**
-1. **Slot ist jetzt 3D** — `(day, period, grade)` statt nur `(day, period)`. Das Modell hat `NSLOTS = D*P*G = 160` Slots, jede grade-Spalte ist ein eigener Slot. Verhindert dass eine Spec mit grades=[5] alle Mathe-Stunden auf dieselben (day,period)-Slots zwingen würde wo auch andere Stufen Mathe haben.
-2. **Spec-Expansion erzeugt jetzt 1 Instanz pro (occurrence × grade)** — Mehrstufen-Lessons (z. B. PG_BSP grades=[5,6] count=3) ergeben 6 Instanzen, die per synthetischem `groupId` an dieselbe `(day,period)` gebunden werden, aber unterschiedliche grade-Spalten belegen.
-3. **Constraint 6 fordert: zwei Instanzen derselben Spec aus verschiedenen Occurrences müssen verschiedene `(day,period)` haben** — verhindert dass alle 4 Mathe-Stunden auf Mo Stunde 1 landen.
-4. **Defensiver each-Key in ScheduleCell.svelte:** `cp.placed.specId + '|' + day + '|' + period + '|' + idx` — auch bei Solver-Bugs niemals duplicate keys.
-5. **GenerateButton dedupliziert das Solver-Output** vor der Mutation, sodass der Render-Block nicht mehr brechen kann.
-
-**Bug-Klasse 2 (Modul-State):** Ich hatte den Reactivity-Verlust ursprünglich auf `export const store = $state(...)` zurückgeführt und auf `setContext`/`getContext` migriert. Das war eine korrekte Hardening-Maßnahme, aber nicht die eigentliche Ursache. Wir behalten das Context-Pattern, weil es Best-Practice für Cross-Component-Reactivity ist.
-
-## Bekannte Punkte / Polish
-
-1. **Solver-Performance** — bei 52 Specs ~25s. Eingrenzung der Constraints und/oder Heuristik-Hint via `solve` annotations könnte das verbessern.
-2. **Pinning ist grade-naiv:** `PlacedLesson` hat nur `(day, period)`, der Solver pickt sich beim Pinnen die erste grade. Reicht für jetzt, weil die UI nur eine grade-Spalte beim Drag-Drop sichtbar macht.
-3. **Weiche Constraints** — `model.mzn` enthält bisher nur harte Regeln. RulesPanel-Werte sind UI-fertig, müssen noch in MiniZinc-Penalty-Variablen übersetzt werden.
+- ✅ **Phase 1–10:** Datenmodell, CSV-Import, Editor, Anzeige, MiniZinc-Solver mit Soft-Constraints, Schema-v3-Migration, Anytime-Modus.
+- ✅ **Phase 11:** Solver-Architektur-Wechsel von MiniZinc-WASM (CSP) zu TypeScript Construct + Local Search. Bessere Score-Resultate, Bundle ohne 17 MB WASM. Untis-Style RulesPanel mit allen Gewichten sichtbar. 14 Score-Komponenten inklusive subject_twice, spec_spread, teacher_overload, teacher_no_lunch.
+- ✅ **Phase 12:** Aufräumen — alter MiniZinc-Solver vollständig entfernt (Verzeichnis `src/lib/solver/` weg, `minizinc` aus Dependencies). Tabu-Asymmetrie im Local Search gefixt, ILS-Sync/Async DRY-refactor, Score-Test-Lücken geschlossen, `pairedWith`-Legacy-Feld aus Datenmodell entfernt.
+- 🔜 **Phase 13:** Print-Layout (A4 pro Lehrer / pro Stufe), Variantenmodus, Hot-Start aus letztem Plan.
 
 ## Was funktioniert vollständig
 
-- CSV-Import: Liste.csv aus Sokrates → 10 Lehrer (mit Personalnummer, Leitung-Badge, Platzhalter), 19 Fächer (mit Kategorie, Hauptfach-Default), 52 LessonSpecs (mit Kopplungen via groupKey, korrekte Schulstufen, klassenübergreifend) — alle 21 Tests grün.
-- Editor: Lehrer-Tabelle mit Farbpicker und 5×8-Verfügbarkeits-Mini-Raster, Fächer-Liste, Lehreinheiten-Liste mit Filtern.
-- Solver: MiniZinc-WASM findet auf der echten Liste.csv (52 Specs) eine Lösung in ~25s, 155 Lehreinheiten platziert. Alle harten Constraints (Lehrer-Konflikte, Verfügbarkeit, Pinning, Wochen-Pattern, Spec-Replay-Vermeidung, Mehrstufen-Kopplung) erfüllt.
-- Anzeige: Wochenraster mit 5×4 Tag/Stufen-Spalten × 8 Stunden, farbige Lehrer-Cells, Mehrstufen-Kopplungen (z. B. „DGB L2 5+6"), Filter-Bar mit Lehrer-Chips/Stufen-Toggles/Fach-Dropdown, Sidebar mit ungeplanten Lessons.
-- JSON-Export/Import als Backup.
+- CSV-Import: Liste.csv aus Sokrates → 10 Lehrer (mit Personalnummer, Leitung-Badge, Platzhalter), 19 Fächer (mit Kategorie, Hauptfach-Default), ca. 50 LessonSpecs (mit Kopplungen, korrekten Schulstufen, klassenübergreifend).
+- Editor: Lehrer-Tabelle mit Farbpicker, 5×8-Verfügbarkeits-Mini-Raster und optionalem Tageslast-Limit; Fächer-Liste mit `maxConsecutive`; Lehreinheiten-Liste mit Filtern, Bulk-Toolbar (Koppeln/Entkoppeln/Solver-Toggle/Wochen-Muster), Tageszeit-Präferenz pro Spec, Drag-&-Drop ins Wochenraster.
+- Solver: TypeScript Construct + Iterated Local Search. Auf der echten Liste.csv reduziert er den Score in 10 s typischerweise von ~28 000 auf ~3500 (no_free=0, alle harten Constraints erfüllt). Anytime-Modus, jederzeit abbrechbar.
+- Regeln: 14 Score-Komponenten (Untis-Style) im RulesPanel, alle Gewichte editierbar. Strict-Modus für „keine Hohlstunden" mit Auto-Lockerung bei UNSAT. Mittagspause-Fenster konfigurierbar.
+- Anzeige: Wochenraster 5×4 Tag/Stufen-Spalten × 8 Stunden, farbige Lehrer-Cells, Team-Teaching mit zwei Lehrer-Badges, gekoppelte Lerneinheiten nebeneinander statt gestapelt, Filter-Bar.
+- JSON-Export/Import als Backup, automatische Schema-Migration v1→v2→v3→v4.
 
 ## Tests laufen lassen
 
@@ -130,7 +120,12 @@ src/
 npm test
 ```
 
-54 Unit-Tests: Block-Pattern-Helpers, CSV-Parser (echte Liste.csv), Solver-Encode/Decode-Pipeline.
+~150 Unit-Tests: Block-Pattern-Helpers, CSV-Parser, Solver-Score (alle 14 Komponenten), Solver-Hardcheck, Move-Operatoren, Construction, Local Search, Iterated LS, Service-Wrapper, Persistenz-Migrationen.
+
+Mit der echten Liste.csv als Stress-Test:
+```bash
+CONSTRUCT_REAL_LISTE=1 npm test
+```
 
 ## Dokumentation
 

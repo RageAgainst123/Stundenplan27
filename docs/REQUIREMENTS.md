@@ -65,24 +65,39 @@
 - **Score-Breakdown** im UI nach SAT-Run.
 - Migration alter localStorage-Pläne von `[1,1,…]` → `undefined`.
 
-## ⚙️ Phase 11 — Aktuelle Arbeit: Solver-Architektur-Wechsel
+## ✅ Phase 11 — Solver-Architektur-Wechsel (abgeschlossen)
 
-**Stand:** Konzept fertig (siehe `docs/SOLVER-V2-CONCEPT.md`), ADR-0013 dokumentiert,
-Implementierung in 11 Schritten geplant (`~/.claude/plans/`).
+**Ergebnis:** TypeScript-eigener Solver in `src/lib/solver-v2/` mit drei Phasen
+(Construction → Local Search → Iterated LS) ersetzt den MiniZinc-WASM-Solver.
+Auf Liste.csv: Score in 10 s von ~28 000 auf ~3500, alle harten Constraints
+erfüllt, no_free=0. Schneller und qualitativ besser als MiniZinc.
 
-**Begründung:** 4h Tuning der MiniZinc-Engine in Phasen 5–10 → Plateau-Verhalten,
-Score plateau'd bei ~4700 trotz 5 min Optimierung. Constraint Programming ist
-strukturell ungeeignet für Schul-Stundenpläne mit Soft-Constraints. Untis und
-FET nutzen seit 30 Jahren Construct + Local Search.
+API-kompatibel zum alten `startSolve()`, UI hat sich nicht geändert (außer
+Erweiterungen wie Untis-Style RulesPanel, Tageszeit-Präferenz pro Lerneinheit,
+Team-Teaching mit zwei Lehrern).
 
-**Implementierung:** TypeScript-eigener Solver in `src/lib/solver-v2/` mit drei
-Phasen (Construction → Local Search → Iterated LS). API-kompatibel mit dem
-bestehenden `startSolve()`. UI ändert sich nicht.
+Siehe ADR-0013 (accepted), `docs/SOLVER-V2-CONCEPT.md` für Algorithmus-Details.
 
-**Erwartetes Ergebnis:** Score-Reduktion 50–100× schneller als MiniZinc, Plan
-auf Liste.csv mit Score < 2500 in 30 s (statt 4765 nach 5 min).
+## ✅ Phase 12 — Aufräumen (abgeschlossen)
 
-## 🔜 Phase 12 — Nach Solver v2
+- Alter MiniZinc-Solver vollständig entfernt (`src/lib/solver/` weg, minizinc
+  aus dependencies, Bundle ohne 17 MB WASM).
+- Tabu-Asymmetrie im Local Search gefixt (Bench-Verbesserung +15%).
+- ILS Sync/Async DRY-refactor: ~150 Zeilen Duplikation eliminiert, Drift-Bug
+  in Async-Variante (kempeBoost wurde nicht durchgereicht) nebenbei gefixt.
+- `pairedWith`-Legacy-Feld aus Datenmodell entfernt; `couplingId` ist
+  einzige Coupling-Quelle.
+- `tStartLS`-Cap auf 500 (vorher unbegrenzt → Random-Walk-Drift bei langen
+  Stuck-Sessions).
+- Score-Komponenten: Test-Lücken geschlossen, alle 14 Komponenten haben
+  jetzt Unit-Tests.
+- `findHardViolations` als defensives Safety-Net in Construction und am
+  Decode-Boundary (filtert verbliebene Doppelbelegungen aus alten
+  localStorage-Plänen heraus).
+- UI-Hygiene: `DragPayload` zentralisiert in `types-ui.ts`, Teacher-Helpers
+  in `teacher-helpers.ts`, toter `{#if false}`-Block in RulesPanel weg.
+
+## 🔜 Phase 13 — Nächste Ausbauschritte
 
 ### High-Prio (post-Solver)
 1. **`PlacedLesson.grade`-Feld + Schema-Migration v1→v2.**

@@ -7,9 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "vitest run --exclude \"src/lib/solver/__perf__/**\"",
-    "test:watch": "vitest --exclude \"src/lib/solver/__perf__/**\"",
-    "test:perf": "vitest run --testTimeout=120000 src/lib/solver/__perf__",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json"
   },
   "devDependencies": {
@@ -26,7 +25,6 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@thisux/sveltednd": "^0.4.1",
-    "minizinc": "^4.4.6"
+    "@thisux/sveltednd": "^0.4.1"
   }
 }

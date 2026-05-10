@@ -1,7 +1,7 @@
 # ADR-0013: TypeScript Construct + Local Search Solver
 
-**Status:** proposed
-**Datum:** 2026-05-09
+**Status:** accepted
+**Datum:** 2026-05-09 (proposed) · 2026-05-10 (accepted)
 **Supersedes:** [ADR-0002](0002-minizinc-wasm-solver.md) (MiniZinc-WASM)
 
 ## Kontext
