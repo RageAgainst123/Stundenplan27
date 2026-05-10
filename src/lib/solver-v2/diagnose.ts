@@ -225,6 +225,72 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		}
 	}
 
+	// 6b) Phase 13 — Hard-Constraint H10 (afternoonAllowed=never) Bottleneck.
+	// Pro Lehrer: wieviele Vormittag-Slots (P1-P6) sind frei? Wieviele
+	// 'never'-Stunden hat er zugewiesen? Wenn never-Stunden > Vormittag-Slots:
+	// UNSAT durch H10 vorhersagbar — User soll vor Solver-Lauf reagieren.
+	const morningPeriods = 6;
+	for (const teacher of doc.teachers) {
+		const blockedMorning = (teacher.unavailable ?? []).filter(u => u.period <= morningPeriods).length;
+		const morningAvailable = D * morningPeriods - blockedMorning;
+		let neverLoad = 0;
+		for (const spec of doc.specs) {
+			if (spec.includeInSolver === false) continue;
+			if ((spec.afternoonAllowed ?? 'allowed') !== 'never') continue;
+			if (!spec.teachers.includes(teacher.id)) continue;
+			neverLoad += Math.round(spec.count);
+		}
+		if (neverLoad > 0 && neverLoad > morningAvailable) {
+			hints.push({
+				severity: 'error',
+				message: `Lehrer "${teacher.name}" hat ${neverLoad} Hauptfach-Stunden (Nachmittag verboten), aber nur ${morningAvailable} freie Vormittag-Slots (P1–P6, ${blockedMorning} gesperrt). Entweder Lehrer-Verfügbarkeit am Vormittag erweitern oder einzelne Lerneinheiten auf "Nachmittag erlaubt" setzen.`
+			});
+		}
+	}
+
+	// 6c) Phase 13 — Pro Stufe: 'never'-Stunden vs. 30 (5 Tage × 6 Vormittag).
+	// Coupling-aware: gekoppelte Specs zählen einmal pro Coupling-Gruppe.
+	const morningSlotsPerGrade = D * morningPeriods;
+	const neverLoadByGrade = new Map<GradeLevel, number>();
+	const seenCouplingsAft = new Set<string>();
+	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
+		if ((spec.afternoonAllowed ?? 'allowed') !== 'never') continue;
+		if (spec.couplingId) {
+			if (seenCouplingsAft.has(spec.couplingId)) continue;
+			seenCouplingsAft.add(spec.couplingId);
+		}
+		for (const g of spec.grades) {
+			neverLoadByGrade.set(g, (neverLoadByGrade.get(g) ?? 0) + Math.round(spec.count));
+		}
+	}
+	for (const [grade, load] of neverLoadByGrade) {
+		if (load > morningSlotsPerGrade) {
+			hints.push({
+				severity: 'error',
+				message: `Schulstufe ${grade}. SSt. hat ${load} Hauptfach-Stunden (Nachmittag verboten), aber nur ${morningSlotsPerGrade} Vormittag-Slots (5 Tage × 6 Stunden). Pensum reduzieren oder Hauptfach-Markierung lockern.`
+			});
+		} else if (load > morningSlotsPerGrade - 4) {
+			hints.push({
+				severity: 'warn',
+				message: `Schulstufe ${grade}. SSt. ist eng am Vormittag-Limit: ${load}/${morningSlotsPerGrade} Hauptfach-Stunden. Wenig Spielraum für andere Lerneinheiten.`
+			});
+		}
+	}
+
+	// 6d) Phase 13 — Pinned Hauptfach auf P7-P8.
+	for (const p of doc.placed) {
+		if (!p.pinned) continue;
+		if (p.period < 7) continue;
+		const spec = doc.specs.find(s => s.id === p.specId);
+		if (!spec) continue;
+		if ((spec.afternoonAllowed ?? 'allowed') !== 'never') continue;
+		hints.push({
+			severity: 'warn',
+			message: `Pin auf ${p.day} ${p.period}. Stunde verletzt H10 (Hauptfach am Nachmittag, ${spec.subject}). Beim Solver-Lauf wird der Pin verworfen.`
+		});
+	}
+
 	// 7) Pinned-Slot-Verfügbarkeitskonflikt: Spec gepinnt aber Lehrer ist gesperrt.
 	// Team-Teaching-aware: jeder Team-Lehrer muss frei sein.
 	for (const p of doc.placed) {

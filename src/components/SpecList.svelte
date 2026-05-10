@@ -78,9 +78,25 @@
 		}
 	}
 
+	/** Phase 13: Nachmittag-Politik pro Spec. */
+	function setAfternoon(s: LessonSpec, v: string) {
+		if (v === 'never' || v === 'allowed' || v === 'preferred') s.afternoonAllowed = v;
+	}
+
+	/** Phase 13 Bulk: Nachmittag-Politik für alle ausgewählten Specs. */
+	function bulkSetAfternoon(v: 'never' | 'allowed' | 'preferred') {
+		for (const s of store.doc.specs) {
+			if (!selectedIds.has(s.id)) continue;
+			s.afternoonAllowed = v;
+		}
+	}
+
 	function newSpec() {
 		const firstTeacher = store.doc.teachers[0]?.id ?? '';
 		const firstSubject = store.doc.subjects[0]?.code ?? '';
+		// Phase 13: afternoonAllowed default abhängig vom Subject.isMain.
+		const subj = store.doc.subjects.find(x => x.code === firstSubject);
+		const afternoonDefault: 'never' | 'allowed' = subj?.isMain ? 'never' : 'allowed';
 		const s: LessonSpec = {
 			id: crypto.randomUUID(),
 			subject: firstSubject,
@@ -91,6 +107,7 @@
 			count: 1,
 			// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet).
 			blocks: undefined,
+			afternoonAllowed: afternoonDefault,
 			includeInSolver: true,
 			source: 'manual'
 		};
@@ -321,6 +338,12 @@
 			<option value="early">Früh (P1–P3)</option>
 			<option value="late">Spät (P5–P8)</option>
 		</select>
+		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v === 'never' || v === 'allowed' || v === 'preferred') bulkSetAfternoon(v); (e.currentTarget as HTMLSelectElement).value = ''; }} title="Nachmittag-Politik (P7–P8) für ausgewählte Lerneinheiten">
+			<option value="">Nachmittag…</option>
+			<option value="never">🌅 Nie nachmittags (Hard)</option>
+			<option value="allowed">↔ Egal</option>
+			<option value="preferred">🌆 Bevorzugt nachmittags</option>
+		</select>
 		<button class="btn danger small" onclick={bulkDelete}>🗑 Löschen</button>
 		<span style="margin-left:auto"></span>
 		<button class="btn small" onclick={clearSelection}>Auswahl aufheben</button>
@@ -342,6 +365,7 @@
 				<th>Stunden</th>
 				<th>Block-Pattern</th>
 				<th title="Optionale Tageszeit-Präferenz: bevorzuge frühe oder späte Stunden">Zeit</th>
+				<th title="Nachmittag-Politik (P7–P8): 'Nie' = Hard-Constraint (Hauptfächer), 'Egal' = soft, 'Bevorzugt' = soll nachmittags sein">Nachm.</th>
 				<th>Woche</th>
 				<th>Kopplung</th>
 				<th></th>
@@ -450,6 +474,20 @@
 							<option value="">Egal</option>
 							<option value="early">Früh</option>
 							<option value="late">Spät</option>
+						</select>
+					</td>
+					<td class="afternoon-cell">
+						<select
+							value={s.afternoonAllowed ?? 'allowed'}
+							onchange={e => setAfternoon(s, (e.currentTarget as HTMLSelectElement).value)}
+							class="afternoon-select"
+							class:never={s.afternoonAllowed === 'never'}
+							class:preferred={s.afternoonAllowed === 'preferred'}
+							title="Nachmittag (P7–P8): 'Nie' = Hard-Constraint, 'Egal' = soft, 'Bevorzugt' = soll nachmittags sein"
+						>
+							<option value="never">🌅 Nie</option>
+							<option value="allowed">↔ Egal</option>
+							<option value="preferred">🌆 Bevorzugt</option>
 						</select>
 					</td>
 					<td>
@@ -654,6 +692,23 @@
 		color: var(--text-muted);
 		background: transparent;
 		border-style: dashed;
+	}
+	.afternoon-cell {
+		min-width: 90px;
+	}
+	.afternoon-select {
+		min-width: 90px;
+		font-size: 11px;
+	}
+	.afternoon-select.never {
+		background: rgba(34, 139, 230, 0.1);
+		color: #1971c2;
+		font-weight: 600;
+	}
+	.afternoon-select.preferred {
+		background: rgba(244, 162, 97, 0.15);
+		color: #c47e34;
+		font-weight: 600;
 	}
 	.block-select.auto {
 		font-style: italic;

@@ -232,3 +232,55 @@ describe('diagnose: User-Phase-7A scenario', () => {
 		expect(errors).toHaveLength(0);
 	});
 });
+
+describe('diagnose — Phase 13 H10 bottleneck', () => {
+	it('reports error when teacher has more never-hours than morning slots', () => {
+		const doc = emptyDoc();
+		// Teacher: only afternoons (P7-P8) on all days → 10 morning slots blocked? wait
+		// Make Mo-Fr P1-P6 ALL blocked. → 0 morning slots available.
+		const blocked = ['Mo','Di','Mi','Do','Fr'].flatMap(d =>
+			[1,2,3,4,5,6].map(p => ({ day: d as any, period: p as any }))
+		);
+		doc.teachers.push(teacher('t1', 'Afternoonly', blocked));
+		doc.subjects.push(subject('M', true));
+		// 4 hours of MAIN subject assigned → afternoonAllowed='never'.
+		doc.specs.push({ ...spec('s1', 'M', 't1', [5], 4), afternoonAllowed: 'never' });
+		const hints = diagnose(doc);
+		const error = hints.find(h => h.severity === 'error' && h.message.includes('Afternoonly'));
+		expect(error).toBeTruthy();
+		expect(error!.message).toMatch(/4 Hauptfach-Stunden/);
+	});
+
+	it('reports error when grade has more never-hours than 30', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', true));
+		// 31 main lesson hours for grade 5 → impossible in P1-P6 (5×6=30).
+		doc.specs.push({ ...spec('s1', 'M', 't', [5], 31), afternoonAllowed: 'never' });
+		const hints = diagnose(doc);
+		const error = hints.find(h => h.severity === 'error' && h.message.includes('5. SSt.') && h.message.includes('Vormittag-Slots'));
+		expect(error).toBeTruthy();
+	});
+
+	it('warns when pinned spec is on P7-P8 and afternoonAllowed=never', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', true));
+		const sp = { ...spec('s1', 'M', 't', [5], 1), afternoonAllowed: 'never' as const };
+		doc.specs.push(sp);
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 7, grade: 5, pinned: true });
+		const hints = diagnose(doc);
+		const warn = hints.find(h => h.severity === 'warn' && h.message.includes('H10'));
+		expect(warn).toBeTruthy();
+	});
+
+	it('does not report when teacher has enough morning slots', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', true));
+		doc.specs.push({ ...spec('s1', 'M', 't', [5], 4), afternoonAllowed: 'never' });
+		const hints = diagnose(doc);
+		const error = hints.find(h => h.severity === 'error' && h.message.includes('Hauptfach-Stunden'));
+		expect(error).toBeFalsy();
+	});
+});

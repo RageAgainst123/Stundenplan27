@@ -66,6 +66,19 @@
 			<input type="number" min="0" step="10" bind:value={c.unevenDaysWeight} class="weight" />
 		</div>
 
+		<!-- Phase 13: Zieltagespensum -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.targetDailyLessons.enabled} />
+				<span>
+					Zieltagespensum pro Stufe
+					<span class="hint" title="Quadratische Penalty pro (Tag, Stufe) für Abweichung vom Ziel. Wirkt nach OBEN und unten — verhindert 'Mo: 4 Stunden, Fr: 8 Stunden'. Inaktive Tage sind ausgenommen.">ℹ</span>
+					<input type="number" min="3" max="8" bind:value={c.targetDailyLessons.target} class="inline" disabled={!c.targetDailyLessons.enabled} />
+				</span>
+			</label>
+			<input type="number" min="0" step="10" bind:value={c.targetDailyLessons.weight} disabled={!c.targetDailyLessons.enabled} class="weight" />
+		</div>
+
 		<!-- Beginn in 1. Stunde -->
 		<div class="rule">
 			<label class="lbl">
