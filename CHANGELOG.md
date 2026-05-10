@@ -7,12 +7,126 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
-### Geplant
-- Phase 10-4: Variantenmodus (3 Pläne mit verschiedenen Heuristiken
-  generieren und vergleichen)
-- Print-Layout (A4 pro Lehrer / pro Schulstufe)
-- Performance-Tuning der Soft-Constraint-Penalties bei großer Liste
-- `pairedWith`-Feld entfernen (redundant zu `couplingId`)
+### Geplant (Phase 13)
+- Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
+- Variantenmodus: mehrere Pläne mit verschiedenen Seeds generieren,
+  vergleichen, manuell den besten wählen
+- Hot-Start: Solver beginnt vom letzten Plan statt Greedy von Null
+- Web Worker, falls Solver auf größeren Schulen langsam wird
+
+## [0.12.0] - 2026-05-10 — Phase 12: Aufräumen, Härten, Testen
+
+### Removed
+- **Alter MiniZinc-WASM-Solver komplett entfernt.** `src/lib/solver/`
+  Verzeichnis (model.mzn, encode.ts, decode.ts, service.ts, diagnose.ts
+  und Tests, plus `__perf__/`-Harness) ist weg. `minizinc` keine
+  Dependency mehr — entspart 143 MB in node_modules.
+- `LessonSpec.pairedWith` Legacy-Feld entfernt. `couplingId` ist seit
+  Phase 8 v3 die einzige Coupling-Quelle. Migration entfernt das Feld
+  beim nächsten Save aus alten Docs.
+- Toter `{#if false}`-Block in `RulesPanel.svelte` (Slider-Helpers
+  ohne Aufrufer) entfernt.
+
+### Added
+- `src/lib/solver-v2/diagnose.ts` — Pre-Flight-Diagnose ist jetzt
+  team-teaching-aware: prüft jeden Lehrer einer Coupling, jeden
+  Eintrag in `spec.teachers` einzeln auf Existenz/Verfügbarkeit.
+- `src/lib/types-ui.ts` — zentraler Ort für UI-Typen (`DragPayload`).
+  Vorher in `ScheduleGrid` und `ScheduleCell` doppelt definiert.
+- `src/lib/teacher-helpers.ts` — `teacherById/teacherColor/teacherName`
+  als pure Helper. Ersetzt 2-3 inline-Kopien in den Komponenten.
+- Score-Komponenten-Tests vervollständigt: `min_daily`, `uneven_days`,
+  `compact_teacher` haben nun dedizierte Unit-Tests. Insgesamt 14 von
+  14 Komponenten getestet (vorher 7).
+
+### Fixed
+- **Tabu-Asymmetrie in Local Search.** `pushTabu` schrieb den Ziel-Slot
+  ins Tabu, `isTabu` prüfte den Quell-Slot — die Tabu blockierte das
+  Falsche. Korrekt: nach Move U: s_old → s_new wird U:s_old für
+  `tabuTenure` Iterationen tabu (Reverse-Move-Schutz). Bench-Effekt
+  auf Liste.csv (10 s ILS): Score 4094 → 3492 (-15 %).
+- **`tStartLS` Reheat-Cap.** Bei vielen erfolglosen Restarts wuchs die
+  SA-Starttemperatur unbegrenzt (200 + 50×N). Bei T>1000 akzeptiert SA
+  praktisch jeden Move → Random-Walk-Drift, aktive Verschlechterung
+  des Best-Scores. Cap auf 500 (~5× Normaltemperatur) eingebaut.
+- **ILS-DRY-Refactor mit Drift-Bug-Fix nebenbei.** Sync und Async
+  ILS-Variante hatten ~150 Zeilen identische Logik dupliziert. Beim
+  letzten KempeBoost-Patch wurde der Async-Variant vergessen, sodass
+  sie ihn nicht durchreichte. Jetzt teilen sich beide einen
+  gemeinsamen Algorithmus-Kern; nur die Loop-Strategy unterscheidet.
+
+### Changed
+- `solver-v2/index.ts` importiert `diagnose` jetzt aus dem eigenen
+  Verzeichnis statt aus dem v1-Tree.
+- `mustStartFirstPeriod` hat jetzt `weight` (vorher hartcodiert 300).
+- `scripts.test` und `scripts.test:watch` in `package.json` ohne
+  `--exclude src/lib/solver/__perf__/**` (das Verzeichnis existiert
+  nicht mehr).
+
+### Documentation
+- ADR-0013 (TypeScript Construct + Local Search) Status: proposed → accepted.
+- `CLAUDE.md` Architektur-Block, Solver-Sektion, Phasen-Status auf
+  aktuellen Stand gebracht. Verbotene-Aktionen-Liste ohne MiniZinc.
+- `README.md` Stack-Zeile, Verzeichnisbaum, Status-Liste, „Was
+  funktioniert vollständig"-Block aktualisiert. Phase-5b-Bug-Notiz
+  entfernt (historisch).
+- `docs/CONTEXT.md` Technische-Stützpunkte ohne MiniZinc-WASM.
+- `docs/REQUIREMENTS.md` Phase 11 + 12 als abgeschlossen markiert,
+  Phase 13 als Ausblick.
+
+### Stats
+- Tests: 151 grün (vorher 206; -55 v1-Tests sind physisch entfernt,
+  +6 neue Score-Tests)
+- TypeScript: 0 Errors, 0 Warnings
+- Bundle: 53.52 KB gz JS / 4.64 KB gz CSS (~57 KB total)
+- node_modules: ~143 MB kleiner ohne minizinc
+
+## [0.11.0] - 2026-05-09 — Phase 11: Solver-Architektur-Wechsel
+
+### Added
+- **TypeScript-eigener Solver** in `src/lib/solver-v2/` (Construct +
+  Iterated Local Search). Ersetzt den MiniZinc-WASM-Solver. Auf der
+  echten Liste.csv: Score in 10 s von ~28 000 auf ~3500, alle harten
+  Constraints erfüllt, no_free=0.
+- **14 Score-Komponenten** (Untis-Style) konfigurierbar im RulesPanel:
+  `min_daily`, `no_p1_start`, `main_aft`, `any_aft`, `no_free`,
+  `uneven_days`, `main_run`, `compact_teacher`, `main_early`,
+  `time_pref`, `subject_twice`, `spec_spread`, `teacher_overload`,
+  `teacher_no_lunch`.
+- **Tageszeit-Präferenz pro Lerneinheit** (`LessonSpec.timePref`:
+  `'early'` | `'late'`). Neue Spalte „Zeit" in der Lerneinheiten-Liste
+  + Bulk-Toolbar. Specs ohne Wert verhalten sich wie bisher.
+- **Team-Teaching pro Lerneinheit** (`LessonSpec.teachers: TeacherId[]`,
+  Schema v3 → v4). Eine Spec kann zwei Lehrer parallel haben (z. B. BSP
+  Knaben + Mädchen). Stundenplan-Zelle zeigt zwei Lehrer-Badges
+  nebeneinander, geteilten Hintergrund. Solver-Hardcheck respektiert
+  alle Team-Lehrer.
+- **Auto-Lockerung „keine Hohlstunden"** (`noFreePeriodsForClass.strict`):
+  Phase 1 mit massivem Gewicht (×50), Phase 3 mit normalem Gewicht
+  falls Lücken nicht vermeidbar. UI zeigt RelaxationInfo-Banner.
+- **Lehrer-Tageslast-Limit** (`Teacher.maxLessonsPerDay`).
+- **Mittagspause-Constraint** (`teacherLunchBreak`) mit konfigurierbarem
+  Mittagsfenster.
+- **Adaptive Iterated Local Search**: Reheat + KempeBoost +
+  Perturbations-Stärke wachsen mit erfolglosen Restarts.
+- **Untis-Style RulesPanel** in 3 Sektionen (Klassen & Stufen / Pädagogik
+  / Lehrer), Tooltips an jeder Regel, alle Gewichte sichtbar editierbar.
+- **`findHardViolations`** als defensives Safety-Net in Construction
+  und am Decode-Boundary — verhindert dass alte localStorage-Pläne mit
+  Doppelbelegungen ans UI durchschlagen.
+
+### Fixed
+- Coupling-Block-Stunden: Doppelstunden in Couplings produzieren
+  jetzt korrekte Instances pro Block-Position.
+- Ejection-Chain mit vollem Snapshot-Revert (verhindert inkonsistente
+  Zwischenzustände bei Teil-Erfolg).
+- Coupling-Aggregation in der Diagnose: gekoppelte Specs zählen einmal
+  pro Stufe, nicht pro Spec.
+
+### Architecture
+- ADR-0013 (TypeScript Construct + Local Search) ersetzt ADR-0002
+  (MiniZinc-WASM).
+- Schema v3 → v4: `LessonSpec.teachers[]` statt `teacher`.
 
 ## [0.10.0] - 2026-05-08 — Phase 10: Anytime-Solver + Streaming-UI
 
