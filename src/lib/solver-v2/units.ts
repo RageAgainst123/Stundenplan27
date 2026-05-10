@@ -18,6 +18,7 @@ import {
 	SLOT_UNPLACED,
 	slotFromDP,
 } from './types';
+import { findHardViolations } from './hardCheck';
 
 /** Resolve `spec.blocks` to a concrete sequence of block sizes. */
 function resolveBlocks(spec: LessonSpec): number[] {
@@ -250,6 +251,38 @@ export function buildState(doc: ScheduleDoc): SolverState {
 			target.pinnedPeriod = pl.period;
 			placement[target.idx] = slot;
 		}
+	}
+
+	// Defensive validation: alte localStorage-Pläne können inkonsistente
+	// Pinned-Placements enthalten (z. B. zwei verschiedene Specs pinned auf
+	// dem gleichen Slot+Stufe). Wir scannen die Pinned-Units gegen
+	// einander mit findHardViolations und un-pinnen Verletzer. Lieber eine
+	// Pin verloren als ein hard-violating Plan im Solver-Input.
+	const stateForCheck: SolverState = {
+		doc,
+		nUnits: units.length,
+		units,
+		placement,
+		unitsBySpec,
+		unitsByTeacher,
+		specsById,
+		subjectsByCode,
+		teachersById,
+	};
+	const offenders = findHardViolations(stateForCheck);
+	for (const idx of offenders) {
+		const u = units[idx];
+		if (!u.pinned) {
+			// Non-pinned offenders shouldn't happen here (placement only has
+			// pinned units at this stage), but be defensive.
+			placement[idx] = SLOT_UNPLACED;
+			continue;
+		}
+		// Unpin and clear so the solver gets to choose a fresh slot.
+		u.pinned = false;
+		u.pinnedDay = undefined;
+		u.pinnedPeriod = undefined;
+		placement[idx] = SLOT_UNPLACED;
 	}
 
 	return {

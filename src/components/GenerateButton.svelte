@@ -27,15 +27,45 @@
 	function applyPlacements(placed: PlacedLesson[]): void {
 		// Replace non-pinned placements; keep pinned ones intact.
 		const pinnedKept = store.doc.placed.filter(p => p.pinned);
-		const pinnedKeys = new Set(
-			pinnedKept.map(p => `${p.specId}|${p.day}|${p.period}|${p.grade}`)
-		);
-		const seen = new Set<string>(pinnedKeys);
+
+		// (1) Block any new placement on a (day, period, grade) that's
+		// already occupied by a pinned placement of a DIFFERENT spec —
+		// unless both share a couplingId (allowed parallel teaching).
+		// Without this check the solver could re-add a clashing lesson
+		// even though buildState validated pins; e.g. coupling-aware
+		// solver moves can produce overlaps the dedup-by-key wouldn't
+		// catch.
+		type Key = string; // `${day}|${period}|${grade}`
+		const slotKey = (p: PlacedLesson): Key => `${p.day}|${p.period}|${p.grade}`;
+		const pinnedBySlot = new Map<Key, PlacedLesson>();
+		for (const p of pinnedKept) pinnedBySlot.set(slotKey(p), p);
+
+		// (2) Dedup non-pinned by (specId, day, period, grade) like before.
+		const dedupKey = (p: PlacedLesson) => `${p.specId}|${p.day}|${p.period}|${p.grade}`;
+		const seen = new Set<string>(pinnedKept.map(dedupKey));
+
 		const additions: PlacedLesson[] = [];
 		for (const p of placed) {
-			const k = `${p.specId}|${p.day}|${p.period}|${p.grade}`;
+			const k = dedupKey(p);
 			if (seen.has(k)) continue;
 			seen.add(k);
+			// Slot-collision check against pinned of different spec.
+			const pinnedAtSlot = pinnedBySlot.get(slotKey(p));
+			if (pinnedAtSlot && pinnedAtSlot.specId !== p.specId) {
+				const newSpec = store.doc.specs.find(s => s.id === p.specId);
+				const pinnedSpec = store.doc.specs.find(s => s.id === pinnedAtSlot.specId);
+				const sameCoupling = !!(
+					newSpec?.couplingId &&
+					pinnedSpec?.couplingId &&
+					newSpec.couplingId === pinnedSpec.couplingId
+				);
+				if (!sameCoupling) {
+					// Drop the colliding non-pinned addition. The solver
+					// shouldn't have produced this; if it did, surfacing a
+					// silent drop is safer than a double-booked grid cell.
+					continue;
+				}
+			}
 			additions.push({ ...p, pinned: false });
 		}
 		store.doc.placed = [...pinnedKept, ...additions];
