@@ -83,7 +83,7 @@ manuell**. Erfolgreich ist die App wenn:
   `src/lib/solver-v2/`). Phase 12 hat den ursprünglichen MiniZinc-WASM-
   Solver komplett entfernt.
 - Datenmodell stabil: localStorage-Key `stundenplan27.doc`, Schema-Migration
-  über `persistence.ts → migrateDoc()` (akzeptiert v1, v2, v3, v4)
+  über `persistence.ts → migrateDoc()` (akzeptiert v1, v2, v3, v4, v5)
 
 ## Live-URL
 

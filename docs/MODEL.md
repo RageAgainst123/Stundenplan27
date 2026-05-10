@@ -6,7 +6,7 @@
 >
 > **Update-Anlass:** Änderungen an `src/lib/types.ts` (`LessonSpec`,
 > `ConstraintConfig`, Schema-Version), an `src/lib/solver-v2/types.ts`
-> (`Unit`, `ScoreBreakdown`, `ScoreWeights`), oder an den 9 Hard-Constraints in
+> (`Unit`, `ScoreBreakdown`, `ScoreWeights`), oder an den 10 Hard-Constraints in
 > `src/lib/solver-v2/hardCheck.ts`. Bei jeder solchen Änderung: prüfe ob die
 > Tabellen unten noch stimmen. Drift hier ist teuer (Bug-Quelle), Drift in
 > SOLVER-V2-CONCEPT ist akzeptabler (Konzept ≠ Implementation).
@@ -92,7 +92,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 14)
+## 3. Score-Komponenten (alle 16)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -114,6 +114,8 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `spec_spread`      | (specId,day) mit ≥2 Occurrences — Lerneinheit-Spread über Wochentage       | 30      | `preferDoubleLessonsContiguous.{enabled, weight}` (Feldname Legacy) | enabled=false|
 | `teacher_late_start` | sum(firstP-Index) über alle (Lehrer, Tag) — Lehrer in P1 gesperrt sind exempt | 30 | `teacherEarlyStartBalance.{enabled, weight}`     | enabled=false|
 | `teacher_under_min` | sum(min - lessons) für (Lehrer, Tag) wo `0 < lessons < min`. Freie Tage (0 lessons) sind exempt. | 150 | `teacherMinLessonsPerDay.{enabled, weight, min}` | enabled=false oder Lehrer hat ≥min an jedem aktiven Tag |
+| `target_daily`     | (day,grade) `(actual - target)²` — quadratische Abweichung vom Zieltagespensum. Inaktive Tage (0 lessons) exempt. | 80 | `targetDailyLessons.{enabled, weight, target}` | enabled=false |
+| `afternoon_preferred` | Spec mit `afternoonAllowed='preferred'` liegt im Vormittag (P<7) — Penalty pro Vormittag-Slot. Inverse zu any_aft. | 15 (fix) | `LessonSpec.afternoonAllowed` (per Spec) | keine 'preferred'-Specs |
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
   (User hat explizit Nachmittag gewünscht — kein Widerspruch).
@@ -137,7 +139,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 
 ---
 
-## 4. Hard-Constraints (H1–H9)
+## 4. Hard-Constraints (H1–H10)
 
 Alle in `src/lib/solver-v2/hardCheck.ts` zentral geprüft. `wouldViolate(state, unit, slot)`
 gibt `null` zurück wenn ok, sonst Reason-String.
@@ -153,6 +155,7 @@ gibt `null` zurück wenn ok, sonst Reason-String.
 | H7  | Wochenpattern-Kompatibilität (even ↔ odd nur in Coupling) | `wouldViolate` ZL ~106-113 | (indirekt in coupling-Tests)                       |
 | H8  | Distinct-Occurrences (gleiche Spec, verschiedene Occurrences ≠ gleicher Slot) | `wouldViolate` ZL ~118-136 | `moves.test.ts > same-spec collision`         |
 | H9  | Block-Pattern (blockSize > 1 = konsekutive Periods) | **implizit** in `units.ts` (Block-Unit hat blockSize, `wouldViolate` prüft dass period+blockSize-1 ≤ P) | (implizit in vielen Tests)               |
+| H10 | Hauptfach Nachmittag verboten: `unit.afternoonAllowed='never'` darf nicht in P7-P8 (auch Block-Reichweite) | `wouldViolate` ZL ~55-62 | `moves.test.ts > H10 afternoonAllowed=never` |
 
 **"Implizit"** bedeutet: Der Constraint wird durch die Datenstruktur erzwungen,
 nicht durch eine eigene Prüfung. Eine Coupling-Unit existiert nur als **eine**
@@ -173,7 +176,7 @@ So gelangt **nie** ein Plan mit Hard-Constraint-Verletzung zur UI.
 
 ## 5. Schema-Versionen
 
-Migration in `src/lib/persistence.ts` `migrateDoc()`. Akzeptiert v1, v2, v3, v4
+Migration in `src/lib/persistence.ts` `migrateDoc()`. Akzeptiert v1, v2, v3, v4, v5
 und upgrade idempotent zur aktuellen `SCHEMA_VERSION`.
 
 | Schema | Phase | Was sich änderte                                                                                |
@@ -183,6 +186,7 @@ und upgrade idempotent zur aktuellen `SCHEMA_VERSION`.
 | v3     | 8     | `LessonSpec.groupKey` aufgespalten in `groupLabel` (Display-only) + `couplingId` (Solver-Hard).|
 | v4     | 11    | `LessonSpec.teacher: TeacherId` ersetzt durch `LessonSpec.teachers: TeacherId[]` (Team-Teaching). Plus diverse `ConstraintConfig`-Erweiterungen aus Phase 12. |
 | v4 (revisited) | 12 | `Teacher.maxLessonsPerDay` plus `ConstraintConfig.teacherDailyLoad` und `ConstraintConfig.teacherLunchBreak` wieder entfernt. Kein Schema-Bump — die Migration strippt alte Felder beim Laden. |
+| v5     | 13    | `LessonSpec.afternoonAllowed: 'never' \| 'allowed' \| 'preferred'` hinzugefügt (Hard-Constraint H10 für 'never', Score-Komponente afternoon_preferred für 'preferred'). Migration leitet aus `Subject.isMain` ab. Plus `ConstraintConfig.targetDailyLessons` für Zieltagespensum (Score-Komponente target_daily). |
 
 **Beim nächsten Schema-Bump:**
 1. `SCHEMA_VERSION` in `types.ts` erhöhen.

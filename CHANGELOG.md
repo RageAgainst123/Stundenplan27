@@ -7,12 +7,66 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
-### Geplant (Phase 13)
+### Geplant (Phase 14)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
-- Variantenmodus: mehrere Pläne mit verschiedenen Seeds generieren,
-  vergleichen, manuell den besten wählen
 - Hot-Start: Solver beginnt vom letzten Plan statt Greedy von Null
+- "Weiter optimieren"-Button für inkrementelles Verfeinern
+- Variantenmodus: mehrere Pläne nebeneinander
 - Web Worker, falls Solver auf größeren Schulen langsam wird
+
+## [0.13.0] - 2026-05-10 — Phase 13: Constraint-Modell-Erweiterung
+
+User-Befund: heute generierte Pläne haben Hauptfächer am Nachmittag
+und Tagespensum-Schwankung 4–8 Stunden je Stufe statt ~6. Das war
+kein Algorithmus-Problem (mehr Move-Operatoren hätten nichts gebracht),
+sondern eine Modell-Lücke. Phase 13 erweitert das Constraint-Modell.
+
+### Added
+- **Hard-Constraint H10: Hauptfach am Nachmittag verboten.** Specs mit
+  `afternoonAllowed='never'` dürfen niemals in P7-P8 (auch nicht durch
+  Block-Reichweite). Per Auto-Migration v4→v5 für alle Specs deren
+  Subject `isMain=true`. Coupling-Units übernehmen den restriktivsten
+  Wert aller mit-gekoppelten Specs.
+- **Score-Komponente `target_daily`.** Quadratische Penalty pro
+  (Tag, Stufe) für Abweichung vom Zieltagespensum. Default-Ziel 6,
+  Default-Gewicht 80. Wirkt nach OBEN und unten — verhindert
+  „Mo: 4 Stunden, Fr: 8 Stunden". Inaktive Tage (0 Stunden) sind
+  ausgenommen, sonst würde der Solver künstlich Stunden erzeugen.
+- **Score-Komponente `afternoon_preferred`.** Inverse zu `any_aft`:
+  Specs mit `afternoonAllowed='preferred'` zahlen Penalty wenn sie
+  morgens (P<7) liegen. Geeignet z. B. für BBO, EH, GZ. Default-
+  Gewicht 15, manuell pro Spec aktivierbar.
+- **`LessonSpec.afternoonAllowed`** als neues schema-v5 Feld
+  (`'never' | 'allowed' | 'preferred'`). UI-Dropdown pro Spec in
+  SpecList plus Bulk-Toolbar-Aktion.
+- **`ConstraintConfig.targetDailyLessons`** (`{ enabled, weight, target }`)
+  als neues schema-v5 Feld. RulesPanel-Slider für Zieltagespensum.
+- **Pre-Flight Diagnose erweitert** (3 neue Checks):
+  - 6b: pro Lehrer Vormittag-Slot-Kapazität vs. zugewiesene
+    'never'-Stunden. Vorhersage von UNSAT durch H10 plus konkrete
+    Begründung („nur 12 P1-P6-Slots aber 14 Hauptfach-Stunden").
+  - 6c: pro Stufe Gesamt-'never'-Stunden vs. 30 verfügbare
+    Vormittag-Slots (5 × 6).
+  - 6d: Warnung wenn Pin auf P7-P8 + Spec ist 'never' (Pin wird
+    beim Solver-Lauf verworfen).
+- **Schema v4 → v5 Migration**: setzt `afternoonAllowed` aus
+  `Subject.isMain` (true→never, false→allowed) und ergänzt
+  `targetDailyLessons` mit Default-Werten. Idempotent — User-
+  Overrides bleiben erhalten.
+
+### Changed
+- `wouldViolate` und `findHardViolations` prüfen jetzt H10. Folge:
+  bestehende Pin-Validierungs-Logik in `units.ts` filtert auch
+  H10-Verletzer als `droppedPins` mit klarer Begründung.
+- SpecList `newSpec()` defaultet `afternoonAllowed` basierend auf
+  Subject.isMain — kein „every new spec ist allowed" mehr.
+
+### Bench (Liste.csv, 10 s ILS)
+- Vor Phase 13: ~3500-4000 Score, ~5-15 main_aft Verletzungen.
+- Nach Phase 13: ~11600 Score (höher wegen neuer Komponenten),
+  **`main_aft = 0`** (H10 wirkt strikt), `target_daily = 52`
+  Residual nach 10 s. Strukturell vernünftig — andere Constraints
+  setzen Druck der target_daily nicht ganz auf 0 fallen lässt.
 
 ## [0.12.0] - 2026-05-10 — Phase 12: Aufräumen, Härten, Testen
 

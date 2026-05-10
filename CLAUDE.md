@@ -14,7 +14,7 @@ Folgende Dateien werden mit dieser CLAUDE.md geladen:
 ## Doku-Hygiene (kurz)
 
 `docs/MODEL.md` ist die kanonische Quelle für Datenstruktur (Domänenmodell,
-Solver-Internals, alle 14 Score-Komponenten, alle 9 Hard-Constraints,
+Solver-Internals, alle 16 Score-Komponenten, alle 10 Hard-Constraints,
 Schema-Versionen). Drei Update-Anlässe:
 
 1. **`src/lib/types.ts`** geändert (`LessonSpec`, `ConstraintConfig`,
@@ -61,7 +61,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 
 ## Architektur (eine Zeile pro Modul)
 
-- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec, PlacedLesson, ScheduleDoc, ConstraintConfig). Schema v4.
+- **`src/lib/types.ts`** — Domänenmodell (Teacher, Subject, LessonSpec, PlacedLesson, ScheduleDoc, ConstraintConfig). Schema v5.
 - **`src/lib/types-ui.ts`** — UI-spezifische Typen (DragPayload).
 - **`src/lib/teacher-helpers.ts`** — kleine Pure-Helpers für Teacher-Lookups (id → Teacher / color / name).
 - **`src/lib/store.svelte.ts`** — Singleton-Store via `setContext`/`getContext`, `$state` für ScheduleDoc, Auto-Save in localStorage via `$effect.root`.
@@ -99,7 +99,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - Phase 2: Local Search (Hill-Climbing + Simulated Annealing + Tabu) ~50k Iter/sec.
 - Phase 3: Iterated LS mit adaptiver Perturbation, SA-Reheat (Cap 500), Kempe-Boost.
 - 2-Phase-Solve: bei `noFreePeriodsForClass.strict=true` läuft nach Phase 2 eine Auto-Lockerung mit normalem Soft-Gewicht falls Lücken übrig.
-- 14 Score-Komponenten, alle in `solver-v2/score.ts`. Konfigurierbar im `RulesPanel`.
+- 16 Score-Komponenten, alle in `solver-v2/score.ts`. Konfigurierbar im `RulesPanel`.
 
 ### Bekannte offene Bugs
 
@@ -149,7 +149,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - ✅ Phase 10: Anytime-Solver + Streaming-UI + „Beginn in P1" + RelaxationInfo
 - ✅ Phase 11: Solver-Wechsel MiniZinc → TypeScript Construct + Local Search (`solver-v2/`), 4 neue Constraints (subject_twice, spec_spread, teacher_overload, teacher_no_lunch), Untis-Style RulesPanel
 - ✅ Phase 12: Aufräumen — v1-MiniZinc-Solver komplett entfernt, pairedWith aus Datenmodell, Tabu-Asymmetrie gefixt, ILS-DRY-Refactor, Score-Test-Lücken geschlossen
-- 🔜 Phase 13: Print-Layout (A4 pro Lehrer/Stufe), Variantenmodus, Hot-Start, Web Worker (falls Solver auf größeren Schulen langsam wird)
+- ✅ Phase 13: Constraint-Modell-Erweiterung — Hard-Constraint H10 (Hauptfach Nachmittag verboten), Score-Komponente `target_daily` (Zieltagespensum), `afternoon_preferred`, Schema v5 mit `LessonSpec.afternoonAllowed`, UI-Dropdown + Bulk + RulesPanel-Slider, Pre-Flight-Diagnose erweitert
+- 🔜 Phase 14: Print-Layout (A4 pro Lehrer/Stufe), Hot-Start, "Weiter optimieren"-Button, Variantenmodus, Web Worker (falls Solver auf größeren Schulen langsam wird)
 
 ## Plan-Datei für Detail-Recherche
 

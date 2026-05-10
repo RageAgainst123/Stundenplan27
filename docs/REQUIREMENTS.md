@@ -97,11 +97,32 @@ Siehe ADR-0013 (accepted), `docs/SOLVER-V2-CONCEPT.md` für Algorithmus-Details.
 - UI-Hygiene: `DragPayload` zentralisiert in `types-ui.ts`, Teacher-Helpers
   in `teacher-helpers.ts`, toter `{#if false}`-Block in RulesPanel weg.
 
-## 🔜 Phase 13 — Nächste Ausbauschritte
+## ✅ Phase 13 — Constraint-Modell-Erweiterung (abgeschlossen)
 
-### High-Prio (post-Solver)
-1. **`PlacedLesson.grade`-Feld + Schema-Migration v1→v2.**
-   ✅ ERLEDIGT in Phase 8. Drag & Drop ist grade-aware.
+User-Befund: Hauptfächer landen am Nachmittag, Tagespensum 4–8 statt
+~6 pro Stufe. Phase 13 erweitert das Modell statt den Algorithmus:
+
+- **Hard-Constraint H10**: Specs mit `afternoonAllowed='never'` dürfen
+  nie auf P7-P8. Per Migration v4→v5 für alle Subject.isMain-Specs.
+- **Score `target_daily`**: quadratische Penalty `(actual - target)²`
+  pro (Tag, Stufe) — wirkt nach OBEN und unten. Default Ziel 6,
+  Gewicht 80.
+- **Score `afternoon_preferred`**: Inverse zu any_aft, für Specs die
+  *bevorzugt* nachmittags sein sollen (BBO, EH, GZ).
+- **UI**: Dropdown pro Spec in SpecList + Bulk-Toolbar; RulesPanel-
+  Slider für Zieltagespensum.
+- **Diagnose**: Pre-Flight-Check ob Lehrer/Stufe genug Vormittag-Slots
+  für ihre never-Stunden hat. UNSAT-Vorhersage mit konkreter Begründung.
+
+Bench (Liste.csv, 10 s ILS): main_aft=0 nach Phase 13 (war ~5-15 vorher),
+target_daily=52 Residual.
+
+## 🔜 Phase 14 — Nächste Ausbauschritte
+
+### High-Prio
+1. **Hot-Start** + „Weiter optimieren"-Button: Solver beginnt vom
+   aktuellen Plan statt Greedy von null. User kann iterativ
+   verfeinern ohne manuelle Edits zu verlieren.
 
 2. **Print-Layout.**
    `@media print` für:
