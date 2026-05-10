@@ -244,6 +244,22 @@ export interface ScoreBreakdown {
 	 * im Vormittag landen (Periode < 7). Inverse von `any_aft`.
 	 */
 	afternoon_preferred: number;
+	/**
+	 * Phase 13.3: pro (Tag, Stufe, Hauptfach) Vorkommen über 2 hinaus.
+	 * Beispiel: Mathe 3× an Mo-Stufe-7 = +1; Mathe 4× = +2. Doppelstunde
+	 * zählt als 1 Vorkommen (eine Block-Unit). Ergänzt subject_twice das
+	 * für ALLE Fächer wirkt; main_twice ist viel höher gewichtet weil
+	 * Hauptfach-Häufung pädagogisch besonders kritisch ist.
+	 */
+	main_twice: number;
+	/**
+	 * Phase 13.3: bei genau 2 Vorkommen desselben Hauptfachs am Tag —
+	 * Anzahl leerer Slots dazwischen. Mathe Mo P1+P2 = 0 (Doppel direkt
+	 * hintereinander), Mathe Mo P1+P5 = 3 (P2,P3,P4 dazwischen). Treibt
+	 * Doppelstunden gegenüber verstreuten Einzelstunden bei zweimaligem
+	 * Auftreten.
+	 */
+	main_block_split: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -266,6 +282,8 @@ export interface ScoreWeights {
 	teacher_under_min: number;
 	target_daily: number;
 	afternoon_preferred: number;
+	main_twice: number;
+	main_block_split: number;
 }
 
 /**
@@ -321,6 +339,17 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// any_aft EXEMPT (siehe score.ts), dadurch ist Nachmittag wirklich
 	// kostenlos und Vormittag straft 100/Slot.
 	const afternoonPreferredWeight = 100;
+	// Phase 13.3: main_twice = 3+ Vorkommen desselben Hauptfachs am Tag/Stufe.
+	// Sehr hohes Gewicht — pädagogisch dürfen niemals 3× M, D, oder E am
+	// gleichen Tag in derselben Stufe sein, auch nicht mit Lücken dazwischen.
+	// 800 ist 10× subject_twice (60); übertrumpft target_daily (80) und
+	// any_aft (50) deutlich.
+	const mainTwiceWeight = 800;
+	// Phase 13.3: main_block_split = wenn doch 2× Hauptfach am Tag, dann als
+	// Doppelstunde direkt hintereinander statt verstreut. 60 pro Lücken-Slot
+	// dazwischen. Reicht aus um Solver zu Doppelstunde zu drücken wenn er
+	// ohnehin 2× am Tag legt.
+	const mainBlockSplitWeight = 60;
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -343,6 +372,8 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		teacher_under_min: tMinWeight,
 		target_daily: tDailyWeight,
 		afternoon_preferred: afternoonPreferredWeight,
+		main_twice: mainTwiceWeight,
+		main_block_split: mainBlockSplitWeight,
 	};
 }
 

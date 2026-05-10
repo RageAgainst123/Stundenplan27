@@ -126,6 +126,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		teacher_under_min: 0,
 		target_daily: 0,
 		afternoon_preferred: 0,
+		main_twice: 0,
+		main_block_split: 0,
 		total: 0,
 	};
 
@@ -339,22 +341,51 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	// scanning placed units once. Allowed bonus: same coupling/multi-grade
 	// instances at the same slot don't trigger (they're inherently one
 	// teaching event).
+	//
+	// Phase 13.3: zusätzlich main_twice (Hauptfach 3+ am Tag) und
+	// main_block_split (zwei Hauptfach-Vorkommen, nicht konsekutiv).
+	// Wir tracken pro key auch die Liste der belegten Periods für das
+	// block-split-Maß.
 	const seenSubjAtDayGrade = new Map<string, number>();
+	// Pro key: Liste von [startPeriod, blockSize] der Vorkommen.
+	const occurrencesAtKey = new Map<string, Array<[number, number]>>();
+	const isMainAtKey = new Map<string, boolean>();
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
 		const unit = state.units[i];
-		const { dayIndex } = dpFromSlot(slot);
-		// One bump per (day, grade, subject) — multiple block-positions count
-		// as the same lesson event. Use the unit's primary spec to avoid
-		// coupling-double-counting.
+		const { dayIndex, period } = dpFromSlot(slot);
+		const subj = state.subjectsByCode.get(unit.subjectCode);
+		const isMain = subj?.isMain ?? false;
 		for (const grade of unit.grades) {
 			const key = `${dayIndex}|${grade}|${unit.subjectCode}`;
 			seenSubjAtDayGrade.set(key, (seenSubjAtDayGrade.get(key) ?? 0) + 1);
+			isMainAtKey.set(key, isMain);
+			const arr = occurrencesAtKey.get(key) ?? [];
+			arr.push([period, unit.blockSize]); // period ist 1-basiert
+			occurrencesAtKey.set(key, arr);
 		}
 	}
-	for (const v of seenSubjAtDayGrade.values()) {
+	for (const [key, v] of seenSubjAtDayGrade) {
 		if (v > 1) breakdown.subject_twice += v - 1;
+		const isMain = isMainAtKey.get(key) === true;
+		// Phase 13.3 main_twice: 3+ Vorkommen Hauptfach am gleichen Tag/Stufe.
+		if (isMain && v > 2) {
+			breakdown.main_twice += v - 2;
+		}
+		// Phase 13.3 main_block_split: bei genau 2 Vorkommen — exakte
+		// Lücke zwischen Ende des ersten Blocks und Anfang des zweiten.
+		// Mathe Doppel P1-P2 + Einzel P3 = Ende=P2, Anfang=P3 → 0 (konsekutiv)
+		// Mathe Einzel P1 + Einzel P3 = Ende=P1, Anfang=P3 → 1 (P2 dazwischen)
+		// Mathe Doppel P1-P2 + Einzel P5 = Ende=P2, Anfang=P5 → 2 (P3,P4 frei)
+		if (isMain && v === 2) {
+			const occs = occurrencesAtKey.get(key)!;
+			const sorted = [...occs].sort((a, b) => a[0] - b[0]);
+			const firstEnd = sorted[0][0] + sorted[0][1] - 1; // letzte belegte Periode des ersten Blocks
+			const secondStart = sorted[1][0];
+			const gap = Math.max(0, secondStart - firstEnd - 1);
+			breakdown.main_block_split += gap;
+		}
 	}
 
 	// --- spec_spread: occurrences of the SAME spec on the SAME weekday count
@@ -392,7 +423,9 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.teacher_late_start * breakdown.teacher_late_start +
 		weights.teacher_under_min * breakdown.teacher_under_min +
 		weights.target_daily * breakdown.target_daily +
-		weights.afternoon_preferred * breakdown.afternoon_preferred;
+		weights.afternoon_preferred * breakdown.afternoon_preferred +
+		weights.main_twice * breakdown.main_twice +
+		weights.main_block_split * breakdown.main_block_split;
 
 	return breakdown;
 }

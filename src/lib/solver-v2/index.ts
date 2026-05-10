@@ -41,6 +41,10 @@ export interface PenaltyBreakdown {
 	target_daily: number;
 	/** Phase 13: Specs die nachmittags sein sollten aber morgens landen. */
 	afternoon_preferred: number;
+	/** Phase 13.3: Hauptfach 3+ am gleichen Tag/Stufe — sehr unerwünscht. */
+	main_twice: number;
+	/** Phase 13.3: Hauptfach 2× am Tag, nicht konsekutiv — Lücken-Slot-Penalty. */
+	main_block_split: number;
 	total: number;
 }
 
@@ -203,6 +207,8 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		teacher_under_min: b.teacher_under_min,
 		target_daily: b.target_daily,
 		afternoon_preferred: b.afternoon_preferred,
+		main_twice: b.main_twice,
+		main_block_split: b.main_block_split,
 		total: b.total,
 	};
 }

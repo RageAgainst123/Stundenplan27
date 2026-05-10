@@ -329,7 +329,9 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.teacher_late_start * b.teacher_late_start +
 			w.teacher_under_min * b.teacher_under_min +
 			w.target_daily * b.target_daily +
-			w.afternoon_preferred * b.afternoon_preferred;
+			w.afternoon_preferred * b.afternoon_preferred +
+			w.main_twice * b.main_twice +
+			w.main_block_split * b.main_block_split;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -771,6 +773,121 @@ describe('computeScore — target_daily (Phase 13)', () => {
 		const b = computeScore(state, defaultWeights(doc));
 		// Mo: (1-6)² = 25. Andere Tage 0 (exempt). Andere Stufen 0 (exempt).
 		expect(b.target_daily).toBe(25);
+	});
+});
+
+// --- Phase 13.3: main_twice + main_block_split ---
+
+describe('computeScore — main_twice (Phase 13.3)', () => {
+	it('is 0 when main subject appears once', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_twice).toBe(0);
+	});
+
+	it('is 0 when main subject appears twice (allowed)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s1', 'M', 't', [5], 1));
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_twice).toBe(0);
+	});
+
+	it('charges 1 for 3 occurrences of same main subject on same day', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s1', 'M', 't', [5], 1));
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		doc.specs.push(spec('s3', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 3);
+		place(state, 's3', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_twice).toBe(1); // 3 - 2 = 1
+	});
+
+	it('does not trigger for non-main subjects (subject_twice covers them)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP', { isMain: false }));
+		doc.specs.push(spec('s1', 'BSP', 't', [5], 1));
+		doc.specs.push(spec('s2', 'BSP', 't', [5], 1));
+		doc.specs.push(spec('s3', 'BSP', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 3);
+		place(state, 's3', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_twice).toBe(0);
+		expect(b.subject_twice).toBe(2); // 3 - 1 = 2
+	});
+});
+
+describe('computeScore — main_block_split (Phase 13.3)', () => {
+	it('is 0 when main subject appears once', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_block_split).toBe(0);
+	});
+
+	it('is 0 for two consecutive single-period occurrences (P1 + P2)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s1', 'M', 't', [5], 1));
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 2);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_block_split).toBe(0);
+	});
+
+	it('charges N gap-slots when two main occurrences split the day', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s1', 'M', 't', [5], 1));
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		// Block 1 endet P1, Block 2 startet P5 → Lücke = 5 - 1 - 1 = 3.
+		expect(b.main_block_split).toBe(3);
+	});
+
+	it('does not trigger when 3+ occurrences (handled by main_twice)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push(spec('s1', 'M', 't', [5], 1));
+		doc.specs.push(spec('s2', 'M', 't', [5], 1));
+		doc.specs.push(spec('s3', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's1', 'Mo', 1);
+		place(state, 's2', 'Mo', 3);
+		place(state, 's3', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.main_block_split).toBe(0); // skipped, only on v===2
+		expect(b.main_twice).toBe(1);
 	});
 });
 
