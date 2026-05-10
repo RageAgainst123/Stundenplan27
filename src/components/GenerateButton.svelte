@@ -317,6 +317,9 @@
 							{#if result.penalties.teacher_late_start > 0}
 								<li>Lehrer-Spätstart (kumuliert): <strong>{result.penalties.teacher_late_start}</strong></li>
 							{/if}
+							{#if result.penalties.teacher_under_min > 0}
+								<li>Lehrer-Tage unter Mindeststunden: <strong>{result.penalties.teacher_under_min}</strong></li>
+							{/if}
 							<li class="total">Total (gewichtet): <strong>{result.penalties.total}</strong></li>
 						</ul>
 					</details>

@@ -299,7 +299,8 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.time_pref * b.time_pref +
 			w.subject_twice * b.subject_twice +
 			w.spec_spread * b.spec_spread +
-			w.teacher_late_start * b.teacher_late_start;
+			w.teacher_late_start * b.teacher_late_start +
+			w.teacher_under_min * b.teacher_under_min;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -521,6 +522,60 @@ describe('computeScore — compact_teacher', () => {
 		place(state, 's', 'Mo', 2);
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.compact_teacher).toBe(0);
+	});
+});
+
+describe('computeScore — teacher_under_min', () => {
+	it('penalizes a teacher day with 1 lesson when min=2', () => {
+		const doc = emptyDoc();
+		doc.constraints.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_under_min).toBe(1);
+	});
+
+	it('zero penalty when teacher has min lessons or more', () => {
+		const doc = emptyDoc();
+		doc.constraints.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Mo', 2);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_under_min).toBe(0);
+	});
+
+	it('zero penalty for free days (0 lessons)', () => {
+		const doc = emptyDoc();
+		doc.constraints.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// No specs placed — teacher has 0 lessons everywhere → no penalty.
+		const state = buildState(doc);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_under_min).toBe(0);
+	});
+
+	it('cumulates: two single-lesson days = 2 penalty', () => {
+		const doc = emptyDoc();
+		doc.constraints.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 1);
+		place(state, 'b', 'Di', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		// Mo: 1 lesson, missing 1. Di: 1 lesson, missing 1. Total: 2.
+		expect(b.teacher_under_min).toBe(2);
 	});
 });
 

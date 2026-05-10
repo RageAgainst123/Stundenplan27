@@ -139,6 +139,9 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.teacherEarlyStartBalance !== 'object' || c12.teacherEarlyStartBalance === null) {
 			c12.teacherEarlyStartBalance = { enabled: true, weight: 30 };
 		}
+		if (typeof c12.teacherMinLessonsPerDay !== 'object' || c12.teacherMinLessonsPerDay === null) {
+			c12.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.

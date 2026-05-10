@@ -123,6 +123,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		subject_twice: 0,
 		spec_spread: 0,
 		teacher_late_start: 0,
+		teacher_under_min: 0,
 		total: 0,
 	};
 
@@ -237,18 +238,26 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		}
 	}
 
-	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps) +
-	//     teacher_late_start (fairness across teachers).
+	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps),
+	//     teacher_late_start (fairness across teachers),
+	//     teacher_under_min (avoid 1-lesson days).
+	const minLessonsCfg = state.doc.constraints.teacherMinLessonsPerDay as
+		| { enabled?: boolean; min?: number }
+		| undefined;
+	const minLessonsActive = minLessonsCfg?.enabled !== false;
+	const minLessonsTarget = Math.max(1, Math.min(P, Math.round(minLessonsCfg?.min ?? 2)));
 	const T = state.doc.teachers.length;
 	for (let t = 0; t < T; t++) {
 		const teacher = state.doc.teachers[t];
 		for (let d = 0; d < D; d++) {
 			let firstP = -1;
 			let lastP = -1;
+			let occupiedPeriods = 0;
 			for (let p = 0; p < P; p++) {
 				if (tocc[t * D * P + d * P + p] > 0) {
 					if (firstP === -1) firstP = p;
 					lastP = p;
+					occupiedPeriods++;
 				}
 			}
 			if (firstP !== -1 && lastP > firstP) {
@@ -271,6 +280,17 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 				if (!blockedAtP1) {
 					breakdown.teacher_late_start += firstP;
 				}
+			}
+			// teacher_under_min: a teacher's working day should reach the
+			// minimum. 0 lessons → free day, no penalty. 1 lesson with min=2
+			// → penalty 1. The solver can fix this by either pulling another
+			// lesson to this day or by moving the lonely lesson elsewhere.
+			if (
+				minLessonsActive &&
+				occupiedPeriods > 0 &&
+				occupiedPeriods < minLessonsTarget
+			) {
+				breakdown.teacher_under_min += minLessonsTarget - occupiedPeriods;
 			}
 		}
 	}
@@ -330,7 +350,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.time_pref * breakdown.time_pref +
 		weights.subject_twice * breakdown.subject_twice +
 		weights.spec_spread * breakdown.spec_spread +
-		weights.teacher_late_start * breakdown.teacher_late_start;
+		weights.teacher_late_start * breakdown.teacher_late_start +
+		weights.teacher_under_min * breakdown.teacher_under_min;
 
 	return breakdown;
 }

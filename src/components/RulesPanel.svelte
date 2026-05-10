@@ -198,6 +198,20 @@
 			<input type="number" min="0" step="5" bind:value={c.teacherEarlyStartBalance.weight} disabled={!c.teacherEarlyStartBalance.enabled} class="weight" />
 		</div>
 
+		<!-- Mindest-Stunden pro Lehrer-Tag -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherMinLessonsPerDay.enabled} />
+				<span>
+					Mind.
+					<input type="number" min="1" max="8" bind:value={c.teacherMinLessonsPerDay.min} class="inline" disabled={!c.teacherMinLessonsPerDay.enabled} />
+					Stunden pro Lehrer-Tag
+					<span class="hint" title="Wenn ein Lehrer an einem Tag arbeitet, soll er mindestens N Stunden haben — sonst lohnt der Anfahrtsweg nicht. 0 Stunden (freier Tag) wird nicht bestraft.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="10" bind:value={c.teacherMinLessonsPerDay.weight} disabled={!c.teacherMinLessonsPerDay.enabled} class="weight" />
+		</div>
+
 	</div>
 </section>
 

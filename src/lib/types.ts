@@ -183,6 +183,15 @@ export interface ConstraintConfig {
 	 */
 	teacherEarlyStartBalance: { enabled: boolean; weight: number };
 	/**
+	 * Mindest-Stunden pro Tag pro Lehrer. Wenn ein Lehrer an einem Tag
+	 * Unterricht hat, soll er mindestens N Stunden haben — sonst lohnt der
+	 * Anfahrtsweg nicht. Lehrer-Tage mit 0 Stunden sind nicht betroffen
+	 * (der Lehrer ist eh frei). Penalty pro fehlender Stunde.
+	 *
+	 * Beispiel: min=2, Lehrer hat Mo 1 Stunde → +1 Penalty.
+	 */
+	teacherMinLessonsPerDay: { enabled: boolean; weight: number; min: number };
+	/**
 	 * Phase 12: a spec's multiple occurrences should land on different
 	 * weekdays. Replaces the previously-defunct preferDoubleLessonsContiguous
 	 * setting — keeps the field name as alias in DEFAULT_CONSTRAINTS for
@@ -219,7 +228,8 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	unevenDaysWeight: 150,
 	timePrefWeight: 100,
 	subjectMaxOncePerDay: { enabled: true, weight: 60 },
-	teacherEarlyStartBalance: { enabled: true, weight: 30 }
+	teacherEarlyStartBalance: { enabled: true, weight: 30 },
+	teacherMinLessonsPerDay: { enabled: true, weight: 150, min: 2 }
 };
 
 export interface ScheduleDoc {

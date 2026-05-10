@@ -208,6 +208,13 @@ export interface ScoreBreakdown {
 	 * be the late-starter every day.
 	 */
 	teacher_late_start: number;
+	/**
+	 * Soft: per (teacher, day) where 0 < lessons < minLessonsPerDay,
+	 * sum of (min - lessons). Prevents single-lesson teacher days that
+	 * waste the commute. Days with 0 lessons are exempt — the teacher
+	 * is simply free that day.
+	 */
+	teacher_under_min: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -227,6 +234,7 @@ export interface ScoreWeights {
 	subject_twice: number;
 	spec_spread: number;
 	teacher_late_start: number;
+	teacher_under_min: number;
 }
 
 /**
@@ -263,6 +271,8 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const specSpreadWeight = specSpread?.enabled === false ? 0 : (specSpread?.weight ?? 30);
 	const tBalance = c.teacherEarlyStartBalance as { enabled?: boolean; weight?: number } | undefined;
 	const tBalanceWeight = tBalance?.enabled === false ? 0 : (tBalance?.weight ?? 30);
+	const tMin = c.teacherMinLessonsPerDay as { enabled?: boolean; weight?: number } | undefined;
+	const tMinWeight = tMin?.enabled === false ? 0 : (tMin?.weight ?? 150);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -282,6 +292,7 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		subject_twice: subjOnceWeight,
 		spec_spread: specSpreadWeight,
 		teacher_late_start: tBalanceWeight,
+		teacher_under_min: tMinWeight,
 	};
 }
 
