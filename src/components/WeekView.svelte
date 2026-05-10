@@ -17,7 +17,13 @@
 
 	// ---- Datenquelle: aktueller Plan oder Snapshot ----
 	let snapshots = $state<Snapshot[]>(loadSnapshots());
-	let selectedSourceId = $state<string>('current');  // 'current' oder snap.id
+
+	// Phase 16.3: Vergleichsmodus mit 1-4 Slots.
+	// slotIds[i] ist die Plan-Quelle für Slot i ('current' oder snap.id).
+	// slotCount = sichtbare Slots (1..4). Reduktion verwirft hintere Slots
+	// nicht — sie bleiben in slotIds erhalten falls User wieder hochregelt.
+	let slotCount = $state<number>(1);
+	let slotIds = $state<string[]>(['current', 'current', 'current', 'current']);
 
 	function refreshSnapshots(): void {
 		snapshots = loadSnapshots();
@@ -27,22 +33,20 @@
 		window.addEventListener('snapshots-changed', refreshSnapshots);
 	}
 
-	// Effective placements: aktueller Plan oder snapshot.placed
-	const placed = $derived.by((): PlacedLesson[] => {
-		if (selectedSourceId === 'current') {
+	function placedFor(sourceId: string): PlacedLesson[] {
+		if (sourceId === 'current') {
 			void store.doc.placed.length; // reactive dep
 			return store.doc.placed;
 		}
-		const snap = snapshots.find(s => s.id === selectedSourceId);
-		return snap?.placed ?? store.doc.placed;
-	});
+		const snap = snapshots.find(s => s.id === sourceId);
+		return snap?.placed ?? [];
+	}
 
-	// Beim Snapshot-Wechsel: refresh + show name in header
-	const sourceLabel = $derived.by(() => {
-		if (selectedSourceId === 'current') return 'Aktueller Plan';
-		const snap = snapshots.find(s => s.id === selectedSourceId);
-		return snap ? `${snap.name} (Score ${snap.score})` : 'Aktueller Plan';
-	});
+	function sourceLabelFor(sourceId: string): string {
+		if (sourceId === 'current') return 'Aktueller Plan';
+		const snap = snapshots.find(s => s.id === sourceId);
+		return snap ? `${snap.name} · Score ${snap.score}` : 'Aktueller Plan';
+	}
 
 	// ---- Spec lookup ----
 	function specById(id: string): LessonSpec | undefined {
@@ -55,7 +59,7 @@
 		spec: LessonSpec;
 	}
 
-	function placementsAt(day: Day, period: Period, grade: GradeLevel): CellPlacement[] {
+	function placementsAt(placed: PlacedLesson[], day: Day, period: Period, grade: GradeLevel): CellPlacement[] {
 		const out: CellPlacement[] = [];
 		const seen = new Set<string>();
 		for (const p of placed) {
@@ -88,14 +92,14 @@
 		placements: CellPlacement[];
 	}
 
-	function rowLayout(day: Day, period: Period): CellSlot[] {
+	function rowLayout(placed: PlacedLesson[], day: Day, period: Period): CellSlot[] {
 		const slots: CellSlot[] = [];
 		// Set zur Track: welche Grades sind in dieser (day, period) schon
 		// von einem multi-Grade-Slot abgedeckt → überspringen.
 		const consumed = new Set<GradeLevel>();
 		for (const grade of GRADES) {
 			if (consumed.has(grade)) continue;
-			const cps = placementsAt(day, period, grade);
+			const cps = placementsAt(placed, day, period, grade);
 			// Suche nach einer Multi-Grade-Spec deren niedrigste Stufe = grade
 			// und deren Stufen konsekutiv sind. Erste passende wird als
 			// breite Zelle gerendert.
@@ -208,32 +212,31 @@
 		Mo: 'Montag', Di: 'Dienstag', Mi: 'Mittwoch', Do: 'Donnerstag', Fr: 'Freitag'
 	};
 
-	// ---- Stats für Header ----
-	const stats = $derived.by(() => {
+	// ---- Stats pro Slot ----
+	function statsFor(placed: PlacedLesson[]) {
 		const total = placed.length;
 		const uniqueSpecs = new Set(placed.map(p => p.specId)).size;
 		return { total, uniqueSpecs };
-	});
+	}
 </script>
 
 <div class="weekview">
 	<header class="wv-header">
-		<div class="hd-row">
-			<label class="src-label">
-				<span>Plan-Quelle:</span>
-				<select bind:value={selectedSourceId} class="src-select">
-					<option value="current">Aktueller Plan</option>
-					{#if snapshots.length > 0}
-						<optgroup label="📸 Snapshots">
-							{#each snapshots as s (s.id)}
-								<option value={s.id}>{s.name} · Score {s.score}</option>
-							{/each}
-						</optgroup>
-					{/if}
-				</select>
-			</label>
-			<span class="src-info muted small">
-				{stats.total} Stunden · {stats.uniqueSpecs} Lerneinheiten · KW {weekInfo.week} · {weekInfo.parity === 'even' ? 'G-Woche' : 'U-Woche'}
+		<div class="hd-row top-row">
+			<div class="slot-toggle">
+				<span class="filter-label">Vergleich:</span>
+				{#each [1, 2, 3, 4] as n (n)}
+					<button
+						type="button"
+						class="slot-btn"
+						class:active={slotCount === n}
+						onclick={() => (slotCount = n)}
+						title="{n} Plan{n === 1 ? '' : ' ne'}{n === 1 ? '' : 'beneinander vergleichen'}"
+					>{n}</button>
+				{/each}
+			</div>
+			<span class="kw-info muted small">
+				KW {weekInfo.week} · {weekInfo.parity === 'even' ? 'G-Woche' : 'U-Woche'}
 			</span>
 		</div>
 
@@ -271,86 +274,113 @@
 					<option value={s}>{s}</option>
 				{/each}
 			</select>
+			{#if slotCount > 1}
+				<span class="filter-divider">|</span>
+				<span class="muted small">Filter gilt für alle {slotCount} Pläne</span>
+			{/if}
 		</div>
 	</header>
 
-	<div class="grid-wrapper">
-		<table class="wv-grid">
-			<thead>
-				<tr class="day-row">
-					<th class="time-col" rowspan="2"></th>
-					{#each DAYS as d (d)}
-						<th colspan={GRADES.length} class="day-head" class:today={nowState?.day === d}>{DAY_FULL[d]}</th>
-					{/each}
-				</tr>
-				<tr class="grade-row">
-					{#each DAYS as d (d)}
-						{#each GRADES as g, gi (d + '-' + g)}
-							<th
-								class="grade-head"
-								class:today={nowState?.day === d}
-								class:end-of-day={gi === GRADES.length - 1}
-							>{g}.</th>
-						{/each}
-					{/each}
-				</tr>
-			</thead>
-			<tbody>
-				{#each PERIODS as p (p)}
-					<tr>
-						<td class="time-cell">
-							<div class="period-num">{p}.</div>
-							<div class="period-time">{DEFAULT_PERIOD_TIMES[p - 1]}</div>
-						</td>
-						{#each DAYS as d (d)}
-							{#each rowLayout(d, p) as slot, sidx (d + '-' + p + '-' + sidx + '-' + slot.startGrade)}
-								{@const couplingBg = couplingBgFor(slot.placements)}
-								{@const isNow = isNowCell(d, p)}
-								{@const isLastInDay = (slot.startGrade + slot.colspan - 1) === GRADES[GRADES.length - 1]}
-								<td
-									class="cell"
-									class:now={isNow}
-									class:coupled={couplingBg !== ''}
-									class:end-of-day={isLastInDay}
-									colspan={slot.colspan}
-									style:background={couplingBg || undefined}
-								>
-									{#if slot.placements.length > 0}
-										<div class="row" class:team={couplingBg !== ''}>
-											{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
-												{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
-												{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
-												{@const visible = isHighlighted(cp.spec, slot.startGrade)}
-												{@const tcol = teacher?.color ?? '#9ca3af'}
-												{@const t2col = teacher2?.color ?? tcol}
-												{@const dimmedByWeek = cp.spec.weekPattern !== 'every' && cp.spec.weekPattern !== weekInfo.parity}
-												<div
-													class="placed"
-													class:filtered={!visible}
-													class:dimmed-week={dimmedByWeek}
-													style:--tcol={tcol}
-													style:--t2col={t2col}
-													style:background={teacher2
-														? `linear-gradient(to right, color-mix(in srgb, ${tcol} 45%, white) 0 50%, color-mix(in srgb, ${t2col} 45%, white) 50% 100%)`
-														: `color-mix(in srgb, ${tcol} 45%, white)`}
-												>
-													<span class="subj" title={teacher?.name + (teacher2 ? ' + ' + teacher2.name : '')}>
-														{cp.spec.subject}
-													</span>
-													{#if cp.spec.weekPattern !== 'every'}
-														<span class="week-badge">{cp.spec.weekPattern === 'even' ? 'G' : 'U'}</span>
-													{/if}
-												</div>
-											{/each}
-										</div>
-									{/if}
-								</td>
+	<!-- Phase 16.3: 1-4 Slots als Grid. Layout passt sich an Slot-Anzahl an. -->
+	<div class="slots-grid" class:cols-1={slotCount === 1} class:cols-2={slotCount === 2} class:cols-3={slotCount === 3} class:cols-4={slotCount === 4}>
+		{#each Array(slotCount) as _, slotIdx (slotIdx)}
+			{@const placedHere = placedFor(slotIds[slotIdx])}
+			{@const slotStats = statsFor(placedHere)}
+			<div class="plan-slot">
+				<div class="slot-header">
+					<select bind:value={slotIds[slotIdx]} class="slot-select">
+						<option value="current">Aktueller Plan</option>
+						{#if snapshots.length > 0}
+							<optgroup label="📸 Snapshots">
+								{#each snapshots as s (s.id)}
+									<option value={s.id}>{s.name} · Score {s.score}</option>
+								{/each}
+							</optgroup>
+						{/if}
+					</select>
+					<span class="slot-stats muted small">{slotStats.total}h · {slotStats.uniqueSpecs} LE</span>
+				</div>
+
+				<div class="grid-wrapper">
+					<table class="wv-grid">
+						<thead>
+							<tr class="day-row">
+								<th class="time-col" rowspan="2"></th>
+								{#each DAYS as d (d)}
+									<th colspan={GRADES.length} class="day-head" class:today={nowState?.day === d}>{DAY_FULL[d]}</th>
+								{/each}
+							</tr>
+							<tr class="grade-row">
+								{#each DAYS as d (d)}
+									{#each GRADES as g, gi (d + '-' + g)}
+										<th
+											class="grade-head"
+											class:today={nowState?.day === d}
+											class:end-of-day={gi === GRADES.length - 1}
+										>{g}.</th>
+									{/each}
+								{/each}
+							</tr>
+						</thead>
+						<tbody>
+							{#each PERIODS as p (p)}
+								<tr>
+									<td class="time-cell">
+										<div class="period-num">{p}.</div>
+										<div class="period-time">{DEFAULT_PERIOD_TIMES[p - 1]}</div>
+									</td>
+									{#each DAYS as d (d)}
+										{#each rowLayout(placedHere, d, p) as slot, sidx (d + '-' + p + '-' + sidx + '-' + slot.startGrade)}
+											{@const couplingBg = couplingBgFor(slot.placements)}
+											{@const isNow = isNowCell(d, p)}
+											{@const isLastInDay = (slot.startGrade + slot.colspan - 1) === GRADES[GRADES.length - 1]}
+											<td
+												class="cell"
+												class:now={isNow}
+												class:coupled={couplingBg !== ''}
+												class:end-of-day={isLastInDay}
+												colspan={slot.colspan}
+												style:background={couplingBg || undefined}
+											>
+												{#if slot.placements.length > 0}
+													<div class="row" class:team={couplingBg !== ''}>
+														{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
+															{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
+															{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
+															{@const visible = isHighlighted(cp.spec, slot.startGrade)}
+															{@const tcol = teacher?.color ?? '#9ca3af'}
+															{@const t2col = teacher2?.color ?? tcol}
+															{@const dimmedByWeek = cp.spec.weekPattern !== 'every' && cp.spec.weekPattern !== weekInfo.parity}
+															<div
+																class="placed"
+																class:filtered={!visible}
+																class:dimmed-week={dimmedByWeek}
+																style:--tcol={tcol}
+																style:--t2col={t2col}
+																style:background={teacher2
+																	? `linear-gradient(to right, color-mix(in srgb, ${tcol} 45%, white) 0 50%, color-mix(in srgb, ${t2col} 45%, white) 50% 100%)`
+																	: `color-mix(in srgb, ${tcol} 45%, white)`}
+															>
+																<span class="subj" title={teacher?.name + (teacher2 ? ' + ' + teacher2.name : '')}>
+																	{cp.spec.subject}
+																</span>
+																{#if cp.spec.weekPattern !== 'every'}
+																	<span class="week-badge">{cp.spec.weekPattern === 'even' ? 'G' : 'U'}</span>
+																{/if}
+															</div>
+														{/each}
+													</div>
+												{/if}
+											</td>
+										{/each}
+									{/each}
+								</tr>
 							{/each}
-						{/each}
-					</tr>
-				{/each}
-			</tbody>
-		</table>
+						</tbody>
+					</table>
+				</div>
+			</div>
+		{/each}
 	</div>
 </div>
 
@@ -377,23 +407,32 @@
 		align-items: center;
 		gap: 8px;
 	}
-	.src-label {
-		display: flex;
-		align-items: center;
-		gap: 8px;
-		font-size: 14px;
-		font-weight: 600;
+	/* Phase 16.3: Slot-Toggle (1-4 Pläne vergleichen) */
+	.top-row {
+		justify-content: space-between;
 	}
-	.src-select {
-		min-width: 280px;
-		padding: 6px 10px;
+	.slot-toggle {
+		display: flex;
+		gap: 4px;
+		align-items: center;
+	}
+	.slot-btn {
 		font-size: 13px;
+		font-weight: 600;
+		padding: 4px 12px;
 		border-radius: 6px;
 		border: 1px solid var(--border);
+		background: white;
+		cursor: pointer;
+		min-width: 32px;
 	}
-	.src-info {
-		margin-left: auto;
-		font-size: 13px;
+	.slot-btn.active {
+		background: var(--accent);
+		color: white;
+		border-color: var(--accent);
+	}
+	.kw-info {
+		font-size: 12px;
 	}
 	.filter-label {
 		font-size: 12px;
@@ -471,12 +510,71 @@
 		border-color: var(--accent);
 	}
 
+	/* ---- Slots-Grid (Vergleichsmodus) ---- */
+	.slots-grid {
+		display: grid;
+		gap: 12px;
+	}
+	.slots-grid.cols-1 {
+		grid-template-columns: 1fr;
+	}
+	.slots-grid.cols-2 {
+		grid-template-columns: repeat(2, 1fr);
+	}
+	.slots-grid.cols-3 {
+		grid-template-columns: repeat(3, 1fr);
+	}
+	.slots-grid.cols-4 {
+		/* 4 nebeneinander wäre zu schmal — 2x2 grid */
+		grid-template-columns: repeat(2, 1fr);
+	}
+	/* Auf schmalen Screens: 3-4 Slots stacken */
+	@media (max-width: 1500px) {
+		.slots-grid.cols-3,
+		.slots-grid.cols-4 {
+			grid-template-columns: 1fr;
+		}
+	}
+	@media (max-width: 1100px) {
+		.slots-grid.cols-2 {
+			grid-template-columns: 1fr;
+		}
+	}
+	.plan-slot {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 0;
+	}
+	.slot-header {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 6px 10px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 8px 8px 0 0;
+		border-bottom: none;
+	}
+	.slot-select {
+		flex: 1;
+		min-width: 0;
+		padding: 4px 8px;
+		font-size: 13px;
+		border-radius: 5px;
+		border: 1px solid var(--border);
+	}
+	.slot-stats {
+		font-size: 12px;
+		white-space: nowrap;
+	}
+
 	/* ---- Grid ---- */
 	.grid-wrapper {
 		overflow-x: auto;
 		background: white;
 		border: 1px solid var(--border);
-		border-radius: 10px;
+		border-radius: 0 0 10px 10px;
 		padding: 8px;
 	}
 	table.wv-grid {
