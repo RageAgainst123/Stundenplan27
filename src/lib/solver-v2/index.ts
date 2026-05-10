@@ -122,6 +122,21 @@ export interface StartSolveOptions {
 	totalBudgetMs?: number;
 	/** Inner LS budget per restart cycle. Default 15_000. */
 	innerBudgetMs?: number;
+	/**
+	 * Phase 14: Construction-Pool-Phase. Vor dem Local Search werden N
+	 * verschiedene Constructions mit unterschiedlichen Seeds erzeugt; die
+	 * Lösung mit dem besten Score wird als Startlösung für Local Search
+	 * verwendet. Dauer in ms — `0` deaktiviert Pool (= heutiges Verhalten:
+	 * 1 Construction, dann sofort LS). Default 0 für Backward-Compat.
+	 *
+	 * Realistische Werte: 3000-15000 ms. Construction dauert ~50-150ms,
+	 * also liefert 10s Pool ~60-200 Pool-Versuche je nach Daten-Größe.
+	 *
+	 * Während der Pool läuft, emittiert der Solver `solution`-Events
+	 * mit Phase `'satisfy'` für jede neue Best-Construction → User sieht
+	 * den Pool im Grid live wachsen.
+	 */
+	poolBudgetMs?: number;
 }
 
 // ----- Tiny event emitter ---------------------------------------------------
@@ -339,25 +354,112 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				return;
 			}
 
-			// --- Phase 1: Construction ---
+			// --- Phase 1: Construction (Pool oder Single) ---
 			emit('phase', 'satisfy');
+			const poolBudget = opts.poolBudgetMs ?? 0;
+			const usePool = poolBudget > 0;
 			emit('progress', {
 				phase: 'satisfy',
-				phaseLabel: 'Phase 1/2: Erste valide Lösung suchen',
+				phaseLabel: usePool
+					? `Phase 1/2: Pool-Suche (${Math.round(poolBudget / 1000)}s)`
+					: 'Phase 1/2: Erste valide Lösung suchen',
 				tElapsedMs: Date.now() - tStart,
-				tLimitMs: 5_000,
+				tLimitMs: usePool ? poolBudget : 5_000,
 				phaseIndex: 1,
 				phaseCount: 2,
 			});
-			emitLog('phase', 'Phase 1: Construction (greedy + ejection chain)');
 
-			const tConstructStart = Date.now();
-			const constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
-			const tConstruct = Date.now() - tConstructStart;
-			emitLog('stat', `Construction abgeschlossen in ${tConstruct} ms`, {
-				unplaced: constructResult.unplacedUnitIdxs.length,
-				complete: constructResult.complete,
-			});
+			let constructResult: { unplacedUnitIdxs: number[]; complete: boolean };
+
+			if (usePool) {
+				// Pool-Phase: N Constructions mit verschiedenen Seeds, beste
+				// behalten. Live-Updates an UI für jede neue Best-Lösung.
+				emitLog('phase', `Phase 1: Pool-Construction (${Math.round(poolBudget / 1000)}s Budget)`);
+				const poolStart = Date.now();
+				let poolAttempts = 0;
+				let bestPoolPlacement: Int32Array | null = null;
+				let bestPoolBreakdown: ScoreBreakdown | null = null;
+				let bestPoolUnplaced: number[] = [];
+				let bestPoolComplete = false;
+
+				// Pinned-Placements einmal sichern — werden bei jedem Reset
+				// wieder eingespielt, damit User-Pins überleben.
+				const pinnedSnapshot = new Int32Array(state.nUnits);
+				for (let i = 0; i < state.nUnits; i++) {
+					pinnedSnapshot[i] = state.units[i].pinned ? state.placement[i] : SLOT_UNPLACED;
+				}
+
+				// eslint-disable-next-line no-constant-condition
+				while (true) {
+					if (aborted) break;
+					if (Date.now() - poolStart >= poolBudget) break;
+
+					// Reset placement: nur pinned units behalten ihre Plätze.
+					for (let i = 0; i < state.nUnits; i++) {
+						state.placement[i] = pinnedSnapshot[i];
+					}
+
+					// Construction mit neuem Seed pro Versuch.
+					const seed = ((Date.now() ^ (poolAttempts * 0x9E3779B1)) & 0x7fffffff) || 1;
+					const r = construct(state, { weights, seed });
+					poolAttempts++;
+					const breakdown = computeScore(state, weights);
+
+					// Akzeptiere wenn besser als bisheriger Pool-Best.
+					// "Besser" heißt: weniger unplaced ODER (gleich viele
+					// unplaced UND niedriger Score). Vollständige Lösungen
+					// dominieren immer über partielle.
+					const better = bestPoolBreakdown === null
+						|| (r.unplacedUnitIdxs.length < bestPoolUnplaced.length)
+						|| (r.unplacedUnitIdxs.length === bestPoolUnplaced.length
+							&& breakdown.total < bestPoolBreakdown.total);
+					if (better) {
+						bestPoolPlacement = new Int32Array(state.placement);
+						bestPoolBreakdown = breakdown;
+						bestPoolUnplaced = r.unplacedUnitIdxs;
+						bestPoolComplete = r.complete;
+						// Live-Update für UI.
+						emit('solution', {
+							placed: placementToPlacedLessons(state, state.placement),
+							score: breakdown.total,
+							tElapsedMs: Date.now() - tStart,
+							phase: 'satisfy',
+						});
+						emitLog('stat', `Pool: neuer Best #${poolAttempts}, Score ${breakdown.total}, ${r.unplacedUnitIdxs.length} unplaced`);
+					}
+
+					// Async-Yield damit UI-Updates durchkommen und abort
+					// wirksam wird.
+					await new Promise(resolve => setTimeout(resolve, 0));
+				}
+
+				// Pool-Phase fertig — beste Lösung als Startpunkt für LS
+				// wieder einspielen.
+				if (bestPoolPlacement && bestPoolBreakdown) {
+					state.placement.set(bestPoolPlacement);
+					constructResult = {
+						unplacedUnitIdxs: bestPoolUnplaced,
+						complete: bestPoolComplete,
+					};
+					emitLog('phase', `Pool abgeschlossen: ${poolAttempts} Versuche, bester Score ${bestPoolBreakdown.total}`);
+				} else {
+					// Fallback wenn Pool gar keinen Versuch geschafft hat
+					// (z.B. abort kurz nach Start).
+					emitLog('warn', `Pool ohne valide Lösung — Fallback auf Einzel-Construction`);
+					for (let i = 0; i < state.nUnits; i++) state.placement[i] = pinnedSnapshot[i];
+					constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+				}
+			} else {
+				// Heutiges Verhalten: 1 Construction
+				emitLog('phase', 'Phase 1: Construction (greedy + ejection chain)');
+				const tConstructStart = Date.now();
+				constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+				const tConstruct = Date.now() - tConstructStart;
+				emitLog('stat', `Construction abgeschlossen in ${tConstruct} ms`, {
+					unplaced: constructResult.unplacedUnitIdxs.length,
+					complete: constructResult.complete,
+				});
+			}
 
 			if (aborted) {
 				emitDone(state, weights, computeScore(state, weights), null, false);

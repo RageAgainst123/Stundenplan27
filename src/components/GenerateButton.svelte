@@ -4,6 +4,15 @@
 	import type { PlacedLesson } from '../lib/types';
 	const store = useStore();
 
+	// Phase 14: Pool-Phase Dauer (Sekunden). 0 = aus (heutiges Verhalten:
+	// 1 Construction, sofort LS). >0 = Pool-Construction für N Sekunden,
+	// dann beste Lösung als LS-Startpunkt. Im UI als Slider 0-30s.
+	let poolDurationSec = $state<number>(5);
+	// Pool-Statistik für Live-Anzeige während des Laufs.
+	let poolAttempts = $state<number>(0);
+	let poolBestScore = $state<number | null>(null);
+	let poolPhaseActive = $state<boolean>(false);
+
 	// ---- Run state ----
 	let session = $state<SolveSession | null>(null);
 	let phase = $state<SolvePhase | null>(null);
@@ -147,13 +156,17 @@
 
 	function generate(): void {
 		reset();
+		poolAttempts = 0;
+		poolBestScore = null;
+		poolPhaseActive = poolDurationSec > 0;
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
 			// gerne mehrere Minuten laufen — Anytime-Modus heißt der User
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
 			totalBudgetMs: 1_800_000, // 30 min Gesamtbudget (Construct + ILS)
-			innerBudgetMs: 30_000     // 30 s pro inner-LS-Restart-Zyklus
+			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
+			poolBudgetMs: poolDurationSec * 1000  // 0 = Pool aus
 		});
 		session = s;
 
@@ -177,6 +190,20 @@
 			plansApplied++;
 		});
 		s.on('log', ev => {
+			// Pool-Stats aus den stat-Logs ziehen für die UI-Live-Anzeige.
+			// Format: "Pool: neuer Best #N, Score X, ..." → wir parsen N + X.
+			if (ev.level === 'stat' && ev.message.startsWith('Pool: neuer Best')) {
+				const m = ev.message.match(/#(\d+).*Score (\d+(?:\.\d+)?)/);
+				if (m) {
+					poolAttempts = parseInt(m[1], 10);
+					poolBestScore = parseFloat(m[2]);
+				}
+			}
+			if (ev.level === 'phase' && ev.message.startsWith('Pool abgeschlossen')) {
+				poolPhaseActive = false;
+				const m = ev.message.match(/(\d+) Versuche/);
+				if (m) poolAttempts = parseInt(m[1], 10);
+			}
 			// Cap log to avoid runaway memory; keep first 50 + last 950 if needed.
 			if (logEntries.length >= 1000) {
 				logEntries = [...logEntries.slice(0, 50), ...logEntries.slice(-949), ev];
@@ -268,6 +295,30 @@
 </script>
 
 <div class="gen">
+	<div class="pool-config" class:disabled={busy}>
+		<label class="pool-label">
+			<span>Pool-Phase:</span>
+			<input
+				type="range"
+				min="0"
+				max="30"
+				step="1"
+				bind:value={poolDurationSec}
+				disabled={busy}
+				class="pool-slider"
+				title="Vor dem Optimieren werden N Sekunden lang verschiedene Random-Pläne erzeugt; der beste wird als Startpunkt verwendet. 0 = aus (1 Construction wie bisher)."
+			/>
+			<span class="pool-value">{poolDurationSec === 0 ? 'aus' : `${poolDurationSec} s`}</span>
+		</label>
+		<div class="pool-hint muted small">
+			{#if poolDurationSec === 0}
+				Direkt 1 Construction → Optimieren (heutiges Verhalten)
+			{:else}
+				{poolDurationSec} s Pool-Suche (~{Math.round(poolDurationSec * 10)}–{Math.round(poolDurationSec * 20)} Versuche) → bester Plan wird optimiert
+			{/if}
+		</div>
+	</div>
+
 	<button class="btn primary" onclick={generate} disabled={busy}>
 		{busy ? 'Solver läuft…' : 'Plan generieren'}
 	</button>
@@ -278,6 +329,16 @@
 				<strong>{phaseLabel || 'Initialisierung…'}</strong>
 				<span class="muted small">— {fmtDuration(tElapsed)} / {fmtDuration(tLimit)} • Rest ~{fmtDuration(tLimit - tElapsed)}</span>
 			</div>
+			{#if poolPhaseActive && phase === 'satisfy'}
+				<div class="pool-live">
+					<span class="pool-badge">🎲 Pool-Phase</span>
+					{#if poolBestScore !== null}
+						<span class="muted small">{poolAttempts} Versuch{poolAttempts === 1 ? '' : 'e'} · bester Score: <strong>{Math.round(poolBestScore)}</strong></span>
+					{:else}
+						<span class="muted small">Suche nach erster Lösung…</span>
+					{/if}
+				</div>
+			{/if}
 			<div class="bar"><div class="bar-fill" style:width="{progressPercent}%"></div></div>
 			{#if scoreHistory.length > 0}
 				<div class="live-score">
@@ -414,6 +475,58 @@
 		align-items: flex-start;
 		gap: 12px;
 		flex-wrap: wrap;
+	}
+	.pool-config {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		min-width: 240px;
+		padding: 8px 10px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+	}
+	.pool-config.disabled {
+		opacity: 0.6;
+	}
+	.pool-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.pool-label > span:first-child {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 80px;
+	}
+	.pool-slider {
+		flex: 1;
+		min-width: 100px;
+	}
+	.pool-value {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 36px;
+		text-align: right;
+		color: var(--accent);
+	}
+	.pool-hint {
+		font-size: 11px;
+		line-height: 1.3;
+	}
+	.pool-live {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		background: rgba(244, 162, 97, 0.1);
+		border-left: 3px solid #f4a261;
+		border-radius: 4px;
+		font-size: 12px;
+	}
+	.pool-badge {
+		font-weight: 600;
+		color: #c47e34;
 	}
 	.result-block {
 		display: flex;

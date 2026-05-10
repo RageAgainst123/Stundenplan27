@@ -102,6 +102,54 @@ describe('startSolve — public API', () => {
 	});
 });
 
+describe('Phase 14: Pool-Construction', () => {
+	it('Default (poolBudgetMs=0): single Construction wie bisher', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const session = startSolve(doc, { totalBudgetMs: 1500, innerBudgetMs: 500 });
+		// Sammle log-Events um zu prüfen ob "Pool" oder "Single" lief
+		const phaseLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+		});
+		await new Promise<void>((resolve) => session.on('done', () => resolve()));
+		// Mind. ein Phase-Log darf "Construction (greedy" enthalten
+		// (heutiger Default-Text), aber kein "Pool-Construction".
+		const hasSingle = phaseLogs.some(m => m.includes('Construction (greedy'));
+		const hasPool = phaseLogs.some(m => m.includes('Pool-Construction'));
+		expect(hasSingle).toBe(true);
+		expect(hasPool).toBe(false);
+	});
+
+	it('poolBudgetMs > 0: Pool-Phase läuft, mehrere Versuche', async () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const session = startSolve(doc, {
+			totalBudgetMs: 5000,
+			innerBudgetMs: 1500,
+			poolBudgetMs: 1000  // 1s Pool
+		});
+		const phaseLogs: string[] = [];
+		const statLogs: string[] = [];
+		session.on('log', (e: any) => {
+			if (e.level === 'phase' && typeof e.message === 'string') phaseLogs.push(e.message);
+			if (e.level === 'stat' && typeof e.message === 'string') statLogs.push(e.message);
+		});
+		await new Promise<void>((resolve) => session.on('done', () => resolve()));
+		const hasPool = phaseLogs.some(m => m.includes('Pool-Construction'));
+		const poolDone = phaseLogs.some(m => m.includes('Pool abgeschlossen'));
+		expect(hasPool).toBe(true);
+		expect(poolDone).toBe(true);
+		// Mind. ein Pool-Best-Update wurde geloggt
+		const poolBests = statLogs.filter(m => m.includes('Pool: neuer Best'));
+		expect(poolBests.length).toBeGreaterThanOrEqual(1);
+	});
+});
+
 describe('strict-noFree auto-relaxation', () => {
 	it('default doc has strict mode enabled', () => {
 		const doc = emptyDoc();
