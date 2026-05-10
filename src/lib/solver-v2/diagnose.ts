@@ -99,26 +99,24 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		}
 	}
 
-	// 3c) mustStartFirstPeriod + Lehrer-Verfügbarkeit prüfen.
-	// Wenn an einem Tag KEIN einziger Lehrer in P1 verfügbar ist, kann der
-	// "Beginn in P1"-Wunsch dort nur durch Tag-leer-lassen erfüllt werden,
-	// was wiederum min_daily verletzt. Pragmatisch nur ein Soft-Hint.
+	// 3c) Phase 13.1 — H11 Pre-Flight: mustStartFirstPeriod ist im strict-
+	// no-free-Modus quasi-hart (no_p1_start ×50). Pro Wochentag prüfen
+	// ob für jede aktive Stufe genug P1-Lehrer-Kapazität existiert.
+	// Wenn an einem Tag KEIN einziger Lehrer P1 hat: error (nicht warn —
+	// Solver wird das nicht lockern können).
 	if (doc.constraints?.mustStartFirstPeriod?.enabled && minDaily > 0) {
-		let anyDayMissing = false;
+		const daysWithoutP1Teacher: string[] = [];
 		for (let dIdx = 0; dIdx < D; dIdx++) {
 			const dayName = DAYS[dIdx];
 			const someoneFreeP1 = doc.teachers.some(
 				t => !(t.unavailable ?? []).some(u => u.day === dayName && u.period === 1)
 			);
-			if (!someoneFreeP1) {
-				anyDayMissing = true;
-				break;
-			}
+			if (!someoneFreeP1) daysWithoutP1Teacher.push(dayName);
 		}
-		if (anyDayMissing) {
+		if (daysWithoutP1Teacher.length > 0) {
 			hints.push({
 				severity: 'warn',
-				message: `An mindestens einem Wochentag ist kein Lehrer in der 1. Stunde verfügbar. Die Regel "Beginn in P1" kann an diesem Tag UNSAT auslösen — der Solver lockert dann automatisch.`
+				message: `An ${daysWithoutP1Teacher.length === 1 ? 'folgendem Wochentag' : 'folgenden Wochentagen'} ist kein Lehrer in der 1. Stunde verfügbar: ${daysWithoutP1Teacher.join(', ')}. Wenn an einem dieser Tage Stunden generiert werden, beginnt der Plan dort später — Regel "Schule beginnt P1" verletzt. Lehrer-Verfügbarkeit erweitern oder Tag akzeptieren.`
 			});
 		}
 	}

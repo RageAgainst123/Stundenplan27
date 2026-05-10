@@ -295,7 +295,14 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const unevenDaysWeight = typeof cAny.unevenDaysWeight === 'number' ? cAny.unevenDaysWeight as number : 150;
 	const timePrefWeight = typeof cAny.timePrefWeight === 'number' ? cAny.timePrefWeight as number : 100;
 	const p1Cfg = c.mustStartFirstPeriod as { enabled: boolean; weight?: number };
-	const p1Weight = p1Cfg.enabled === false ? 0 : (typeof p1Cfg.weight === 'number' ? p1Cfg.weight : 300);
+	const p1Base = p1Cfg.enabled === false ? 0 : (typeof p1Cfg.weight === 'number' ? p1Cfg.weight : 300);
+	// Phase 13.1: im strict-no-free-Modus bekommt no_p1_start denselben ×50
+	// Multiplikator wie no_free. Begründung: ein P1-leerer Tag ist
+	// pädagogisch genauso schlecht wie sandwich-gaps — Schüler hängen rum.
+	// Vorher reichte das Default-Gewicht 300 nicht um Lehrer-Verfügbarkeits-
+	// Druck zu kontern; Solver liefert dann „start P3, ende P8"-Pläne.
+	const noFreeStrictActive = strictNoFree && noFreeStrict;
+	const p1Weight = noFreeStrictActive ? p1Base * 50 : p1Base;
 	const subjOnce = c.subjectMaxOncePerDay as { enabled?: boolean; weight?: number } | undefined;
 	const subjOnceWeight = subjOnce?.enabled === false ? 0 : (subjOnce?.weight ?? 60);
 	const specSpread = c.preferDoubleLessonsContiguous as { enabled?: boolean; weight?: number } | undefined;

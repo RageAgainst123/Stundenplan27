@@ -220,6 +220,7 @@ export function findHardViolations(state: SolverState): number[] {
 		state.placement[i] = slot;
 		if (reason !== null) offenders.push(i);
 	}
+
 	return offenders;
 }
 

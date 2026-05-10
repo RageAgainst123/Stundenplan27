@@ -161,8 +161,14 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			if (occupiedPeriods > 0 && !p1Active) {
 				breakdown.no_p1_start++;
 			}
-			// no_free: gaps between firstP and lastP
-			if (firstP !== -1 && lastP > firstP) {
+			// no_free: gaps WITHIN the active span (firstP..lastP)
+			// PLUS leading gaps before firstP (Phase 13.1 Korrektur).
+			// Vorher: Tagesrand-Lücken am Anfang waren "kostenlos" — der Solver
+			// hat 7. Stufe Mo P3-P8 statt P1-P6 belegt weil 0 inner gaps
+			// = 0 inner gaps, no_p1_start aber nur Gewicht 300. Jetzt zählt
+			// firstP selbst als Anzahl leerer Slots davor.
+			if (firstP !== -1) {
+				breakdown.no_free += firstP; // Lücken P1..firstP-1
 				for (let p = firstP + 1; p < lastP; p++) {
 					if (occ[d * G * P + g * P + p] === 0) breakdown.no_free++;
 				}

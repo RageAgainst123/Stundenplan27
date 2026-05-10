@@ -227,6 +227,33 @@ describe('computeScore — no_free (sandwich gaps)', () => {
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.no_free).toBe(0);
 	});
+
+	// Phase 13.1: Tagesrand-Lücken AM ANFANG zählen mit. Pädagogisch heißt
+	// „Schule beginnt P3 statt P1" 2 Lücken für die Schüler — egal dass
+	// nichts dazwischen frei ist.
+	it('Mo P3 only counts 2 leading gaps (Phase 13.1)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		// firstP=2 (0-indexed), keine inner gaps. Leading = 2.
+		expect(b.no_free).toBe(2);
+	});
+
+	it('Mo P3 + P5 counts 2 leading + 1 inner = 3', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 3);
+		place(state, 's', 'Mo', 5);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.no_free).toBe(3);
+	});
 });
 
 describe('computeScore — no_p1_start', () => {
