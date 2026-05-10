@@ -300,6 +300,20 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				emitLog('info', 'Modus: keine Freistunden in Stufen (strict)');
 			}
 
+			// K-1: Pin-Verluste melden. buildState verwirft Pins die hard
+			// constraints verletzen — das ist sicher, aber der User muss es
+			// wissen, sonst wundert er sich warum „seine" Pins fehlen.
+			if (state.droppedPins && state.droppedPins.length > 0) {
+				for (const dp of state.droppedPins) {
+					emitLog('warn', `Pin verworfen: ${dp.subjectCode} ${dp.day} P${dp.period} — ${dp.reason}`, {
+						specId: dp.specId,
+						day: dp.day,
+						period: dp.period,
+						reason: dp.reason,
+					});
+				}
+			}
+
 			if (state.nUnits === 0) {
 				emit('done', {
 					final: {
@@ -360,9 +374,20 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			});
 			emitLog('phase', 'Phase 2: Iterated Local Search');
 
+			// K-2: Phase-3 Mindest-Budget reservieren. Wenn strict-no-free aktiv
+			// ist, könnte später eine Auto-Lockerung nötig werden — dafür
+			// reservieren wir 10 % des Gesamtbudgets (mind. 2 s), sonst frisst
+			// Phase 2 die Zeit auf und Phase 3 kommt gar nicht erst zum Zug.
+			const phase2BudgetCap = strictNoFree
+				? Math.max(2_000, totalBudget - Math.max(2_000, Math.floor(totalBudget * 0.1)))
+				: totalBudget;
+			const phase2Remaining = Math.min(
+				phase2BudgetCap - (Date.now() - tStart),
+				totalBudget - (Date.now() - tStart),
+			);
 			const ils = await iteratedLocalSearchAsync(state, initialBreakdown, {
 				weights,
-				totalBudgetMs: totalBudget - (Date.now() - tStart),
+				totalBudgetMs: Math.max(1_000, phase2Remaining),
 				innerBudgetMs: innerBudget,
 				seed: Date.now() & 0x7fffffff,
 				shouldAbort: () => aborted,

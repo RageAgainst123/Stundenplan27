@@ -11,14 +11,16 @@
 import { GRADES, type GradeLevel, type LessonSpec, type ScheduleDoc, type WeekPattern } from '../types';
 import {
 	DAY_INDEX,
+	DAYS_BY_INDEX,
 	type LessonInstance,
 	type SolverState,
 	type Unit,
 	type UnitKind,
 	SLOT_UNPLACED,
+	dpFromSlot,
 	slotFromDP,
 } from './types';
-import { findHardViolations } from './hardCheck';
+import { findHardViolations, wouldViolate } from './hardCheck';
 
 /** Resolve `spec.blocks` to a concrete sequence of block sizes. */
 function resolveBlocks(spec: LessonSpec): number[] {
@@ -285,8 +287,33 @@ export function buildState(doc: ScheduleDoc): SolverState {
 		teachersById,
 	};
 	const offenders = findHardViolations(stateForCheck);
+	const droppedPins: SolverState['droppedPins'] = [];
 	for (const idx of offenders) {
 		const u = units[idx];
+		const slot = placement[idx];
+		// Capture the violation reason BEFORE we mutate, so the user message
+		// is informative ("Lehrer X unverfügbar an Mo P1" statt nur "verworfen").
+		let reason = 'Slot-Konflikt mit anderem Pin';
+		if (slot !== SLOT_UNPLACED) {
+			placement[idx] = SLOT_UNPLACED;
+			const wasPinned = u.pinned;
+			u.pinned = false;
+			const violReason = wouldViolate(stateForCheck, u, slot);
+			u.pinned = wasPinned;
+			placement[idx] = slot;
+			if (violReason) reason = violReason;
+		}
+		// Map back to a (specId, day, period) the UI can show.
+		if (slot !== SLOT_UNPLACED) {
+			const { dayIndex, period } = dpFromSlot(slot);
+			droppedPins.push({
+				specId: u.specIds[0],
+				subjectCode: u.subjectCode,
+				day: DAYS_BY_INDEX[dayIndex],
+				period: period as import('../types').Period,
+				reason,
+			});
+		}
 		if (!u.pinned) {
 			// Non-pinned offenders shouldn't happen here (placement only has
 			// pinned units at this stage), but be defensive.
@@ -310,5 +337,7 @@ export function buildState(doc: ScheduleDoc): SolverState {
 		specsById,
 		subjectsByCode,
 		teachersById,
+		droppedPins,
 	};
 }
+

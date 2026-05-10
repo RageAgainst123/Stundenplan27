@@ -126,6 +126,14 @@ export interface SolverState {
 	subjectsByCode: Map<string, Subject>;
 	/** Map: teacher id → ScheduleDoc.teachers lookup. */
 	teachersById: Map<string, Teacher>;
+	/**
+	 * Pins die beim Build (in `units.ts`) verworfen werden mussten weil
+	 * sie hard-Constraints verletzten (z. B. Lehrer in P1 gesperrt aber
+	 * Pin auf P1, oder zwei Pins auf gleichem Slot+Stufe). Nicht leer
+	 * heißt: User-Vorgabe konnte nicht respektiert werden — UI sollte
+	 * das melden. Optional weil interne Hilfs-States das Feld nicht brauchen.
+	 */
+	droppedPins?: Array<{ specId: string; subjectCode: string; day: Day; period: Period; reason: string }>;
 }
 
 /** Placement constant for "not placed yet". */
