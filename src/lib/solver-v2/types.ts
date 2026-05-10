@@ -314,9 +314,13 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// Phase 13: Zieltagespensum + afternoon_preferred.
 	const tDaily = c.targetDailyLessons as { enabled?: boolean; weight?: number; target?: number } | undefined;
 	const tDailyWeight = tDaily?.enabled === false ? 0 : (tDaily?.weight ?? 80);
-	// afternoon_preferred bekommt fixed default 15 — analog any_aft. Konfigurierbar
-	// erst wenn Use-Case real ist.
-	const afternoonPreferredWeight = 15;
+	// Phase 13.2: afternoon_preferred-Gewicht hochgezogen von 15 auf 100.
+	// Vorher zu schwach — 'preferred'-Spec auf P1-P3 zahlt z.B. 3×15=45,
+	// nachmittags hingegen 3×any_aft=150. Resultat: Solver legte EH lieber
+	// vormittags weil dort billiger. Plus: 'preferred'-Specs sind jetzt von
+	// any_aft EXEMPT (siehe score.ts), dadurch ist Nachmittag wirklich
+	// kostenlos und Vormittag straft 100/Slot.
+	const afternoonPreferredWeight = 100;
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,

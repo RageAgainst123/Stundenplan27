@@ -215,7 +215,10 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		// A 'late'-pref spec opts out of the afternoon penalties — the user
 		// has explicitly chosen this time band, so charging any_aft/main_aft
 		// would cancel the time_pref signal.
-		const afternoonExempt = timePref === 'late';
+		// Phase 13.2: Specs mit afternoonAllowed='preferred' sind aus dem
+		// gleichen Grund exempt — User hat „bevorzugt nachmittags" gewählt,
+		// any_aft hier zu kassieren würde dem Signal entgegenwirken.
+		const afternoonExempt = timePref === 'late' || unit.afternoonAllowed === 'preferred';
 		for (const inst of unit.instances) {
 			const p = period - 1 + inst.blockPos;
 			if (p >= P) continue;
