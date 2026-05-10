@@ -286,7 +286,7 @@
 		{#each Array(slotCount) as _, slotIdx (slotIdx)}
 			{@const placedHere = placedFor(slotIds[slotIdx])}
 			{@const slotStats = statsFor(placedHere)}
-			<div class="plan-slot">
+			<div class="plan-slot" class:compact-2={slotCount === 2} class:compact-3-4={slotCount >= 3}>
 				<div class="slot-header">
 					<select bind:value={slotIds[slotIdx]} class="slot-select">
 						<option value="current">Aktueller Plan</option>
@@ -528,14 +528,15 @@
 		/* 4 nebeneinander wäre zu schmal — 2x2 grid */
 		grid-template-columns: repeat(2, 1fr);
 	}
-	/* Auf schmalen Screens: 3-4 Slots stacken */
-	@media (max-width: 1500px) {
+	/* Auf schmalen Screens: 3-4 Slots stacken (gelockert weil
+	   Compact-Modus die Slots viel schmaler macht) */
+	@media (max-width: 1300px) {
 		.slots-grid.cols-3,
 		.slots-grid.cols-4 {
 			grid-template-columns: 1fr;
 		}
 	}
-	@media (max-width: 1100px) {
+	@media (max-width: 900px) {
 		.slots-grid.cols-2 {
 			grid-template-columns: 1fr;
 		}
@@ -729,5 +730,109 @@
 		padding: 0 2px;
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.6);
+	}
+
+	/* ---- Compact-Modus für Vergleichsansicht (slotCount > 1) ---- */
+	/* 2 Slots nebeneinander: kompaktere Cells, kleinere Schrift,
+	   schmalere Period-Spalte. Min-Width damit beide auf 1280er Screen
+	   nebeneinander passen. */
+	.plan-slot.compact-2 .grid-wrapper {
+		padding: 4px;
+	}
+	.plan-slot.compact-2 table.wv-grid {
+		min-width: 640px;
+		border-spacing: 2px;
+		font-size: 10px;
+	}
+	.plan-slot.compact-2 thead th.time-col,
+	.plan-slot.compact-2 td.time-cell {
+		width: 42px;
+	}
+	.plan-slot.compact-2 td.time-cell {
+		padding: 3px 2px;
+	}
+	.plan-slot.compact-2 .period-num {
+		font-size: 13px;
+	}
+	.plan-slot.compact-2 .period-time {
+		display: none; /* Zeit weg im Compact, nur Periodennummer */
+	}
+	.plan-slot.compact-2 thead th.day-head {
+		font-size: 12px;
+		padding: 4px 2px;
+	}
+	.plan-slot.compact-2 thead th.grade-head {
+		font-size: 10px;
+		padding: 2px;
+	}
+	.plan-slot.compact-2 td.cell {
+		min-height: 30px;
+		height: 30px;
+		border-radius: 4px;
+	}
+	.plan-slot.compact-2 td.cell.end-of-day,
+	.plan-slot.compact-2 thead th.grade-head.end-of-day {
+		border-right: 6px solid white;
+	}
+	.plan-slot.compact-2 .placed {
+		padding: 2px 2px;
+		font-size: 10px;
+		border-radius: 3px;
+	}
+	.plan-slot.compact-2 .subj {
+		font-size: 10px;
+	}
+
+	/* 3-4 Slots: extra-kompakt. Mindestens 480px Tabellenbreite damit
+	   bei 1500-1920er Screens 3-4 nebeneinander passen würden;
+	   media-query stackt sie aber heute schon ab 1300px. */
+	.plan-slot.compact-3-4 .grid-wrapper {
+		padding: 3px;
+	}
+	.plan-slot.compact-3-4 table.wv-grid {
+		min-width: 480px;
+		border-spacing: 1px;
+		font-size: 9px;
+	}
+	.plan-slot.compact-3-4 thead th.time-col,
+	.plan-slot.compact-3-4 td.time-cell {
+		width: 32px;
+	}
+	.plan-slot.compact-3-4 td.time-cell {
+		padding: 2px 1px;
+	}
+	.plan-slot.compact-3-4 .period-num {
+		font-size: 11px;
+	}
+	.plan-slot.compact-3-4 .period-time {
+		display: none;
+	}
+	.plan-slot.compact-3-4 thead th.day-head {
+		font-size: 10px;
+		padding: 3px 1px;
+	}
+	.plan-slot.compact-3-4 thead th.grade-head {
+		font-size: 9px;
+		padding: 1px;
+	}
+	.plan-slot.compact-3-4 td.cell {
+		min-height: 24px;
+		height: 24px;
+		border-radius: 3px;
+	}
+	.plan-slot.compact-3-4 td.cell.end-of-day,
+	.plan-slot.compact-3-4 thead th.grade-head.end-of-day {
+		border-right: 4px solid white;
+	}
+	.plan-slot.compact-3-4 .placed {
+		padding: 1px 1px;
+		font-size: 9px;
+		border-radius: 2px;
+	}
+	.plan-slot.compact-3-4 .subj {
+		font-size: 9px;
+	}
+	.plan-slot.compact-3-4 .week-badge {
+		display: none; /* zu klein für G/U-Badge — Tooltip via title bleibt */
 	}
 </style>
