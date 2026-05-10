@@ -161,6 +161,7 @@ export function buildState(doc: ScheduleDoc): SolverState {
 				pinned: false,
 				specIds: [spec.id],
 				weekPattern: spec.weekPattern as WeekPattern,
+				afternoonAllowed: spec.afternoonAllowed ?? 'allowed',
 			});
 
 			occurrenceIndex++;
@@ -188,6 +189,10 @@ export function buildState(doc: ScheduleDoc): SolverState {
 			let subjectCode = '';
 			let blockSize = 1;
 			let weekPattern: WeekPattern = 'every';
+			// Strictest afternoonAllowed across coupled specs wins:
+			// 'never' > 'allowed' > 'preferred'. One never-Spec macht die ganze
+			// Coupling-Gruppe never.
+			let afternoonAllowed: 'never' | 'allowed' | 'preferred' = 'preferred';
 			for (const e of group) {
 				const spec = specsById.get(e.specId);
 				if (!spec) continue;
@@ -208,6 +213,9 @@ export function buildState(doc: ScheduleDoc): SolverState {
 				if (!subjectCode) subjectCode = spec.subject;
 				blockSize = Math.max(blockSize, e.blockSize);
 				weekPattern = spec.weekPattern;
+				const sa = spec.afternoonAllowed ?? 'allowed';
+				if (sa === 'never') afternoonAllowed = 'never';
+				else if (sa === 'allowed' && afternoonAllowed !== 'never') afternoonAllowed = 'allowed';
 				specIds.push(e.specId);
 			}
 			if (allInstances.length === 0) continue;
@@ -222,6 +230,7 @@ export function buildState(doc: ScheduleDoc): SolverState {
 				pinned: false,
 				specIds,
 				weekPattern,
+				afternoonAllowed,
 			});
 		}
 		void couplingId;

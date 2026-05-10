@@ -37,6 +37,10 @@ export interface PenaltyBreakdown {
 	spec_spread: number;
 	teacher_late_start: number;
 	teacher_under_min: number;
+	/** Phase 13: quadratische Abweichung pro (day, grade) vom Zieltagespensum. */
+	target_daily: number;
+	/** Phase 13: Specs die nachmittags sein sollten aber morgens landen. */
+	afternoon_preferred: number;
 	total: number;
 }
 
@@ -197,6 +201,8 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		spec_spread: b.spec_spread,
 		teacher_late_start: b.teacher_late_start,
 		teacher_under_min: b.teacher_under_min,
+		target_daily: b.target_daily,
+		afternoon_preferred: b.afternoon_preferred,
 		total: b.total,
 	};
 }

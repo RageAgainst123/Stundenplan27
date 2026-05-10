@@ -432,3 +432,52 @@ describe('buildState — pin-apply dedup for multi-grade specs', () => {
 
 void DAY_INDEX;
 void SLOT_UNPLACED;
+
+// ---------------- H10: Hauptfach am Nachmittag verboten -------------------
+
+describe('wouldViolate — H10 afternoonAllowed=never', () => {
+	it('rejects a never-Spec on P7', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push({ ...spec('s', 'M', 't', [5], 1), afternoonAllowed: 'never' });
+		const state = buildState(doc);
+		const u = state.units[0];
+		expect(wouldViolate(state, u, slotFromDP(0, 7))).toMatch(/H10/);
+		expect(wouldViolate(state, u, slotFromDP(0, 8))).toMatch(/H10/);
+	});
+
+	it('allows a never-Spec on P6 (Vormittagsgrenze)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push({ ...spec('s', 'M', 't', [5], 1), afternoonAllowed: 'never' });
+		const state = buildState(doc);
+		const u = state.units[0];
+		expect(wouldViolate(state, u, slotFromDP(0, 6))).toBeNull();
+	});
+
+	it('rejects a never-Block (size 2) on P6 because it would extend into P7', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M', { isMain: true }));
+		doc.specs.push({
+			...spec('s', 'M', 't', [5], 2, { blocks: [2] }),
+			afternoonAllowed: 'never',
+		});
+		const state = buildState(doc);
+		const u = state.units[0];
+		expect(wouldViolate(state, u, slotFromDP(0, 6))).toMatch(/H10/);
+		expect(wouldViolate(state, u, slotFromDP(0, 5))).toBeNull();
+	});
+
+	it('does NOT reject an allowed-Spec on P7', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP', { isMain: false }));
+		doc.specs.push({ ...spec('s', 'BSP', 't', [5], 1), afternoonAllowed: 'allowed' });
+		const state = buildState(doc);
+		const u = state.units[0];
+		expect(wouldViolate(state, u, slotFromDP(0, 7))).toBeNull();
+	});
+});

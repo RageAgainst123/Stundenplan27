@@ -124,8 +124,17 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		spec_spread: 0,
 		teacher_late_start: 0,
 		teacher_under_min: 0,
+		target_daily: 0,
+		afternoon_preferred: 0,
 		total: 0,
 	};
+
+	// Phase 13: Zieltagespensum aus ConstraintConfig.
+	const targetCfg = (state.doc.constraints as unknown as Record<string, unknown>).targetDailyLessons as
+		| { enabled?: boolean; target?: number }
+		| undefined;
+	const targetEnabled = targetCfg?.enabled !== false;
+	const targetDaily = Math.max(1, Math.min(P, Math.round(targetCfg?.target ?? 6)));
 
 	// --- Per (day, grade) walk: lessons_dg, p1-start, no-free, uneven_days
 	// lessons_dg counts DISTINCT periods occupied (Slots), not lessons.
@@ -162,6 +171,14 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			const target = Math.max(minDaily, 4);
 			if (occupiedPeriods < target) {
 				breakdown.uneven_days += target - occupiedPeriods;
+			}
+			// Phase 13: target_daily — quadratische Penalty für Abweichung
+			// vom Zieltagespensum, in BEIDE Richtungen. min_daily deckt nur
+			// den Boden ab; target_daily zwingt den Solver auch von 8 → 6.
+			// Inaktive Tage (0 Stunden) sind ausgenommen.
+			if (targetEnabled && occupiedPeriods > 0) {
+				const diff = occupiedPeriods - targetDaily;
+				breakdown.target_daily += diff * diff;
 			}
 		}
 	}
@@ -200,6 +217,12 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			if (p + 1 >= afternoonStart && !afternoonExempt) {
 				breakdown.any_aft++;
 				if (isMain) breakdown.main_aft++;
+			}
+			// Phase 13: afternoon_preferred — Spec SOLL nachmittags sein,
+			// liegt aber im Vormittag. Penalty pro Vormittag-Slot. Reziprok
+			// zu any_aft/main_aft.
+			if (unit.afternoonAllowed === 'preferred' && p + 1 < afternoonStart) {
+				breakdown.afternoon_preferred++;
 			}
 			if (isMain) {
 				if (!afternoonExempt) breakdown.main_early += p; // (period-1)
@@ -358,7 +381,9 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.subject_twice * breakdown.subject_twice +
 		weights.spec_spread * breakdown.spec_spread +
 		weights.teacher_late_start * breakdown.teacher_late_start +
-		weights.teacher_under_min * breakdown.teacher_under_min;
+		weights.teacher_under_min * breakdown.teacher_under_min +
+		weights.target_daily * breakdown.target_daily +
+		weights.afternoon_preferred * breakdown.afternoon_preferred;
 
 	return breakdown;
 }

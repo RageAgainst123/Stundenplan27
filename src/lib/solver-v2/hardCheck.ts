@@ -52,6 +52,15 @@ export function wouldViolate(
 		periodsToOccupy.push(p);
 	}
 
+	// H10: Phase 13 — Specs mit `afternoonAllowed='never'` dürfen nicht in
+	// Nachmittagsslots P7-P8 (inkl. Block-Reichweite). Default für Hauptfächer
+	// nach Migration v4→v5.
+	if (unit.afternoonAllowed === 'never') {
+		for (const p of periodsToOccupy) {
+			if (p >= 7) return 'H10: Nachmittag verboten (Hauptfach)';
+		}
+	}
+
 	// H2: Teacher availability — for couplings, EVERY teacher in the team
 	// must be free in every occupied period.
 	for (const tid of unit.teacherIds) {

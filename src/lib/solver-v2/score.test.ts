@@ -300,7 +300,9 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.subject_twice * b.subject_twice +
 			w.spec_spread * b.spec_spread +
 			w.teacher_late_start * b.teacher_late_start +
-			w.teacher_under_min * b.teacher_under_min;
+			w.teacher_under_min * b.teacher_under_min +
+			w.target_daily * b.target_daily +
+			w.afternoon_preferred * b.afternoon_preferred;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -675,6 +677,108 @@ describe('computeScore — teacher_late_start', () => {
 		place(state, 'b', 'Di', 3); // late_start += 2
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.teacher_late_start).toBe(3);
+	});
+});
+
+// --- Phase 13: target_daily + afternoon_preferred ---
+
+describe('computeScore — target_daily (Phase 13)', () => {
+	it('is 0 when daily lessons match target', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		// 6 Specs für 1 Stufe an einem Tag = target_daily = 0 für diesen Tag
+		for (let i = 0; i < 6; i++) {
+			doc.specs.push(spec(`s${i}`, 'M', 't', [5], 1));
+		}
+		const state = buildState(doc);
+		// Alle 6 auf Mo P1..P6
+		for (let p = 1; p <= 6; p++) {
+			place(state, `s${p - 1}`, 'Mo', p as Period);
+		}
+		const b = computeScore(state, defaultWeights(doc));
+		// Mo: 6 Stunden = target → diff 0. Andere Tage: 0 Stunden, ausgenommen.
+		expect(b.target_daily).toBe(0);
+	});
+
+	it('charges (actual-target)² when above target', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		for (let i = 0; i < 8; i++) {
+			doc.specs.push(spec(`s${i}`, 'M', 't', [5], 1));
+		}
+		const state = buildState(doc);
+		// 8 Stunden Mo: Abweichung 2 → Penalty 4
+		for (let p = 1; p <= 8; p++) {
+			place(state, `s${p - 1}`, 'Mo', p as Period);
+		}
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.target_daily).toBe(4);
+	});
+
+	it('charges (actual-target)² when below target (active days only)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		for (let i = 0; i < 4; i++) {
+			doc.specs.push(spec(`s${i}`, 'M', 't', [5], 1));
+		}
+		const state = buildState(doc);
+		// 4 Stunden Mo: Abweichung -2 → Penalty 4. Andere Tage 0 → exempt.
+		for (let p = 1; p <= 4; p++) {
+			place(state, `s${p - 1}`, 'Mo', p as Period);
+		}
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.target_daily).toBe(4);
+	});
+
+	it('exempts inactive (0 lessons) days', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s0', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		// Nur 1 Stunde an Mo, andere Tage ganz leer.
+		place(state, 's0', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		// Mo: (1-6)² = 25. Andere Tage 0 (exempt). Andere Stufen 0 (exempt).
+		expect(b.target_daily).toBe(25);
+	});
+});
+
+describe('computeScore — afternoon_preferred (Phase 13)', () => {
+	it('is 0 for an allowed-Spec, regardless of position', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BSP'));
+		doc.specs.push({ ...spec('s', 'BSP', 't', [5], 1), afternoonAllowed: 'allowed' });
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 3); // morning
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.afternoon_preferred).toBe(0);
+	});
+
+	it('charges 1 for a preferred-Spec placed in the morning', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BBO'));
+		doc.specs.push({ ...spec('s', 'BBO', 't', [5], 1), afternoonAllowed: 'preferred' });
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 4); // P4 = morning
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.afternoon_preferred).toBe(1);
+	});
+
+	it('is 0 for a preferred-Spec placed in the afternoon', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BBO'));
+		doc.specs.push({ ...spec('s', 'BBO', 't', [5], 1), afternoonAllowed: 'preferred' });
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 7);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.afternoon_preferred).toBe(0);
 	});
 });
 

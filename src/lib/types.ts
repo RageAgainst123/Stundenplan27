@@ -107,6 +107,21 @@ export interface LessonSpec {
 	 * sind weiterhin min_daily und no_free.
 	 */
 	timePref?: 'early' | 'late';
+	/**
+	 * Phase 13: Feinsteuerung der Nachmittag-Platzierung pro Lerneinheit.
+	 *
+	 *  - `'never'` (Hard-Constraint H10): die Spec darf nie auf Nachmittagsslots
+	 *    (P7-P8 inkl. Block-Reichweite). Default für Hauptfächer (`Subject.isMain=true`)
+	 *    via Migration v4→v5.
+	 *  - `'allowed'` (Default für Nicht-Hauptfächer): Spec darf nachmittags sein,
+	 *    Solver versucht Vormittag aber bevorzugt (siehe `any_aft`-Penalty).
+	 *  - `'preferred'` (Soft, Inverse): Spec SOLL nachmittags sein. Penalty wenn
+	 *    der Solver sie morgens platziert. Geeignet z. B. für BBO, EH, GZ.
+	 *
+	 * Migration v4→v5 setzt initial `'never'` für Specs deren Subject `isMain=true`,
+	 * sonst `'allowed'`. User kann via SpecList-Dropdown pro Spec überschreiben.
+	 */
+	afternoonAllowed?: 'never' | 'allowed' | 'preferred';
 	count: number;                // Gesamt-Wochenstunden, halbzahlig erlaubt (0.5, 1.5)
 	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
@@ -198,6 +213,12 @@ export interface ConstraintConfig {
 	 * migration compatibility.
 	 */
 	preferDoubleLessonsContiguous: { enabled: boolean; weight: number };
+	/**
+	 * Phase 13: Zieltagespensum pro Stufe pro Tag. Quadratische Penalty
+	 * `(actual - target)²` pro (Tag, Stufe). Default 6. min_daily bleibt
+	 * parallel als Untergrenze.
+	 */
+	targetDailyLessons: { enabled: boolean; weight: number; target: number };
 }
 
 // Phase 10 weight calibration (after solver-side diagnosis):
@@ -229,7 +250,10 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	timePrefWeight: 100,
 	subjectMaxOncePerDay: { enabled: true, weight: 60 },
 	teacherEarlyStartBalance: { enabled: true, weight: 30 },
-	teacherMinLessonsPerDay: { enabled: true, weight: 150, min: 2 }
+	teacherMinLessonsPerDay: { enabled: true, weight: 150, min: 2 },
+	// Phase 13: Zieltagespensum 6 ±1, quadratische Penalty. Gewicht moderat
+	// — strukturell wirksam ohne andere Constraints zu überlagern.
+	targetDailyLessons: { enabled: true, weight: 80, target: 6 }
 };
 
 export interface ScheduleDoc {
@@ -239,10 +263,10 @@ export interface ScheduleDoc {
 	specs: LessonSpec[];
 	placed: PlacedLesson[];
 	constraints: ConstraintConfig;
-	meta: { schemaVersion: 4; lastModified: string };
+	meta: { schemaVersion: 5; lastModified: string };
 }
 
-export const SCHEMA_VERSION = 4 as const;
+export const SCHEMA_VERSION = 5 as const;
 
 export function emptyDoc(schoolYear = '2026/27'): ScheduleDoc {
 	return {

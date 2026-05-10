@@ -189,3 +189,67 @@ describe('migrateDoc — v3 → v4 teacher → teachers[]', () => {
 		expect((doc.specs[0] as any).teachers).toEqual([]);
 	});
 });
+
+describe('migrateDoc — v4 → v5 afternoonAllowed default', () => {
+	it('sets afternoonAllowed=never for specs of an isMain subject', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'M', name: 'Mathe', category: 'PG', isMain: true, hoursPerWeek: {} });
+		doc.specs.push({
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 4, blocks: undefined,
+			includeInSolver: true, source: 'csv'
+		});
+		(doc.meta as any).schemaVersion = 4;
+
+		migrateDoc(doc);
+
+		expect((doc.specs[0] as any).afternoonAllowed).toBe('never');
+	});
+
+	it('sets afternoonAllowed=allowed for non-main subject', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'BSP', name: 'BSP', category: 'PG', isMain: false, hoursPerWeek: {} });
+		doc.specs.push({
+			id: 's', subject: 'BSP', teachers: ['t'], classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 2, blocks: undefined,
+			includeInSolver: true, source: 'csv'
+		});
+		(doc.meta as any).schemaVersion = 4;
+
+		migrateDoc(doc);
+
+		expect((doc.specs[0] as any).afternoonAllowed).toBe('allowed');
+	});
+
+	it('does NOT overwrite an existing user choice (idempotent)', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'M', name: 'Mathe', category: 'PG', isMain: true, hoursPerWeek: {} });
+		(doc.specs as any).push({
+			id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5],
+			weekPattern: 'every', count: 4, blocks: undefined,
+			includeInSolver: true, source: 'csv',
+			afternoonAllowed: 'allowed' // user chose this explicitly
+		});
+
+		migrateDoc(doc);
+
+		// User's explicit choice survives a second migration pass.
+		expect((doc.specs[0] as any).afternoonAllowed).toBe('allowed');
+	});
+
+	it('sets default targetDailyLessons constraint when missing', () => {
+		const doc = emptyDoc();
+		// Simulate older constraint config without the field.
+		delete (doc.constraints as any).targetDailyLessons;
+		(doc.meta as any).schemaVersion = 4;
+
+		migrateDoc(doc);
+
+		expect(doc.constraints.targetDailyLessons).toEqual({
+			enabled: true, weight: 80, target: 6
+		});
+	});
+});

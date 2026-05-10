@@ -92,6 +92,16 @@ export interface Unit {
 	specIds: string[];
 	/** Week pattern of the underlying spec (every/even/odd). */
 	weekPattern: 'every' | 'even' | 'odd';
+	/**
+	 * Phase 13: Nachmittag-Politik der zugrundeliegenden Spec.
+	 *  - `'never'` → Hard-Constraint H10: Slot-Periode + blockSize-1 < 7.
+	 *  - `'allowed'` → keine zusätzliche Restriktion, normale Soft-Penalty wirkt.
+	 *  - `'preferred'` → normale Hard-Checks; Score-Komponente belohnt Nachmittag.
+	 *
+	 * Coupling-Units übernehmen den restriktivsten Wert aller gekoppelten Specs:
+	 * eine 'never'-Spec macht die ganze Coupling-Gruppe 'never'.
+	 */
+	afternoonAllowed: 'never' | 'allowed' | 'preferred';
 }
 
 /**
@@ -223,6 +233,17 @@ export interface ScoreBreakdown {
 	 * is simply free that day.
 	 */
 	teacher_under_min: number;
+	/**
+	 * Phase 13: Quadratische Penalty pro (Tag, Stufe) für Abweichung vom
+	 * Zieltagespensum. `(actual - target)²`, summiert. Ergänzt min_daily
+	 * (Untergrenze) durch eine Ist-Soll-Komponente die auch nach OBEN drückt.
+	 */
+	target_daily: number;
+	/**
+	 * Phase 13: Penalty für Specs mit `afternoonAllowed='preferred'` die
+	 * im Vormittag landen (Periode < 7). Inverse von `any_aft`.
+	 */
+	afternoon_preferred: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -243,6 +264,8 @@ export interface ScoreWeights {
 	spec_spread: number;
 	teacher_late_start: number;
 	teacher_under_min: number;
+	target_daily: number;
+	afternoon_preferred: number;
 }
 
 /**
@@ -281,6 +304,12 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const tBalanceWeight = tBalance?.enabled === false ? 0 : (tBalance?.weight ?? 30);
 	const tMin = c.teacherMinLessonsPerDay as { enabled?: boolean; weight?: number } | undefined;
 	const tMinWeight = tMin?.enabled === false ? 0 : (tMin?.weight ?? 150);
+	// Phase 13: Zieltagespensum + afternoon_preferred.
+	const tDaily = c.targetDailyLessons as { enabled?: boolean; weight?: number; target?: number } | undefined;
+	const tDailyWeight = tDaily?.enabled === false ? 0 : (tDaily?.weight ?? 80);
+	// afternoon_preferred bekommt fixed default 15 — analog any_aft. Konfigurierbar
+	// erst wenn Use-Case real ist.
+	const afternoonPreferredWeight = 15;
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -301,6 +330,8 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		spec_spread: specSpreadWeight,
 		teacher_late_start: tBalanceWeight,
 		teacher_under_min: tMinWeight,
+		target_daily: tDailyWeight,
+		afternoon_preferred: afternoonPreferredWeight,
 	};
 }
 

@@ -34,6 +34,9 @@ const STORAGE_KEY = 'stundenplan27.doc';
  * constraints.
  */
 export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
+	// Subject-Index für die v4→v5 afternoonAllowed-Migration.
+	const subjectByCode = new Map((doc.subjects ?? []).map(sub => [sub.code, sub]));
+
 	for (const spec of doc.specs ?? []) {
 		const s = spec as LessonSpec & {
 			blocks?: number[];
@@ -43,6 +46,7 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			couplingId?: string;
 			teacher?: string;          // v3 single teacher field
 			teachers?: string[];       // v4 team field
+			afternoonAllowed?: 'never' | 'allowed' | 'preferred';
 		};
 
 		// v3 → v4: teacher (single) → teachers (array). Idempotent: if v4
@@ -83,6 +87,13 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		// Always strip the obsolete field so it doesn't linger in JSON backups.
 		if ('groupKey' in s) {
 			delete (s as unknown as Record<string, unknown>).groupKey;
+		}
+
+		// Phase 13 v4→v5: afternoonAllowed default abgeleitet aus Subject.isMain.
+		// Idempotent: bereits gesetzten Wert nicht überschreiben.
+		if (s.afternoonAllowed !== 'never' && s.afternoonAllowed !== 'allowed' && s.afternoonAllowed !== 'preferred') {
+			const sub = subjectByCode.get(s.subject);
+			s.afternoonAllowed = sub?.isMain ? 'never' : 'allowed';
 		}
 	}
 	for (const subject of doc.subjects ?? []) {
@@ -141,6 +152,10 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		}
 		if (typeof c12.teacherMinLessonsPerDay !== 'object' || c12.teacherMinLessonsPerDay === null) {
 			c12.teacherMinLessonsPerDay = { enabled: true, weight: 150, min: 2 };
+		}
+		// Phase 13 v4→v5: targetDailyLessons (Zieltagespensum 6 ±1).
+		if (typeof c12.targetDailyLessons !== 'object' || c12.targetDailyLessons === null) {
+			c12.targetDailyLessons = { enabled: true, weight: 80, target: 6 };
 		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
@@ -248,10 +263,10 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	// schemaVersion is typed as the current literal, but old backups may hold
 	// older numbers → cast to number for the runtime comparison.
 	const v = parsed.meta.schemaVersion as number;
-	// Accept v1, v2, v3 (all auto-migrated by migrateDoc) and the current version.
-	if (v !== 1 && v !== 2 && v !== 3 && v !== SCHEMA_VERSION) {
+	// Accept v1..v4 (all auto-migrated by migrateDoc) and the current version.
+	if (v !== 1 && v !== 2 && v !== 3 && v !== 4 && v !== SCHEMA_VERSION) {
 		throw new Error(
-			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2, 3 oder ${SCHEMA_VERSION})`
+			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2, 3, 4 oder ${SCHEMA_VERSION})`
 		);
 	}
 	return migrateDoc(parsed);
