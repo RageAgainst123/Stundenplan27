@@ -92,7 +92,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 12)
+## 3. Score-Komponenten (alle 13)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -112,6 +112,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `time_pref`        | Spec mit `timePref`: lin. Distanz zum Wunsch-Pol (P1 oder P8)              | 100     | `timePrefWeight` (Top-Level)                      | keine timePref-Specs |
 | `subject_twice`    | (day,grade,subject) mit Count > 1                                          | 60      | `subjectMaxOncePerDay.{enabled, weight}`          | enabled=false|
 | `spec_spread`      | (specId,day) mit ≥2 Occurrences — Lerneinheit-Spread über Wochentage       | 30      | `preferDoubleLessonsContiguous.{enabled, weight}` (Feldname Legacy) | enabled=false|
+| `teacher_late_start` | sum(firstP-Index) über alle (Lehrer, Tag) — Lehrer in P1 gesperrt sind exempt | 30 | `teacherEarlyStartBalance.{enabled, weight}`     | enabled=false|
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
   (User hat explizit Nachmittag gewünscht — kein Widerspruch).

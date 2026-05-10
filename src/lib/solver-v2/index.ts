@@ -35,6 +35,7 @@ export interface PenaltyBreakdown {
 	time_pref: number;
 	subject_twice: number;
 	spec_spread: number;
+	teacher_late_start: number;
 	total: number;
 }
 
@@ -193,6 +194,7 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		time_pref: b.time_pref,
 		subject_twice: b.subject_twice,
 		spec_spread: b.spec_spread,
+		teacher_late_start: b.teacher_late_start,
 		total: b.total,
 	};
 }

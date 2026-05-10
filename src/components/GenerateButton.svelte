@@ -314,6 +314,9 @@
 							{#if result.penalties.spec_spread > 0}
 								<li>Lerneinheit-Spreizung über Wochentage: <strong>{result.penalties.spec_spread}</strong></li>
 							{/if}
+							{#if result.penalties.teacher_late_start > 0}
+								<li>Lehrer-Spätstart (kumuliert): <strong>{result.penalties.teacher_late_start}</strong></li>
+							{/if}
 							<li class="total">Total (gewichtet): <strong>{result.penalties.total}</strong></li>
 						</ul>
 					</details>

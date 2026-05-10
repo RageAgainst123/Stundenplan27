@@ -200,6 +200,14 @@ export interface ScoreBreakdown {
 	 * verschiedene Tage verteilen"-rule that previously had no effect.
 	 */
 	spec_spread: number;
+	/**
+	 * Soft: cumulative late-start index per (teacher, day). Counts how many
+	 * periods after P1 a teacher's first lesson lies, summed over all
+	 * teacher-days where the teacher COULD have started in P1 (no
+	 * unavailability there). Drives fairness — no teacher should systematically
+	 * be the late-starter every day.
+	 */
+	teacher_late_start: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -218,6 +226,7 @@ export interface ScoreWeights {
 	time_pref: number;
 	subject_twice: number;
 	spec_spread: number;
+	teacher_late_start: number;
 }
 
 /**
@@ -252,6 +261,8 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const subjOnceWeight = subjOnce?.enabled === false ? 0 : (subjOnce?.weight ?? 60);
 	const specSpread = c.preferDoubleLessonsContiguous as { enabled?: boolean; weight?: number } | undefined;
 	const specSpreadWeight = specSpread?.enabled === false ? 0 : (specSpread?.weight ?? 30);
+	const tBalance = c.teacherEarlyStartBalance as { enabled?: boolean; weight?: number } | undefined;
+	const tBalanceWeight = tBalance?.enabled === false ? 0 : (tBalance?.weight ?? 30);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -270,6 +281,7 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		time_pref: timePrefWeight,
 		subject_twice: subjOnceWeight,
 		spec_spread: specSpreadWeight,
+		teacher_late_start: tBalanceWeight,
 	};
 }
 

@@ -108,6 +108,9 @@ realListeDescribe('iteratedLocalSearch on real Liste.csv', () => {
 			compact_teacher: ils.bestBreakdown.compact_teacher,
 			main_early: ils.bestBreakdown.main_early,
 			time_pref: ils.bestBreakdown.time_pref,
+			subject_twice: ils.bestBreakdown.subject_twice,
+			spec_spread: ils.bestBreakdown.spec_spread,
+			teacher_late_start: ils.bestBreakdown.teacher_late_start,
 		}));
 		expect(ils.bestBreakdown.total).toBeLessThan(initial.total);
 	}, 30_000);

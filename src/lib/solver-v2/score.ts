@@ -15,6 +15,7 @@
 import type { GradeLevel, Period, ScheduleDoc } from '../types';
 import {
 	D,
+	DAYS_BY_INDEX,
 	P,
 	dpFromSlot,
 	type ScoreBreakdown,
@@ -121,6 +122,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		main_early: 0,
 		subject_twice: 0,
 		spec_spread: 0,
+		teacher_late_start: 0,
 		total: 0,
 	};
 
@@ -235,9 +237,11 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		}
 	}
 
-	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps).
+	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps) +
+	//     teacher_late_start (fairness across teachers).
 	const T = state.doc.teachers.length;
 	for (let t = 0; t < T; t++) {
+		const teacher = state.doc.teachers[t];
 		for (let d = 0; d < D; d++) {
 			let firstP = -1;
 			let lastP = -1;
@@ -250,6 +254,22 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			if (firstP !== -1 && lastP > firstP) {
 				for (let p = firstP + 1; p < lastP; p++) {
 					if (tocc[t * D * P + d * P + p] === 0) breakdown.compact_teacher++;
+				}
+			}
+			// teacher_late_start: only counts when teacher has lessons that
+			// day AND was actually free in P1 (otherwise the late start was
+			// forced by Sperrstunde, not by solver choice). Penalty is the
+			// distance in periods from P1 — so a P3-Start counts more than
+			// a P2-Start. The penalty grows linearly to nudge the solver
+			// toward fairness across teachers without forbidding late
+			// starts where they're necessary.
+			if (firstP > 0) {
+				const dayName = DAYS_BY_INDEX[d];
+				const blockedAtP1 = teacher.unavailable?.some(
+					u => u.day === dayName && u.period === 1
+				) ?? false;
+				if (!blockedAtP1) {
+					breakdown.teacher_late_start += firstP;
 				}
 			}
 		}
@@ -309,7 +329,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.main_early * breakdown.main_early +
 		weights.time_pref * breakdown.time_pref +
 		weights.subject_twice * breakdown.subject_twice +
-		weights.spec_spread * breakdown.spec_spread;
+		weights.spec_spread * breakdown.spec_spread +
+		weights.teacher_late_start * breakdown.teacher_late_start;
 
 	return breakdown;
 }

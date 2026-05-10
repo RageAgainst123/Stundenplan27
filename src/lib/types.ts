@@ -172,6 +172,17 @@ export interface ConstraintConfig {
 	 */
 	subjectMaxOncePerDay: { enabled: boolean; weight: number };
 	/**
+	 * Phase 12 follow-up: fairness across teachers — penalize teachers that
+	 * regularly start later than P1 across the week. Cumulative penalty per
+	 * (teacher, day): late-start-index (0=P1-Start, 1=P2-Start, …). Days
+	 * where the teacher is unavailable in P1 (Sperrstunde) are exempt — we
+	 * only penalize choices the solver could have made differently.
+	 *
+	 * Mirrors Untis "Tagesrand-Pause"-Konzept: niemand ist Stamm-P2-Starter,
+	 * der späte Start wird über alle Lehrer ausgeglichen.
+	 */
+	teacherEarlyStartBalance: { enabled: boolean; weight: number };
+	/**
 	 * Phase 12: a spec's multiple occurrences should land on different
 	 * weekdays. Replaces the previously-defunct preferDoubleLessonsContiguous
 	 * setting — keeps the field name as alias in DEFAULT_CONSTRAINTS for
@@ -207,7 +218,8 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	mustStartFirstPeriod: { enabled: true, weight: 300 },
 	unevenDaysWeight: 150,
 	timePrefWeight: 100,
-	subjectMaxOncePerDay: { enabled: true, weight: 60 }
+	subjectMaxOncePerDay: { enabled: true, weight: 60 },
+	teacherEarlyStartBalance: { enabled: true, weight: 30 }
 };
 
 export interface ScheduleDoc {

@@ -186,6 +186,18 @@
 			<input type="number" min="0" step="5" bind:value={c.compactTeacherDays.weight} disabled={!c.compactTeacherDays.enabled} class="weight" />
 		</div>
 
+		<!-- Tagesanfang-Fairness -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherEarlyStartBalance.enabled} />
+				<span>
+					Früher Tagesbeginn fair verteilen
+					<span class="hint" title="Penalty steigt linear mit der Periode des ersten Lehrer-Slots am Tag. Belohnt Lehrer die in P1 starten — verhindert dass immer derselbe Lehrer 'der Spätstarter' ist. Lehrer die in P1 gesperrt sind werden nicht bestraft.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.teacherEarlyStartBalance.weight} disabled={!c.teacherEarlyStartBalance.enabled} class="weight" />
+		</div>
+
 	</div>
 </section>
 

@@ -296,7 +296,10 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.main_run * b.main_run +
 			w.compact_teacher * b.compact_teacher +
 			w.main_early * b.main_early +
-			w.time_pref * b.time_pref;
+			w.time_pref * b.time_pref +
+			w.subject_twice * b.subject_twice +
+			w.spec_spread * b.spec_spread +
+			w.teacher_late_start * b.teacher_late_start;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -518,6 +521,59 @@ describe('computeScore — compact_teacher', () => {
 		place(state, 's', 'Mo', 2);
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.compact_teacher).toBe(0);
+	});
+});
+
+describe('computeScore — teacher_late_start', () => {
+	it('penalizes a teacher whose first lesson is at P3 (free in P1)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'Spätstarter'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		// Mo P3 = idx 2 → late_start += 2
+		place(state, 's', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_late_start).toBe(2);
+	});
+
+	it('zero penalty when teacher starts at P1', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_late_start).toBe(0);
+	});
+
+	it('exempts teachers blocked at P1 (Sperrstunde)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'Teilzeit'));
+		doc.teachers[0].unavailable = [
+			{ day: 'Mo', period: 1 },
+			{ day: 'Mo', period: 2 }
+		];
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_late_start).toBe(0);
+	});
+
+	it('cumulates over multiple teacher-days', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('a', 'M', 't', [5], 1));
+		doc.specs.push(spec('b', 'M', 't', [6], 1));
+		const state = buildState(doc);
+		place(state, 'a', 'Mo', 2); // late_start += 1
+		place(state, 'b', 'Di', 3); // late_start += 2
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_late_start).toBe(3);
 	});
 });
 
