@@ -117,12 +117,33 @@ User-Befund: Hauptfächer landen am Nachmittag, Tagespensum 4–8 statt
 Bench (Liste.csv, 10 s ILS): main_aft=0 nach Phase 13 (war ~5-15 vorher),
 target_daily=52 Residual.
 
-## 🔜 Phase 14 — Nächste Ausbauschritte
+## ✅ Phase 14 — Pool-Phase + Hot-Start (abgeschlossen)
+
+- **Pool-Construction**: vor LS werden N Sekunden lang verschiedene
+  Constructions mit unterschiedlichen Seeds erzeugt; beste wird als
+  LS-Startpunkt verwendet. Slider 0-30s im UI.
+- **Hot-Start „Weiter optimieren"-Button**: aktueller Plan-Stand wird
+  als Startposition für Local Search übernommen. Pool wird übersprungen.
+- **Engine-1-stable Tag** auf Commit b555673 als Reproducibility-Anchor.
+
+## ✅ Phase 15 — Diversify + Snapshot-Galerie (abgeschlossen)
+
+User-Bedarf: Plateau-Bruch + Plan-Versionsverwaltung.
+
+- **Diversify-Button (LNS-Modus)**: 10-50% der nicht-pinned Units
+  werden zurückgesetzt und neu platziert. Best-Tracking absolut —
+  wenn keine Verbesserung gefunden, wird Pre-Snapshot wiederhergestellt.
+  Slider für Anteil und Dauer.
+- **Plan-Snapshot-Galerie**: bis zu 10 Pläne in localStorage,
+  Auto-Snapshot bei ≥5% Score-Improvement, manueller Save, Restore,
+  Diversify-from-Snapshot, Auto-Backup vor Restore.
+- **Snapshot-Modul** in separatem localStorage-Key — leben pro Browser,
+  nicht im JSON-Export.
+
+## 🔜 Phase 16 — Nächste Ausbauschritte
 
 ### High-Prio
-1. **Hot-Start** + „Weiter optimieren"-Button: Solver beginnt vom
-   aktuellen Plan statt Greedy von null. User kann iterativ
-   verfeinern ohne manuelle Edits zu verlieren.
+1. **Print-Layout.** Eigentlich seit Phase 14 geplant, jetzt überfällig.
 
 2. **Print-Layout.**
    `@media print` für:

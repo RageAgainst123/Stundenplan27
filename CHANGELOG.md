@@ -7,12 +7,72 @@ Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
-### Geplant (Phase 14)
+### Geplant (Phase 16)
 - Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
-- Hot-Start: Solver beginnt vom letzten Plan statt Greedy von Null
-- "Weiter optimieren"-Button für inkrementelles Verfeinern
-- Variantenmodus: mehrere Pläne nebeneinander
+- Diff-View zwischen zwei Snapshots
+- Echte zweite Engine (LNS, Backtracking-Verifier)
 - Web Worker, falls Solver auf größeren Schulen langsam wird
+
+## [0.15.0] - 2026-05-10 — Phase 15: Diversify-Button + Plan-Snapshot-Galerie
+
+User-Beobachtung: Score sinkt auf z.B. 4604, dann findet der Solver nichts
+mehr. Hot-Start („Weiter optimieren") iteriert in derselben Nachbarschaft
+und kommt nicht aus dem Plateau raus. Phase 15 ergänzt zwei Werkzeuge:
+
+### Added
+- **Diversify-Modus (LNS-Pattern)**: dritter Action-Button neben „Plan
+  generieren" und „Weiter optimieren". Wirft 10-50% (Slider) der
+  nicht-pinned Units zurück und re-platziert sie via Construction +
+  Local Search. **Best-Tracking absolut**: wenn Diversify-Lauf KEINE
+  Verbesserung findet, wird der Pre-Snapshot wiederhergestellt — Plan
+  kann nie verschlechtert werden.
+- **Diversify-Sliders**:
+  - Anteil 10-50% (Default 25%)
+  - Dauer 10-120s (Default 30s)
+- **Snapshot-Galerie** (`src/lib/snapshots.ts`): bis zu 10 Plan-Stände
+  in localStorage (`stundenplan27.snapshots`). Pro Snapshot:
+  `{ id, name, score, placed[], scoreBreakdown, createdAt, source }`.
+- **Auto-Snapshot bei ≥5% Score-Improvement** nach jedem Solver-Lauf.
+  Plus manueller „💾 Aktuellen Plan speichern"-Button.
+- **Snapshot-Galerie-UI**: sortiert nach Score (bester ⭐ oben),
+  Wiederherstellen-Button, „🌀 Diversify"-Button (restore + sofort
+  diversifizieren), einzelner Lösch-Button und „Alle löschen"-Aktion.
+- **Auto-Backup vor Restore**: bevor ein Snapshot wiederhergestellt
+  wird, wird der aktuelle Stand automatisch als Backup-Snapshot
+  gespeichert (für Undo-Sicherheit).
+- **MAX_SNAPSHOTS = 10** mit FIFO-Cleanup ältester.
+
+### Solver-API-Änderungen
+- `StartSolveOptions.diversify?: { fraction, durationMs }` —
+  Diversify-Modus
+- Diversify impliziert `hotStart=true` (aktueller Plan ist Basis)
+- Diversify überschreibt `totalBudgetMs` mit `durationMs`
+- Pool-Phase wird übersprungen wenn `diversify` gesetzt
+- Revert-Logik: nach Phase 2 + Phase 3 wird `bestBreakdown.total` mit
+  Pre-Snapshot-Score verglichen. Bei keiner Verbesserung →
+  `state.placement.set(diversifyPreSnapshot)` und Score neu berechnet.
+
+### Tests
+- 3 neue Diversify-Tests in `index.test.ts`:
+  - Diversify resetet Fraction und führt LS aus
+  - Diversify ohne Verbesserung → Pre-Snapshot wiederhergestellt
+  - Diversify überspringt Pool auch bei `poolBudgetMs > 0`
+- 9 neue Snapshot-Tests in `snapshots.test.ts` (Roundtrip, MAX-Cleanup,
+  Storage-Key-Isolation, malformed-localStorage-Defensive)
+- 207 Tests gesamt grün (vorher 195)
+
+### Architektur-Hinweis
+Snapshots leben in einem **separaten** localStorage-Key — sie werden
+NICHT im Plan-JSON-Export aufgenommen. Das hält Plan-Backup-Dateien
+schlank und Snapshots bleiben pro Browser/Gerät.
+
+Bundle: 59.91 KB gz (war 57.46, +2.5 KB für Snapshot-Modul + UI).
+
+## [0.14.x] - Phase 14 (Internal): Pool-Phase + Hot-Start
+
+Pool-Construction-Phase (Multi-Start-Construction mit konfigurierbarer
+Laufzeit) und Hot-Start „Weiter optimieren" wurden eingebaut. Engine-1-
+stable Tag auf b555673 als Reproducibility-Anchor.
 
 ## [0.13.0] - 2026-05-10 — Phase 13: Constraint-Modell-Erweiterung
 

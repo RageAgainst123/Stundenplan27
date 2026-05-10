@@ -69,7 +69,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - **`src/lib/import/csv.ts`** — Sokrates-Liste-Parser (PG_/VÜ_/FÖ_/KU_, Klassen-Kopplungen `1a+2a`, Mehrstufen, Wochen-Pattern).
 - **`src/lib/blocks.ts`** — Block-Pattern-Helpers (`blockPresets`, `blockLabel`, `groupColor`).
 - **`src/lib/schedule-helpers.ts`** — `placementsAt`, `unplacedSpecs`, `checkPlacementConflict` für Drag/Drop.
-- **`src/lib/solver-v2/`** — TypeScript Construct + Local Search Solver. Module: types, units, score, scoreDelta, moves, hardCheck, construct, localSearch, iteratedLS, diagnose, index. Siehe `docs/SOLVER-V2-CONCEPT.md`.
+- **`src/lib/snapshots.ts`** — Phase 15: Plan-Snapshot-Galerie (max 10 Snapshots in `localStorage`, separater Key `stundenplan27.snapshots`). Auto-Snapshot bei ≥5% Score-Improvement, manueller Save, Restore, Diversify-from-Snapshot.
+- **`src/lib/solver-v2/`** — TypeScript Construct + Local Search Solver. Module: types, units, score, scoreDelta, moves, hardCheck, construct, localSearch, iteratedLS, diagnose, index. Siehe `docs/SOLVER-V2-CONCEPT.md`. Phase 14 Pool-Phase + Hot-Start, Phase 15 Diversify-Modus.
 - **`src/components/`** — UI: ImportExport, TeacherList (mit AvailabilityGrid), SubjectList, SpecList (Bulk-Toolbar + Coupling), ScheduleGrid (mit ScheduleCell + GenerateButton), RulesPanel.
 
 ## Stolperfallen (CRITICAL — bitte erst lesen, bevor du Bugs jagst)
@@ -150,7 +151,9 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - ✅ Phase 11: Solver-Wechsel MiniZinc → TypeScript Construct + Local Search (`solver-v2/`), 4 neue Constraints (subject_twice, spec_spread, teacher_overload, teacher_no_lunch), Untis-Style RulesPanel
 - ✅ Phase 12: Aufräumen — v1-MiniZinc-Solver komplett entfernt, pairedWith aus Datenmodell, Tabu-Asymmetrie gefixt, ILS-DRY-Refactor, Score-Test-Lücken geschlossen
 - ✅ Phase 13: Constraint-Modell-Erweiterung — Hard-Constraint H10 (Hauptfach Nachmittag verboten), Score-Komponente `target_daily` (Zieltagespensum), `afternoon_preferred`, Schema v5 mit `LessonSpec.afternoonAllowed`, UI-Dropdown + Bulk + RulesPanel-Slider, Pre-Flight-Diagnose erweitert
-- 🔜 Phase 14: Print-Layout (A4 pro Lehrer/Stufe), Hot-Start, "Weiter optimieren"-Button, Variantenmodus, Web Worker (falls Solver auf größeren Schulen langsam wird)
+- ✅ Phase 14: Pool-Phase (Multi-Start-Construction mit konfigurierbarer Laufzeit) + Hot-Start "Weiter optimieren"-Button + engine-1-stable Tag auf b555673
+- ✅ Phase 15: Diversify-Button (LNS-Pattern, Best-Tracking) + Plan-Snapshot-Galerie (max 10 Pläne in localStorage, Auto-Snapshot bei ≥5% Improvement, Restore + Diversify-from-Snapshot)
+- 🔜 Phase 16: Print-Layout (A4 pro Lehrer/Stufe), Diff-View zwischen Snapshots, echte zweite Engine, Web Worker
 
 ## Plan-Datei für Detail-Recherche
 
