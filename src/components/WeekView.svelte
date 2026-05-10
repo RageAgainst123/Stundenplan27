@@ -285,8 +285,12 @@
 				</tr>
 				<tr class="grade-row">
 					{#each DAYS as d (d)}
-						{#each GRADES as g (d + '-' + g)}
-							<th class="grade-head" class:today={nowState?.day === d}>{g}.</th>
+						{#each GRADES as g, gi (d + '-' + g)}
+							<th
+								class="grade-head"
+								class:today={nowState?.day === d}
+								class:end-of-day={gi === GRADES.length - 1}
+							>{g}.</th>
 						{/each}
 					{/each}
 				</tr>
@@ -415,10 +419,10 @@
 		flex-wrap: wrap;
 	}
 	.big-btn {
-		font-size: 13px;
+		font-size: 12px;
 		font-weight: 600;
-		padding: 8px 16px;
-		border-radius: 24px;
+		padding: 6px 12px;
+		border-radius: 18px;
 		border: 1px solid transparent;
 		cursor: pointer;
 		transition: transform 0.1s ease, box-shadow 0.1s ease;
@@ -473,29 +477,27 @@
 		background: white;
 		border: 1px solid var(--border);
 		border-radius: 10px;
-		padding: 10px;
+		padding: 8px;
 	}
 	table.wv-grid {
 		border-collapse: separate;
-		/* Cell-Spacing für aufgelockerte Optik (Bild 2) */
-		border-spacing: 4px;
+		/* Cell-Spacing für aufgelockerte Optik */
+		border-spacing: 3px;
 		width: 100%;
-		min-width: 1100px;
-		font-size: 12px;
+		min-width: 980px;
+		font-size: 11px;
 		/* Fixed Layout: alle Stufen-Spalten gleich breit, time-col fix */
 		table-layout: fixed;
 	}
 
-	/* Spalten-Breiten via colgroup wäre sauberer aber wir haben keine.
-	   Stattdessen via th width + first td width: */
 	thead th.time-col,
 	td.time-cell {
-		width: 80px;
+		width: 60px;
 	}
 	thead th.day-head {
-		font-size: 16px;
+		font-size: 14px;
 		font-weight: 700;
-		padding: 10px 6px;
+		padding: 6px 4px;
 		text-align: center;
 		color: var(--text);
 		background: transparent;
@@ -505,11 +507,11 @@
 		color: #8a6500;
 	}
 	thead th.grade-head {
-		font-size: 12px;
+		font-size: 11px;
 		font-weight: 600;
 		color: var(--text-muted);
 		text-align: center;
-		padding: 4px;
+		padding: 3px;
 		background: var(--bg-soft);
 		border-radius: 4px;
 	}
@@ -517,36 +519,57 @@
 		background: rgba(255, 215, 0, 0.15);
 		color: #8a6500;
 	}
+	/* Tag-Trennung: rechte Padding-Spalte mit fixer Breite zwischen
+	   Tagen, schafft den visuellen Spalt. Erzeugt durch zusätzlichen
+	   margin-right auf der letzten Cell pro Tag (= 4. Stufen-Spalte
+	   bei 4 Grades = jede 4. Cell ab time-col, also nth-child(4n+1)
+	   wenn man ab der ersten Cell zählt — siehe end-of-day Klasse). */
+	td.cell.end-of-day,
+	thead th.grade-head.end-of-day {
+		margin-right: 12px;
+	}
+	/* margin auf table-cells funktioniert nicht — stattdessen extra
+	   border-right space via box-shadow oder ein verstecktes Spacer-
+	   Element. Cleanste Lösung: extra padding-right via :after wäre
+	   tricky; einfachster Weg: dickerer border-right in Hintergrundfarbe
+	   (= weiß) der visuell wie Spacing wirkt. */
+	td.cell.end-of-day {
+		border-right: 12px solid white;
+		box-sizing: border-box;
+	}
+	thead th.grade-head.end-of-day {
+		border-right: 12px solid white;
+	}
 
 	td.time-cell {
 		text-align: center;
-		padding: 10px 6px;
+		padding: 6px 4px;
 		background: var(--bg-soft);
 		border-radius: 6px;
 		vertical-align: middle;
 	}
 	.period-num {
-		font-size: 18px;
+		font-size: 15px;
 		font-weight: 700;
 	}
 	.period-time {
-		font-size: 10px;
+		font-size: 9px;
 		color: var(--text-muted);
-		margin-top: 3px;
+		margin-top: 2px;
 	}
 
 	td.cell {
-		min-height: 60px;
-		height: 60px;
+		min-height: 44px;
+		height: 44px;
 		vertical-align: middle;
 		background: var(--bg-soft);
 		padding: 0;
-		border-radius: 8px;
+		border-radius: 7px;
 		text-align: center;
 		overflow: hidden;
 	}
 	td.cell.now {
-		box-shadow: inset 0 0 0 3px gold;
+		box-shadow: inset 0 0 0 2px gold;
 	}
 	td.cell.coupled {
 		box-shadow: inset 0 0 0 2px rgba(0, 0, 0, 0.25);
@@ -578,15 +601,15 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		gap: 4px;
-		padding: 6px 4px;
-		font-size: 14px;
+		gap: 3px;
+		padding: 4px 3px;
+		font-size: 12px;
 		font-weight: 700;
 		letter-spacing: 0.02em;
 		color: rgba(0, 0, 0, 0.85);
 		transition: opacity 0.15s ease;
 		position: relative;
-		border-radius: 6px;
+		border-radius: 5px;
 	}
 	.placed.filtered {
 		opacity: 0.15;
@@ -596,16 +619,16 @@
 	}
 	.subj {
 		font-weight: 700;
-		font-size: 14px;
+		font-size: 12px;
 	}
 	.week-badge {
 		position: absolute;
-		bottom: 2px;
-		right: 4px;
-		font-size: 9px;
+		bottom: 1px;
+		right: 3px;
+		font-size: 8px;
 		font-weight: 700;
 		color: rgba(0, 0, 0, 0.5);
-		padding: 0 3px;
+		padding: 0 2px;
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.6);
 	}
