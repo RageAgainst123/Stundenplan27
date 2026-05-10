@@ -171,7 +171,19 @@
 		if (showAll) return true;
 		if (selectedTeachers.size > 0 && !spec.teachers.some(t => selectedTeachers.has(t))) return false;
 		if (selectedSubject && spec.subject !== selectedSubject) return false;
-		if (selectedGrades.size > 0 && !selectedGrades.has(gradeOfCell)) return false;
+		// Bug-Fix Phase 16.5: Multi-Grade-Specs (z.B. REL für [5,6]) wurden
+		// fälschlicherweise gefiltert wenn nur eine ihrer Stufen markiert war
+		// und die Cell mit der ANDEREN Stufe gerendert wurde. rowLayout()
+		// rendert Multi-Grade-Cells mit startGrade=min(spec.grades) — dann
+		// scheiterte selectedGrades.has(startGrade) wenn User die andere
+		// Stufe gefiltert hat. Lösung: prüfe ob IRGENDEINE der spec.grades
+		// im Filter ist. gradeOfCell bleibt Fallback für Single-Grade-Specs.
+		if (selectedGrades.size > 0) {
+			const matchByGrades = spec.grades.length > 0
+				? spec.grades.some(g => selectedGrades.has(g))
+				: selectedGrades.has(gradeOfCell);
+			if (!matchByGrades) return false;
+		}
 		return true;
 	}
 
