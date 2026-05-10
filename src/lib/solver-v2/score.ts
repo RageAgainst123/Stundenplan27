@@ -121,8 +121,6 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		main_early: 0,
 		subject_twice: 0,
 		spec_spread: 0,
-		teacher_overload: 0,
-		teacher_no_lunch: 0,
 		total: 0,
 	};
 
@@ -237,46 +235,23 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		}
 	}
 
-	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps),
-	//     teacher_overload (more than maxLessonsPerDay) and
-	//     teacher_no_lunch (no break in midday window when both halves busy).
+	// --- Per (teacher, day) walk: compact_teacher (sandwich gaps).
 	const T = state.doc.teachers.length;
-	const tLunch = state.doc.constraints.teacherLunchBreak as
-		| { enabled?: boolean; midayPeriods?: Period[] }
-		| undefined;
-	const lunchPeriods: number[] = (tLunch?.midayPeriods ?? [5, 6]).map(p => p - 1);
-	const morningEnd = Math.min(...lunchPeriods); // first lunch period idx
-	const afternoonStartIdx = Math.max(...lunchPeriods); // last lunch period idx
 	for (let t = 0; t < T; t++) {
-		const teacher = state.doc.teachers[t];
-		const cap = teacher.maxLessonsPerDay ?? 8;
 		for (let d = 0; d < D; d++) {
 			let firstP = -1;
 			let lastP = -1;
-			let dayLessons = 0;
-			let busyMorning = false;
-			let busyAfternoon = false;
-			let lunchFree = false;
 			for (let p = 0; p < P; p++) {
-				const v = tocc[t * D * P + d * P + p];
-				if (v > 0) {
+				if (tocc[t * D * P + d * P + p] > 0) {
 					if (firstP === -1) firstP = p;
 					lastP = p;
-					dayLessons += v;
-					if (p < morningEnd) busyMorning = true;
-					if (p > afternoonStartIdx) busyAfternoon = true;
 				}
-			}
-			for (const lp of lunchPeriods) {
-				if (tocc[t * D * P + d * P + lp] === 0) { lunchFree = true; break; }
 			}
 			if (firstP !== -1 && lastP > firstP) {
 				for (let p = firstP + 1; p < lastP; p++) {
 					if (tocc[t * D * P + d * P + p] === 0) breakdown.compact_teacher++;
 				}
 			}
-			if (dayLessons > cap) breakdown.teacher_overload += dayLessons - cap;
-			if (busyMorning && busyAfternoon && !lunchFree) breakdown.teacher_no_lunch++;
 		}
 	}
 
@@ -334,9 +309,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.main_early * breakdown.main_early +
 		weights.time_pref * breakdown.time_pref +
 		weights.subject_twice * breakdown.subject_twice +
-		weights.spec_spread * breakdown.spec_spread +
-		weights.teacher_overload * breakdown.teacher_overload +
-		weights.teacher_no_lunch * breakdown.teacher_no_lunch;
+		weights.spec_spread * breakdown.spec_spread;
 
 	return breakdown;
 }

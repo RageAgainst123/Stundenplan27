@@ -1,9 +1,10 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
-	import { DEFAULT_CONSTRAINTS, type Period } from '../lib/types';
+	import { DEFAULT_CONSTRAINTS } from '../lib/types';
 
 	function reset() {
+		if (!confirm('Alle Regeln auf die Standard-Werte zurücksetzen? Deine angepassten Gewichte gehen verloren.')) return;
 		store.doc.constraints = structuredClone(DEFAULT_CONSTRAINTS);
 	}
 
@@ -185,54 +186,6 @@
 			<input type="number" min="0" step="5" bind:value={c.compactTeacherDays.weight} disabled={!c.compactTeacherDays.enabled} class="weight" />
 		</div>
 
-		<!-- Tageslast Lehrer -->
-		<div class="rule">
-			<label class="lbl">
-				<input type="checkbox" bind:checked={c.teacherDailyLoad.enabled} />
-				<span>
-					Lehrer-Tageslast begrenzen
-					<span class="hint" title="Bestraft Tage über dem Lehrer-Limit. Limit pro Lehrer als 'maxLessonsPerDay' im Lehrer-Editor — fällt zurück auf 8 wenn nicht gesetzt.">ℹ</span>
-				</span>
-			</label>
-			<input type="number" min="0" step="5" bind:value={c.teacherDailyLoad.weight} disabled={!c.teacherDailyLoad.enabled} class="weight" />
-		</div>
-
-		<!-- Mittagspause -->
-		<div class="rule">
-			<label class="lbl">
-				<input type="checkbox" bind:checked={c.teacherLunchBreak.enabled} />
-				<span>
-					Lehrer-Mittagspause sicherstellen
-					<span class="hint" title="Wenn ein Lehrer am Vormittag UND am Nachmittag arbeitet, muss er in den Mittagsslots wenigstens eine Stunde frei haben. Mittagsfenster unten konfigurierbar.">ℹ</span>
-				</span>
-			</label>
-			<input type="number" min="0" step="5" bind:value={c.teacherLunchBreak.weight} disabled={!c.teacherLunchBreak.enabled} class="weight" />
-		</div>
-		<div class="rule sub">
-			<span class="lbl">
-				↳ Mittagsfenster (Stunden)
-			</span>
-			<span class="lunch-pickers">
-				{#each [1,2,3,4,5,6,7,8] as p}
-					<label class="chip" class:on={c.teacherLunchBreak.midayPeriods.includes(p as Period)}>
-						<input
-							type="checkbox"
-							checked={c.teacherLunchBreak.midayPeriods.includes(p as Period)}
-							onchange={(e) => {
-								const checked = (e.currentTarget as HTMLInputElement).checked;
-								const arr = c.teacherLunchBreak.midayPeriods.slice();
-								const idx = arr.indexOf(p as Period);
-								if (checked && idx === -1) arr.push(p as Period);
-								if (!checked && idx >= 0) arr.splice(idx, 1);
-								arr.sort((a, b) => a - b);
-								c.teacherLunchBreak.midayPeriods = arr;
-							}}
-						/>
-						{p}
-					</label>
-				{/each}
-			</span>
-		</div>
 	</div>
 </section>
 
@@ -341,31 +294,5 @@
 		background: var(--bg-soft);
 		cursor: help;
 		user-select: none;
-	}
-	.lunch-pickers {
-		display: inline-flex;
-		gap: 4px;
-		flex-wrap: wrap;
-	}
-	.chip {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		min-width: 26px;
-		padding: 2px 6px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		font-size: 11px;
-		cursor: pointer;
-		background: white;
-	}
-	.chip input {
-		display: none;
-	}
-	.chip.on {
-		background: var(--accent-bg);
-		border-color: var(--accent);
-		color: var(--accent);
-		font-weight: 600;
 	}
 </style>

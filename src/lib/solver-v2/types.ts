@@ -200,17 +200,6 @@ export interface ScoreBreakdown {
 	 * verschiedene Tage verteilen"-rule that previously had no effect.
 	 */
 	spec_spread: number;
-	/**
-	 * Soft: per (teacher, day), excess lessons over `maxLessonsPerTeacherDay`.
-	 * Protects part-time teachers and prevents 8-hour days for anyone.
-	 */
-	teacher_overload: number;
-	/**
-	 * Soft: count of (teacher, day) pairs where the teacher is busy both
-	 * in the morning AND in the afternoon, but has no free midday slot
-	 * (configurable lunch window). One penalty per teacher-day.
-	 */
-	teacher_no_lunch: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -229,8 +218,6 @@ export interface ScoreWeights {
 	time_pref: number;
 	subject_twice: number;
 	spec_spread: number;
-	teacher_overload: number;
-	teacher_no_lunch: number;
 }
 
 /**
@@ -265,10 +252,6 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	const subjOnceWeight = subjOnce?.enabled === false ? 0 : (subjOnce?.weight ?? 60);
 	const specSpread = c.preferDoubleLessonsContiguous as { enabled?: boolean; weight?: number } | undefined;
 	const specSpreadWeight = specSpread?.enabled === false ? 0 : (specSpread?.weight ?? 30);
-	const tDay = c.teacherDailyLoad as { enabled?: boolean; weight?: number } | undefined;
-	const tDayWeight = tDay?.enabled === false ? 0 : (tDay?.weight ?? 50);
-	const tLunch = c.teacherLunchBreak as { enabled?: boolean; weight?: number } | undefined;
-	const tLunchWeight = tLunch?.enabled === false ? 0 : (tLunch?.weight ?? 40);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -287,8 +270,6 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		time_pref: timePrefWeight,
 		subject_twice: subjOnceWeight,
 		spec_spread: specSpreadWeight,
-		teacher_overload: tDayWeight,
-		teacher_no_lunch: tLunchWeight,
 	};
 }
 

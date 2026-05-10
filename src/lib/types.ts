@@ -47,13 +47,6 @@ export interface Teacher {
 	placeholder?: boolean;        // "Zz_Planung_…" or "N. N." — vacant role
 	subjects: SubjectCode[];      // subjects this teacher can teach
 	unavailable: AvailabilityCell[]; // hard constraint: solver may not place here
-	/**
-	 * Optional per-teacher daily load cap. When set, the solver penalizes
-	 * days where this teacher has more than `maxLessonsPerDay` lessons.
-	 * Used to protect part-time teachers and prevent burnout-days. Falls
-	 * back to a global default (currently 8) if undefined.
-	 */
-	maxLessonsPerDay?: number;
 }
 
 export interface Subject {
@@ -185,18 +178,6 @@ export interface ConstraintConfig {
 	 * migration compatibility.
 	 */
 	preferDoubleLessonsContiguous: { enabled: boolean; weight: number };
-	/**
-	 * Phase 12: per-teacher daily load cap. The cap itself is set per
-	 * `Teacher.maxLessonsPerDay` (optional, default 8). This entry just
-	 * controls whether/how strongly to penalize over-shoots.
-	 */
-	teacherDailyLoad: { enabled: boolean; weight: number };
-	/**
-	 * Phase 12: every teacher who has lessons in the morning AND in the
-	 * afternoon should have at least one free slot in the midday window
-	 * (configurable). Mirror of Untis "Mittagspause".
-	 */
-	teacherLunchBreak: { enabled: boolean; weight: number; midayPeriods: Period[] };
 }
 
 // Phase 10 weight calibration (after solver-side diagnosis):
@@ -226,9 +207,7 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	mustStartFirstPeriod: { enabled: true, weight: 300 },
 	unevenDaysWeight: 150,
 	timePrefWeight: 100,
-	subjectMaxOncePerDay: { enabled: true, weight: 60 },
-	teacherDailyLoad: { enabled: true, weight: 50 },
-	teacherLunchBreak: { enabled: true, weight: 40, midayPeriods: [5, 6] }
+	subjectMaxOncePerDay: { enabled: true, weight: 60 }
 };
 
 export interface ScheduleDoc {

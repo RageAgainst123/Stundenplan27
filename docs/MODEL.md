@@ -92,7 +92,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 14)
+## 3. Score-Komponenten (alle 12)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -112,9 +112,6 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `time_pref`        | Spec mit `timePref`: lin. Distanz zum Wunsch-Pol (P1 oder P8)              | 100     | `timePrefWeight` (Top-Level)                      | keine timePref-Specs |
 | `subject_twice`    | (day,grade,subject) mit Count > 1                                          | 60      | `subjectMaxOncePerDay.{enabled, weight}`          | enabled=false|
 | `spec_spread`      | (specId,day) mit ≥2 Occurrences — Lerneinheit-Spread über Wochentage       | 30      | `preferDoubleLessonsContiguous.{enabled, weight}` (Feldname Legacy) | enabled=false|
-| `teacher_overload` | (teacher,day) Stunden über `Teacher.maxLessonsPerDay` (Default 8)          | 50      | `teacherDailyLoad.{enabled, weight}`              | enabled=false|
-| `teacher_no_lunch` | Lehrer hat morgens UND nachmittags, ohne Pause in midayPeriods             | 40      | `teacherLunchBreak.{enabled, weight, midayPeriods}`| enabled=false|
-
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
   (User hat explizit Nachmittag gewünscht — kein Widerspruch).
@@ -183,6 +180,7 @@ und upgrade idempotent zur aktuellen `SCHEMA_VERSION`.
 | v2     | 8     | `PlacedLesson.grade` hinzugefügt. Multi-Grade-Specs emittieren jetzt 1 PlacedLesson pro Grade. |
 | v3     | 8     | `LessonSpec.groupKey` aufgespalten in `groupLabel` (Display-only) + `couplingId` (Solver-Hard).|
 | v4     | 11    | `LessonSpec.teacher: TeacherId` ersetzt durch `LessonSpec.teachers: TeacherId[]` (Team-Teaching). Plus diverse `ConstraintConfig`-Erweiterungen aus Phase 12. |
+| v4 (revisited) | 12 | `Teacher.maxLessonsPerDay` plus `ConstraintConfig.teacherDailyLoad` und `ConstraintConfig.teacherLunchBreak` wieder entfernt. Kein Schema-Bump — die Migration strippt alte Felder beim Laden. |
 
 **Beim nächsten Schema-Bump:**
 1. `SCHEMA_VERSION` in `types.ts` erhöhen.

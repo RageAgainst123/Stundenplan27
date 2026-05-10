@@ -136,12 +136,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.subjectMaxOncePerDay !== 'object' || c12.subjectMaxOncePerDay === null) {
 			c12.subjectMaxOncePerDay = { enabled: true, weight: 60 };
 		}
-		if (typeof c12.teacherDailyLoad !== 'object' || c12.teacherDailyLoad === null) {
-			c12.teacherDailyLoad = { enabled: true, weight: 50 };
-		}
-		if (typeof c12.teacherLunchBreak !== 'object' || c12.teacherLunchBreak === null) {
-			c12.teacherLunchBreak = { enabled: true, weight: 40, midayPeriods: [5, 6] };
-		}
+		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
+		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
+		// Wenn ein altes Doc diese Felder noch hat, strippen.
+		if ('teacherDailyLoad' in c12) delete c12.teacherDailyLoad;
+		if ('teacherLunchBreak' in c12) delete c12.teacherLunchBreak;
 		// Reactivate the previously-defunct preferDoubleLessonsContiguous
 		// (it was tied to no scoring code). Bump its old "20" default so the
 		// re-implementation is actually noticeable.
@@ -177,6 +176,14 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			}
 		}
 		doc.placed = expanded;
+	}
+
+	// Phase 12 follow-up: Teacher.maxLessonsPerDay wurde zusammen mit
+	// teacherDailyLoad / teacherLunchBreak entfernt. Aus alten Docs strippen.
+	for (const t of doc.teachers ?? []) {
+		if ('maxLessonsPerDay' in t) {
+			delete (t as unknown as Record<string, unknown>).maxLessonsPerDay;
+		}
 	}
 
 	if (doc.meta) {

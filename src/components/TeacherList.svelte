@@ -70,7 +70,6 @@
 				<th>Name</th>
 				<th>Pers.-Nr.</th>
 				<th>Fächer</th>
-				<th title="Maximale Stunden pro Tag — schützt Teilzeit-Lehrer. Leer = Default 8.">Max/Tag</th>
 				<th>Verf.</th>
 				<th></th>
 			</tr>
@@ -99,26 +98,6 @@
 								{s.code}
 							</label>
 						{/each}
-					</td>
-					<td>
-						<input
-							type="number"
-							min="1"
-							max="8"
-							value={t.maxLessonsPerDay ?? ''}
-							placeholder="8"
-							onchange={e => {
-								const v = (e.currentTarget as HTMLInputElement).value;
-								const n = Number(v);
-								if (v === '' || !Number.isFinite(n) || n <= 0 || n > 8) {
-									delete t.maxLessonsPerDay;
-								} else {
-									t.maxLessonsPerDay = n;
-								}
-							}}
-							class="max-day-input"
-							title="Maximale Stunden pro Tag. Leer = Default 8."
-						/>
 					</td>
 					<td>
 						<button
@@ -213,14 +192,6 @@
 		border-radius: 4px;
 		padding: 2px 4px;
 		background: white;
-	}
-	.max-day-input {
-		width: 50px;
-		padding: 3px 6px;
-		font-size: 12px;
-		border: 1px solid var(--border);
-		border-radius: 4px;
-		text-align: center;
 	}
 	.subjects-cell {
 		max-width: 380px;
