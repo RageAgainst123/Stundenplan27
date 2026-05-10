@@ -57,6 +57,21 @@ export function construct(state: SolverState, opts: ConstructOptions): Construct
 	const tStart = Date.now();
 	const totalBudgetMs = 5000;
 
+	// K-3: Snapshot pool for ejection chains. Each chain attempt clones
+	// `state.placement` so it can revert on failure. Pre-Phase 12 each
+	// attempt allocated a fresh Int32Array → significant GC pressure
+	// during heavy ejection (deep recursion × many attempts). Pool reuses
+	// buffers across attempts. `nUnits` is fixed per construct() call.
+	const pool: Int32Array[] = [];
+	const acquireSnapshot = (): Int32Array => {
+		const buf = pool.pop() ?? new Int32Array(state.nUnits);
+		buf.set(state.placement);
+		return buf;
+	};
+	const releaseSnapshot = (buf: Int32Array): void => {
+		pool.push(buf);
+	};
+
 	for (const unit of toPlace) {
 		if (state.placement[unit.idx] !== SLOT_UNPLACED) continue; // already placed (pinned)
 		if (Date.now() - tStart > totalBudgetMs) {
@@ -73,7 +88,7 @@ export function construct(state: SolverState, opts: ConstructOptions): Construct
 		}
 
 		// No feasible slot found — try ejection chain
-		const ok = ejectionChain(state, unit, maxDepth, rng, opts.weights);
+		const ok = ejectionChain(state, unit, maxDepth, rng, opts.weights, 0, new Set(), { remaining: 200 }, acquireSnapshot, releaseSnapshot);
 		if (!ok) unplaced.push(unit.idx);
 	}
 
@@ -298,7 +313,9 @@ function ejectionChain(
 	weights: ScoreWeights,
 	depth = 0,
 	visited: Set<number> = new Set(),
-	budget: { remaining: number } = { remaining: 200 }
+	budget: { remaining: number } = { remaining: 200 },
+	acquireSnapshot?: () => Int32Array,
+	releaseSnapshot?: (buf: Int32Array) => void
 ): boolean {
 	if (depth >= maxDepth) return false;
 	if (budget.remaining <= 0) return false;
@@ -339,19 +356,22 @@ function ejectionChain(
 		// will have already happened on `state.placement` and a per-blocker
 		// revert is not enough to reach a consistent state. Restoring the
 		// full snapshot is the only reliable way.
-		const snapshot = new Int32Array(state.placement);
+		// K-3: Use pooled snapshot if available — avoids per-attempt
+		// allocation under heavy ejection load.
+		const snapshot = acquireSnapshot ? acquireSnapshot() : new Int32Array(state.placement);
 
 		for (const b of blockers) state.placement[b.idx] = SLOT_UNPLACED;
 
 		if (wouldViolate(state, unit, slot) !== null) {
 			state.placement.set(snapshot);
+			if (releaseSnapshot) releaseSnapshot(snapshot);
 			continue;
 		}
 
 		state.placement[unit.idx] = slot;
 		let allOk = true;
 		for (const b of blockers) {
-			if (!ejectionChain(state, b, maxDepth, rng, weights, depth + 1, visited, budget)) {
+			if (!ejectionChain(state, b, maxDepth, rng, weights, depth + 1, visited, budget, acquireSnapshot, releaseSnapshot)) {
 				allOk = false;
 				break;
 			}
@@ -359,11 +379,13 @@ function ejectionChain(
 
 		if (allOk) {
 			visited.delete(unit.idx);
+			if (releaseSnapshot) releaseSnapshot(snapshot);
 			return true;
 		}
 
 		// Full snapshot revert — undoes everything the recursive chain did.
 		state.placement.set(snapshot);
+		if (releaseSnapshot) releaseSnapshot(snapshot);
 	}
 
 	visited.delete(unit.idx);
