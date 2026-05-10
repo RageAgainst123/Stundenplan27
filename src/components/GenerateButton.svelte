@@ -2,6 +2,7 @@
 	import { useStore } from '../lib/store.svelte';
 	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput } from '../lib/solver-v2/index';
 	import type { PlacedLesson } from '../lib/types';
+	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
 	const store = useStore();
 
 	// Phase 14: Pool-Phase Dauer (Sekunden). 0 = aus (heutiges Verhalten:
@@ -12,6 +13,33 @@
 	let poolAttempts = $state<number>(0);
 	let poolBestScore = $state<number | null>(null);
 	let poolPhaseActive = $state<boolean>(false);
+
+	// Phase 15: Diversify-Sliders (Anteil + Dauer).
+	let diversifyFractionPct = $state<number>(25);   // 10-50
+	let diversifyDurationSec = $state<number>(30);   // 10-120
+	let diversifyActive = $state<boolean>(false);
+	let preDiversifyScore = $state<number | null>(null);
+
+	// Phase 15: Auto-Snapshot Schwelle (5% Improvement).
+	const AUTO_SNAPSHOT_THRESHOLD = 0.05;
+	// Score VOR diesem Lauf (für Auto-Snapshot-Trigger nach done).
+	let preRunScore = $state<number | null>(null);
+	// Reaktive Snapshot-Liste — refresh via 'snapshots-changed' window-event.
+	let snapshots = $state<Snapshot[]>(loadSnapshots());
+
+	function refreshSnapshots(): void {
+		snapshots = loadSnapshots();
+	}
+
+	if (typeof window !== 'undefined') {
+		window.addEventListener('snapshots-changed', refreshSnapshots);
+	}
+
+	function notifySnapshotsChanged(): void {
+		if (typeof window !== 'undefined') {
+			window.dispatchEvent(new CustomEvent('snapshots-changed'));
+		}
+	}
 
 	// ---- Run state ----
 	let session = $state<SolveSession | null>(null);
@@ -168,11 +196,37 @@
 		runSolver({ poolBudgetMs: 0, hotStart: true });
 	}
 
-	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean }): void {
+	function diversify(): void {
+		// Phase 15: Diversify-Lauf. Solver wirft 25% (oder Slider-Wert) der
+		// nicht-pinned Units raus, baut neu, optimiert. Best-Tracking →
+		// Plan kann nie schlechter werden.
+		runSolver({
+			poolBudgetMs: 0,
+			hotStart: true,
+			diversify: {
+				fraction: diversifyFractionPct / 100,
+				durationMs: diversifyDurationSec * 1000
+			}
+		});
+	}
+
+	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean; diversify?: { fraction: number; durationMs: number } }): void {
 		reset();
 		poolAttempts = 0;
 		poolBestScore = null;
 		poolPhaseActive = !extra.hotStart && extra.poolBudgetMs > 0;
+		diversifyActive = !!extra.diversify;
+		// Phase 15: Pre-Run Score merken für Auto-Snapshot-Trigger und
+		// Diversify-UI-Anzeige.
+		const currentBreakdown = store.doc.placed.length > 0
+			? null  // Score ist nicht direkt im Doc — Trigger über bestScore nach Lauf
+			: null;
+		void currentBreakdown;
+		// Wenn vorhandener Plan: bisheriger best-known Score (aus letztem
+		// Done) als Pre-Run-Score. Im Doc selbst nicht gespeichert, also
+		// nehmen wir bestScore aus dem letzten Lauf wenn verfügbar.
+		preRunScore = bestScore;
+		preDiversifyScore = extra.diversify ? bestScore : null;
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
@@ -181,7 +235,8 @@
 			totalBudgetMs: 1_800_000, // 30 min Gesamtbudget (Construct + ILS)
 			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
 			poolBudgetMs: extra.poolBudgetMs,
-			hotStart: extra.hotStart
+			hotStart: extra.hotStart,
+			diversify: extra.diversify
 		});
 		session = s;
 
@@ -229,9 +284,29 @@
 		s.on('done', d => {
 			result = d.final;
 			if (d.final.relaxation) relaxation = d.final.relaxation;
-			if (d.final.status === 'SAT') {
+			if (d.final.status === 'SAT' || d.final.status === 'TIMEOUT') {
 				applyPlacements(d.final.placed);
+				// Phase 15: Auto-Snapshot bei großem Score-Improvement.
+				// Trigger nur wenn Score VOR diesem Lauf bekannt war und neuer
+				// Score >= 5% besser. Default-Auto-Naming nach Score.
+				const newScore = d.final.penalties?.total;
+				if (typeof newScore === 'number' && preRunScore !== null && preRunScore > 0) {
+					const improvement = (preRunScore - newScore) / preRunScore;
+					if (improvement >= AUTO_SNAPSHOT_THRESHOLD) {
+						const count = loadSnapshots().length;
+						saveSnapshot({
+							name: `Auto #${count + 1}`,
+							score: Math.round(newScore),
+							placed: d.final.placed.map(p => ({ ...p })),
+							scoreBreakdown: d.final.penalties as any,
+							source: 'auto'
+						});
+						notifySnapshotsChanged();
+					}
+				}
 			}
+			// Diversify-Lauf beendet → Anzeige zurücksetzen
+			diversifyActive = false;
 			// Snapshot DZN so the user can still download it after the run ends.
 			lastDzn = s.getDzn();
 			session = null;
@@ -245,6 +320,93 @@
 	function abort(): void {
 		session?.abort();
 	}
+
+	// ---- Phase 15: Snapshot-Manage ----
+	function saveCurrentAsSnapshot(): void {
+		const score = bestScore ?? result?.penalties?.total ?? 0;
+		if (store.doc.placed.length === 0) {
+			alert('Kein Plan vorhanden — erst generieren.');
+			return;
+		}
+		const count = loadSnapshots().length;
+		const defaultName = `Plan #${count + 1}`;
+		const name = prompt(`Name für diesen Snapshot:`, defaultName);
+		if (!name || !name.trim()) return;
+		saveSnapshot({
+			name: name.trim(),
+			score: Math.round(score),
+			placed: store.doc.placed.map(p => ({ ...p })),
+			scoreBreakdown: result?.penalties as any,
+			source: 'manual'
+		});
+		notifySnapshotsChanged();
+	}
+
+	function restoreSnapshot(snap: Snapshot): void {
+		const ok = confirm(
+			`Snapshot „${snap.name}" (Score ${snap.score}) wiederherstellen?\n\n` +
+			`Aktuelle nicht-gepinnten Placements werden überschrieben.\n` +
+			`Vor dem Wiederherstellen wird automatisch ein Backup deines aktuellen Plans gespeichert.`
+		);
+		if (!ok) return;
+		// Auto-Backup vor Restore (nur wenn aktueller Plan nicht leer)
+		if (store.doc.placed.length > 0) {
+			const backupCount = loadSnapshots().length;
+			saveSnapshot({
+				name: `Backup vor Restore ${new Date().toLocaleTimeString('de-AT')}`,
+				score: Math.round(bestScore ?? result?.penalties?.total ?? 0),
+				placed: store.doc.placed.map(p => ({ ...p })),
+				scoreBreakdown: result?.penalties as any,
+				source: 'auto'
+			});
+			void backupCount;
+		}
+		store.doc.placed = snap.placed.map(p => ({ ...p }));
+		store.persistNow();
+		// Best-Score wieder auf den Snapshot-Score setzen für UI-Konsistenz.
+		bestScore = snap.score;
+		notifySnapshotsChanged();
+	}
+
+	function diversifyFromSnapshot(snap: Snapshot): void {
+		// Snapshot wiederherstellen, dann sofort Diversify-Lauf starten.
+		const ok = confirm(
+			`Snapshot „${snap.name}" als Basis nehmen und sofort diversifizieren?\n\n` +
+			`Aktueller Plan wird vor Restore automatisch als Backup gespeichert.`
+		);
+		if (!ok) return;
+		if (store.doc.placed.length > 0) {
+			saveSnapshot({
+				name: `Backup vor Diversify ${new Date().toLocaleTimeString('de-AT')}`,
+				score: Math.round(bestScore ?? result?.penalties?.total ?? 0),
+				placed: store.doc.placed.map(p => ({ ...p })),
+				scoreBreakdown: result?.penalties as any,
+				source: 'auto'
+			});
+		}
+		store.doc.placed = snap.placed.map(p => ({ ...p }));
+		store.persistNow();
+		bestScore = snap.score;
+		notifySnapshotsChanged();
+		// Sofort Diversify-Lauf starten
+		diversify();
+	}
+
+	function deleteSnap(snap: Snapshot): void {
+		if (!confirm(`Snapshot „${snap.name}" löschen?`)) return;
+		deleteSnapshot(snap.id);
+		notifySnapshotsChanged();
+	}
+
+	function clearAllSnapshots(): void {
+		if (!confirm('Wirklich ALLE Snapshots löschen? Das kann nicht rückgängig gemacht werden.')) return;
+		clearSnapshots();
+		notifySnapshotsChanged();
+	}
+
+	// Sortierte Snapshots (bester zuerst, niedrigster Score = best)
+	const sortedSnapshots = $derived([...snapshots].sort((a, b) => a.score - b.score));
+	const bestSnapshotId = $derived(sortedSnapshots[0]?.id ?? null);
 
 	// ---- Convergence status ----
 	// Three states based on how long ago the last score improvement was:
@@ -342,6 +504,44 @@
 		: 'Erst einen Plan erzeugen — dann kann der Solver darauf weiter optimieren.'}>
 		Weiter optimieren
 	</button>
+
+	<div class="diversify-config" class:disabled={busy}>
+		<div class="diversify-row">
+			<label class="div-label">
+				<span>Anteil:</span>
+				<input
+					type="range"
+					min="10"
+					max="50"
+					step="5"
+					bind:value={diversifyFractionPct}
+					disabled={busy}
+					class="div-slider"
+					title="Wieviel Prozent der nicht-gepinnten Stunden zurückgesetzt und neu platziert werden."
+				/>
+				<span class="div-value">{diversifyFractionPct} %</span>
+			</label>
+			<label class="div-label">
+				<span>Dauer:</span>
+				<input
+					type="range"
+					min="10"
+					max="120"
+					step="5"
+					bind:value={diversifyDurationSec}
+					disabled={busy}
+					class="div-slider"
+					title="Wie lange Local Search nach dem Reset laufen darf."
+				/>
+				<span class="div-value">{diversifyDurationSec} s</span>
+			</label>
+		</div>
+		<button class="btn" onclick={diversify} disabled={busy || !hasExistingPlan} title={hasExistingPlan
+			? `~${diversifyFractionPct}% der Stunden werden neu platziert, dann ${diversifyDurationSec}s Local Search. Bei keiner Verbesserung bleibt der Plan unverändert (Best-Tracking).`
+			: 'Erst einen Plan erzeugen — dann kannst du diversifizieren.'}>
+			🌀 Diversifizieren
+		</button>
+	</div>
 
 	{#if busy}
 		<div class="progress-block" role="status" aria-live="polite">
@@ -487,6 +687,50 @@
 			{/if}
 		</div>
 	{/if}
+
+	<!-- Phase 15: Snapshot-Galerie -->
+	<div class="snapshot-gallery">
+		<div class="gallery-header">
+			<h4>📸 Plan-Snapshots ({snapshots.length}/{MAX_SNAPSHOTS})</h4>
+			<div class="gallery-actions">
+				<button class="btn small" onclick={saveCurrentAsSnapshot} disabled={busy || !hasExistingPlan} title="Aktuellen Plan-Stand als Snapshot speichern">
+					💾 Aktuellen Plan speichern
+				</button>
+				{#if snapshots.length > 0}
+					<button class="btn danger small" onclick={clearAllSnapshots} disabled={busy} title="Alle Snapshots löschen">
+						🗑 Alle löschen
+					</button>
+				{/if}
+			</div>
+		</div>
+		{#if snapshots.length === 0}
+			<p class="muted small">
+				Noch keine Snapshots. Bei großen Score-Verbesserungen (≥5%) werden sie automatisch erstellt — oder klicke „Aktuellen Plan speichern".
+			</p>
+		{:else}
+			<ul class="snap-list">
+				{#each sortedSnapshots as s (s.id)}
+					<li class:best={s.id === bestSnapshotId}>
+						<div class="snap-info">
+							<span class="snap-icon">{s.id === bestSnapshotId ? '⭐' : (s.source === 'auto' ? '🔄' : '💾')}</span>
+							<span class="snap-name">{s.name}</span>
+							<span class="snap-score">Score {s.score}</span>
+							<span class="muted small">· {new Date(s.createdAt).toLocaleString('de-AT')}</span>
+						</div>
+						<div class="snap-actions">
+							<button class="btn small" onclick={() => restoreSnapshot(s)} disabled={busy} title="Plan-Placements aus diesem Snapshot wiederherstellen">
+								↩ Wiederherstellen
+							</button>
+							<button class="btn small" onclick={() => diversifyFromSnapshot(s)} disabled={busy || !diversifyDurationSec} title="Snapshot wiederherstellen und sofort diversifizieren">
+								🌀 Diversify
+							</button>
+							<button class="btn danger small" onclick={() => deleteSnap(s)} disabled={busy} title="Diesen Snapshot löschen">×</button>
+						</div>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</div>
 </div>
 
 <style>
@@ -741,5 +985,115 @@
 	.log-line.log-phase {
 		color: #b9f8a0;
 		font-weight: 600;
+	}
+
+	/* Phase 15: Diversify-Config + Snapshot-Galerie */
+	.diversify-config {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 280px;
+		padding: 8px 10px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-left: 3px solid #f4a261;
+		border-radius: 6px;
+	}
+	.diversify-config.disabled {
+		opacity: 0.6;
+	}
+	.diversify-row {
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.div-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.div-label > span:first-child {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 60px;
+	}
+	.div-slider {
+		flex: 1;
+		min-width: 80px;
+	}
+	.div-value {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 36px;
+		text-align: right;
+		color: #c47e34;
+	}
+
+	.snapshot-gallery {
+		flex: 0 0 100%;
+		max-width: 800px;
+		margin-top: 12px;
+		padding: 10px 12px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+	}
+	.gallery-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+		margin-bottom: 8px;
+	}
+	.gallery-header h4 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+	}
+	.gallery-actions {
+		display: flex;
+		gap: 6px;
+	}
+	.snap-list {
+		list-style: none;
+		padding: 0;
+		margin: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.snap-list li {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		padding: 6px 10px;
+		background: var(--bg-soft);
+		border-radius: 4px;
+		font-size: 13px;
+		flex-wrap: wrap;
+	}
+	.snap-list li.best {
+		background: rgba(254, 215, 102, 0.15);
+		border-left: 3px solid #f6c344;
+	}
+	.snap-info {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex: 1;
+		min-width: 200px;
+	}
+	.snap-name {
+		font-weight: 600;
+	}
+	.snap-score {
+		color: var(--accent);
+		font-weight: 600;
+	}
+	.snap-actions {
+		display: flex;
+		gap: 4px;
 	}
 </style>
