@@ -11,6 +11,23 @@ Folgende Dateien werden mit dieser CLAUDE.md geladen:
 - @docs/REQUIREMENTS.md
 - @docs/decisions/README.md
 
+## Doku-Hygiene (kurz)
+
+`docs/MODEL.md` ist die kanonische Quelle für Datenstruktur (Domänenmodell,
+Solver-Internals, alle 14 Score-Komponenten, alle 9 Hard-Constraints,
+Schema-Versionen). Drei Update-Anlässe:
+
+1. **`src/lib/types.ts`** geändert (`LessonSpec`, `ConstraintConfig`,
+   `SCHEMA_VERSION`) → MODEL.md §1 oder §5 prüfen.
+2. **`src/lib/solver-v2/types.ts`** geändert (`Unit`, `ScoreBreakdown`,
+   `ScoreWeights`) oder neue Score-Komponente in `score.ts` → MODEL.md §2/§3.
+3. **`src/lib/solver-v2/hardCheck.ts`** geändert oder neue Hard-Constraint
+   irgendwo → MODEL.md §4.
+
+`docs/SOLVER-V2-CONCEPT.md` beschreibt den **Algorithmus** (Construction,
+LS, ILS); MODEL.md beschreibt die **Struktur**. Bei Algorithmus-Änderungen:
+SOLVER-V2-CONCEPT prüfen, nicht MODEL.
+
 ## Wichtigster Kontext-Hinweis (Stand Phase 11)
 
 **Solver wird gerade umgebaut von MiniZinc-WASM auf TypeScript Construct + Local Search.**

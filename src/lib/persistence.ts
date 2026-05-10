@@ -1,5 +1,8 @@
 // localStorage save/load + JSON file download/upload for backups.
 // Includes forward-compatible migrations.
+//
+// Schema version table + bump checklist: docs/MODEL.md §5. When you bump
+// SCHEMA_VERSION, add a row there describing what changed.
 
 import { SCHEMA_VERSION, type ConstraintConfig, type GradeLevel, type PlacedLesson, type ScheduleDoc, type LessonSpec, type Subject } from './types';
 

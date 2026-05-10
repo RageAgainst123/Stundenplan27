@@ -1,7 +1,9 @@
 // Solver v2 — hard constraint checks for placing a Unit on a slot.
 //
 // "Hard" means: a violation is forbidden, the move is rejected. These are
-// the H1–H9 constraints from SOLVER-V2-CONCEPT.md §4.
+// the H1–H9 constraints; canonical reference is docs/MODEL.md §4 (table with
+// "where checked" / "where tested"). H5/H6/H9 are enforced implicitly via
+// the Unit data structure in units.ts, not by an explicit check here.
 //
 // API: `wouldViolate(state, unit, slot, ignoreUnit?)` returns null if OK,
 // else a short reason string. `ignoreUnit` is used during swaps where the

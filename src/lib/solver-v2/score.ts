@@ -6,6 +6,11 @@
 //   - In tests to verify incremental score-delta correctness (Property test)
 //
 // Hot path during Local Search uses scoreDelta.ts (incremental, O(1) per move).
+//
+// Canonical reference for ALL 14 score components:
+//   docs/MODEL.md §3 "Score-Komponenten (alle 14)"
+// The table there lists default weights, ConstraintConfig sources, and edge
+// cases. If you add or change a component here, update MODEL.md §3.
 
 import type { GradeLevel, Period, ScheduleDoc } from '../types';
 import {

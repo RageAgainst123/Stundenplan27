@@ -5,6 +5,10 @@
 // block, or a coupling group. A Unit always lands on exactly one
 // (day, period) — but can occupy multiple grade columns at once.
 //
+// Canonical structural reference: docs/MODEL.md §2 ("Solver-internes
+// Modell") and §3 (Score-Komponenten). When you add a field to Unit,
+// SolverState, ScoreBreakdown, or ScoreWeights, update MODEL.md §2/§3.
+//
 // Performance note: Units are constructed once, then identified by a numeric
 // `idx` in the Solver state. All hot-path data (slot[], teacherUsed[][])
 // is dense Int32Array for cache efficiency.

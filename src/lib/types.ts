@@ -1,5 +1,10 @@
 // Single source of truth for the entire Stundenplan domain model.
-// See plan: C:\Users\Geo\.claude\plans\https-rageagainst123-github-io-std-stund-temporal-oasis.md
+//
+// Structural overview, field semantics, schema versions: docs/MODEL.md.
+// If you add a field to LessonSpec, ConstraintConfig, ScheduleDoc, or bump
+// SCHEMA_VERSION, update MODEL.md §1 and §5 to match.
+//
+// Plan + change history: ~/.claude/plans/...md (local, gitignored).
 
 export type TeacherId = string;
 export type SubjectCode = string;
