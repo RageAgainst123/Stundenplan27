@@ -217,12 +217,21 @@ function placementToPlacedLessons(state: SolverState, placement: Int32Array): Pl
 		const day = DAYS_BY_INDEX[dayIndex];
 		for (const inst of unit.instances) {
 			const period = basePeriod + inst.blockPos;
+			// Phase 17: bei Team-Teaching-Pseudo-Specs hat die Unit nur das
+			// Segment-Team (Teilmenge von spec.teachers). Wir schreiben diese
+			// effektive Lehrer-Liste explizit ins PlacedLesson, damit UI und
+			// Konflikt-Validierung korrekt arbeiten.
+			const spec = state.specsById.get(inst.specId);
+			const teachers = (spec?.teachingSegments && spec.teachingSegments.length > 0)
+				? [...unit.teacherIds]
+				: undefined;
 			out.push({
 				specId: inst.specId,
 				day,
 				period: period as PlacedLesson['period'],
 				grade: inst.grade,
 				pinned: unit.pinned,
+				...(teachers ? { teachers } : {})
 			});
 		}
 	}

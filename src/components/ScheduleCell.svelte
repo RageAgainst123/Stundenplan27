@@ -89,7 +89,8 @@
 >
 	<div class="row" class:team={couplingBg !== ''}>
 		{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + cp.placed.grade + '|' + idx)}
-			{@const cpTeachers = cp.spec.teachers.map(tid => teacherById(tid)).filter((t): t is NonNullable<typeof t> => !!t)}
+			{@const effectiveTeacherIds = cp.placed.teachers ?? cp.spec.teachers}
+		{@const cpTeachers = effectiveTeacherIds.map(tid => teacherById(tid)).filter((t): t is NonNullable<typeof t> => !!t)}
 			{@const visible = isHighlighted(cp.spec, grade)}
 			<div
 				class="placed"

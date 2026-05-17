@@ -209,6 +209,17 @@ export interface PlacedLesson {
 	                               // PlacedLesson per grade — same (day,period) but
 	                               // distinct grade.
 	pinned: boolean;              // user-fixed, solver may not move
+	/**
+	 * Phase 17: Bei Team-Teaching mit Segmenten kann eine Spec verschiedene
+	 * Lehrer-Subsets in verschiedenen Stunden haben (z.B. 2h alle drei,
+	 * 2h nur Hauptlehrer). Wenn gesetzt, überschreibt dieses Array
+	 * `spec.teachers` für die Anzeige und für Konflikt-Prüfungen — gibt
+	 * exakt an welche Lehrer in DIESER Stunde tatsächlich anwesend sind.
+	 *
+	 * Wenn `undefined`/leer: Fallback auf `spec.teachers` (alle Lehrer der
+	 * Spec), wie pre-Phase-17.
+	 */
+	teachers?: TeacherId[];
 }
 
 export interface ConstraintConfig {

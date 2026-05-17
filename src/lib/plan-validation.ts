@@ -45,11 +45,16 @@ export function findPlanConflicts(doc: ScheduleDoc): PlanConflict[] {
 
 		// Lehrer-Doppelbelegung: same teacherId in 2 verschiedenen specIds im selben Slot
 		// (außer beide Specs sind gekoppelt).
+		// Phase 17: bei Specs mit teachingSegments nutze `pl.teachers` (das
+		// effektive Segment-Team) statt `spec.teachers` (alle Lehrer der Spec),
+		// damit ein „Stütz-Lehrer der NICHT in diesem Segment ist" nicht
+		// fälschlich als Konflikt zählt.
 		const teacherToSpecs = new Map<string, Set<string>>();
 		for (const pl of placements) {
 			const sp = specsById.get(pl.specId);
 			if (!sp) continue;
-			for (const tid of sp.teachers) {
+			const effectiveTeachers = pl.teachers ?? sp.teachers;
+			for (const tid of effectiveTeachers) {
 				const set = teacherToSpecs.get(tid) ?? new Set();
 				set.add(pl.specId);
 				teacherToSpecs.set(tid, set);
