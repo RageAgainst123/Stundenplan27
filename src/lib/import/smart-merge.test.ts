@@ -75,13 +75,17 @@ describe('Smart-Merge — School B (Team-Teaching aktiv)', () => {
 		expect(spec.count).toBe(4);
 		// teachers[] enthält alle 3 Lehrer
 		expect(spec.teachers.length).toBe(3);
-		// teamComposition dokumentiert die Aufteilung
-		expect(spec.teamComposition).toBeDefined();
-		const teamHours = Object.values(spec.teamComposition!);
-		expect(teamHours).toContain(4); // Hauptlehrer
-		// Stütz-Stunden in der Zusammensetzung
-		const totalTeamHours = teamHours.reduce((s, h) => s + h, 0);
-		expect(totalTeamHours).toBe(9); // 4 + 2 + 2 + 1 = 9 Lehrer-Stunden
+		// teachingSegments dokumentiert die Best-Guess-Aufteilung
+		expect(spec.teachingSegments).toBeDefined();
+		const segs = spec.teachingSegments!;
+		// Summe der Segment-Stunden = count
+		const sumHours = segs.reduce((s, seg) => s + seg.hours, 0);
+		expect(sumHours).toBe(4);
+		// Hauptlehrer in jedem Segment
+		const mainTeacher = spec.teachers[0];
+		for (const seg of segs) {
+			expect(seg.teachers).toContain(mainTeacher);
+		}
 	});
 
 	it('Leistungsgruppen (Stand+AHS) bekommen shared couplingId', () => {

@@ -66,12 +66,13 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - **`src/lib/teacher-helpers.ts`** — kleine Pure-Helpers für Teacher-Lookups (id → Teacher / color / name).
 - **`src/lib/store.svelte.ts`** — Singleton-Store via `setContext`/`getContext`, `$state` für ScheduleDoc, Auto-Save in localStorage via `$effect.root`.
 - **`src/lib/persistence.ts`** — localStorage save/load + JSON-Im/Export, Migrationen v1→v2→v3→v4.
-- **`src/lib/import/csv.ts`** — Sokrates-Liste-Parser (PG_/VÜ_/FÖ_/KU_, Klassen-Kopplungen `1a+2a`, Mehrstufen, Wochen-Pattern).
+- **`src/lib/import/csv.ts`** — Sokrates-Liste-Parser (PG_/VÜ_/FÖ_/KU_, Klassen-Kopplungen `1a+2a`, Mehrstufen, Wochen-Pattern). Phase 17: Opt-in `smartMerge`-Option.
+- **`src/lib/import/smart-merge.ts`** — Phase 17: Smart-Merge für Sokrates-CSV. Erkennt Team-Teaching, Same-Teacher-Mehrfachzeilen, Leistungsgruppen-Kopplung. Produziert `teachingSegments` mit Best-Guess-Aufteilung (nested coverage). Default-Pfad bit-identisch zu pre-Phase-17.
 - **`src/lib/blocks.ts`** — Block-Pattern-Helpers (`blockPresets`, `blockLabel`, `groupColor`).
 - **`src/lib/schedule-helpers.ts`** — `placementsAt`, `unplacedSpecs`, `checkPlacementConflict` für Drag/Drop.
 - **`src/lib/snapshots.ts`** — Phase 15: Plan-Snapshot-Galerie (max 10 Snapshots in `localStorage`, separater Key `stundenplan27.snapshots`). Auto-Snapshot bei ≥5% Score-Improvement, manueller Save, Restore, Diversify-from-Snapshot.
-- **`src/lib/solver-v2/`** — TypeScript Construct + Local Search Solver. Module: types, units, score, scoreDelta, moves, hardCheck, construct, localSearch, iteratedLS, diagnose, index. Siehe `docs/SOLVER-V2-CONCEPT.md`. Phase 14 Pool-Phase + Hot-Start, Phase 15 Diversify-Modus.
-- **`src/components/`** — UI: ImportExport, TeacherList (mit AvailabilityGrid), SubjectList, SpecList (Bulk-Toolbar + Coupling), ScheduleGrid (mit ScheduleCell + GenerateButton), RulesPanel, WeekView (Phase 16: read-only Anzeige mit Snapshot-Wahl + Highlight-Filter).
+- **`src/lib/solver-v2/`** — TypeScript Construct + Local Search Solver. Module: types, units (Phase 17: `expandSegmentedSpecs` für Team-Teaching), score, scoreDelta, moves, hardCheck, construct, localSearch, iteratedLS, diagnose, index. Siehe `docs/SOLVER-V2-CONCEPT.md`. Phase 14 Pool-Phase + Hot-Start, Phase 15 Diversify-Modus.
+- **`src/components/`** — UI: ImportExport (Phase 17: Smart-Merge Checkbox, Sokrates-Export-Anleitung, rote Reset-Aktion), TeacherList (mit AvailabilityGrid), SubjectList, SpecList (Bulk-Toolbar + Coupling + Phase 17 Multi-Lehrer-Chips + „🤝 Als Team-Teaching"-Aktion), TeamTeachingEditor (Phase 17: inline Segment-Editor mit Checkbox-Matrix), ScheduleGrid (mit ScheduleCell + GenerateButton), RulesPanel, WeekView (Phase 16: read-only Anzeige mit Snapshot-Wahl + Highlight-Filter).
 
 ## Stolperfallen (CRITICAL — bitte erst lesen, bevor du Bugs jagst)
 
@@ -135,7 +136,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - Niemals Bundle-Größe ohne Grund vergrößern. JS-Bundle ohne MiniZinc liegt bei ~50 KB gz; alles drüber ist verdächtig.
 - Niemals `package.json` Hauptversionen anheben ohne ausdrücklichen Auftrag — wir hatten genug Reactivity-Pannen, lass das Stack-Stack stabil.
 
-## Phasen-Status (Stand 2026-05-08)
+## Phasen-Status (Stand 2026-05-17)
 
 - ✅ Phase 1–4: Datenmodell, CSV-Import, Editor, Anzeige
 - ✅ Phase 5: MiniZinc-Solver (harte Constraints)
@@ -154,7 +155,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 - ✅ Phase 14: Pool-Phase (Multi-Start-Construction mit konfigurierbarer Laufzeit) + Hot-Start "Weiter optimieren"-Button + engine-1-stable Tag auf b555673
 - ✅ Phase 15: Diversify-Button (LNS-Pattern, Best-Tracking) + Plan-Snapshot-Galerie (max 10 Pläne in localStorage, Auto-Snapshot bei ≥5% Improvement, Restore + Diversify-from-Snapshot)
 - ✅ Phase 16: Wochenplan-View — neuer Tab, read-only Anzeige mit Snapshot-Dropdown, Filter (Lehrer/Stufe/Fach) im Highlight-Modus, große Zellen, ruhiges Layout
-- 🔜 Phase 17: Print-Layout (A4 pro Lehrer/Stufe), Diff-View zwischen Snapshots, echte zweite Engine, Web Worker
+- ✅ Phase 17: Team-Teaching mit Segmenten — `LessonSpec.teachingSegments` (1 Spec teilbar in N Sub-Stunden mit eigenen Lehrer-Teams), Solver-Auto-Split in Pseudo-Specs, neue `TeamTeachingEditor`-Komponente mit Checkbox-Matrix, Multi-Lehrer-Chips in SpecList, Bulk-Action „🤝 Als Team-Teaching", CSV Smart-Merge als Opt-in mit Best-Guess-Aufteilung
+- 🔜 Phase 18: Print-Layout (A4 pro Lehrer/Stufe), Diff-View zwischen Snapshots, echte zweite Engine, Web Worker
 
 ## Plan-Datei für Detail-Recherche
 

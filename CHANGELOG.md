@@ -5,6 +5,84 @@ Alle erwähnenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unreleased] — Phase 17: Team-Teaching mit Segmenten
+
+User-Anlass: Eine andere Schule liefert CSV-Exporte mit Team-Teaching —
+Hauptlehrer 4h + Stütz-Lehrer mit 2-3h Erg-Stunden in derselben Klasse.
+Bisheriges Modell hätte 4+2+3 = 9 Slots aus 4 echten Mathestunden gemacht.
+
+### Added
+- **CSV Smart-Merge** als Opt-in (Checkbox „🔬 Team-Teaching erkennen"
+  im Import-Card). Erkennt 3 Sokrates-Muster:
+  - Team-Teaching: 1 Hauptlehrer + N Stütz-Lehrer mit Erg-Stunden
+    → eine Spec, `count = HauptlehrerStunden`, `teachingSegments`
+    mit Best-Guess-Aufteilung (nested coverage)
+  - Same-Teacher-Mehrfachzeilen → summieren zu einer Spec
+  - Leistungsgruppen (Stand+AHS) → automatischer `couplingId`
+  - Edge-Case 2 Hauptlehrer ohne Gruppe → Warning, keine Merge
+- **`LessonSpec.teachingSegments?: TeachingSegment[]`** — strukturelle
+  Aufteilung einer Lehreinheit in Sub-Stunden mit eigenen Lehrer-Teams.
+  Beispiel `count=4`:
+  ```
+  segments: [
+    { hours: 2, teachers: [Lindner, Nagel, Titze] },
+    { hours: 1, teachers: [Lindner, Titze] },
+    { hours: 1, teachers: [Lindner] }
+  ]
+  ```
+- **`validateTeachingSegments()`** in `types.ts` — prüft
+  `sum(hours) === count`, jeder Segment-Lehrer in `spec.teachers`,
+  Segmente nicht leer (Toleranz 0.05 für halbzahlige Stunden).
+- **`TeamTeachingEditor.svelte`** — neue Komponente. Inline ausklappbar
+  per Spec-Zeile, Checkbox-Matrix Segment × Lehrer, Live-Validierung,
+  Summen-Anzeige. Skaliert für beliebig viele Lehrer (2, 3, 5+).
+- **SpecList Multi-Lehrer-Chips** — statt nur 1+2-Lehrer-Dropdown jetzt
+  Chips für N Lehrer mit „×"-Remove und „+ Lehrer"-Select.
+- **Bulk-Aktion „🤝 Als Team-Teaching zusammenführen"** — aktiviert
+  bei 2+ Specs mit gleichem Subject + Klasse + Stufe. Heuristik wählt
+  Hauptlehrer (meiste Stunden) und generiert nested-coverage-Vorschlag.
+  Confirm-Dialog mit Detail-Anzeige, dann öffnet sich der Editor.
+
+### Solver-Integration
+- `expandSegmentedSpecs()` in `solver-v2/units.ts` — Pre-Processing vor
+  Unit-Expansion. Specs mit Segmenten werden in N Pseudo-Specs gesplittet
+  (gleiche `spec.id`, eigenes Team, `count = segment.hours`). Restlicher
+  Solver-Code unverändert. Defensiv: kaputter Split → Fallback auf Spec
+  wie pre-Phase-17.
+
+### Persistence
+- Migration: alte `teamComposition`-Felder werden weggeworfen
+  (Vorgänger-Konzept, nie produktiv).
+- `teachingSegments` defensiv normalisiert beim Load: kaputte Einträge
+  (leere Teams, hours≤0) werden entfernt, Spec verhält sich dann
+  wie pre-Phase-17 ohne Crash.
+
+### Tests
+- **15 neue Tests** in `teaching-segments.test.ts`:
+  - `validateTeachingSegments`: 7 Tests (Summe, Lehrer-Match,
+    Halbzahlen, 3-Lehrer-Teams)
+  - `buildState` Solver-Integration: 8 Tests inklusive
+    Default-Pfad-Kompatibilität und Fallback bei kaputtem Split
+- **3 angepasste Tests** in `smart-merge.test.ts` für die
+  `teachingSegments`-Ausgabe statt der alten `teamComposition`
+- Total: **234 Tests grün** (vorher 219)
+
+### Doku
+- `MODEL.md` §1 erweitert um `teachingSegments` und §"Multi-Grade & Coupling"
+  hat neue Sektion "Team-Teaching mit Segmenten"
+- `CLAUDE.md` Phasen-Status: Phase 17 (✅), Phase 18 als nächstes
+- Architektur-Sektion ergänzt: `TeamTeachingEditor.svelte`
+
+### Bundle
+68.76 KB gz (+3.5 KB für Editor-Komponente + Smart-Merge + Multi-Lehrer-UI).
+Über ursprünglicher 60-KB-Empfehlung, aber akzeptabel für die Funktionalität.
+
+### Geplant (Phase 18)
+- Print-Layout (A4 pro Lehrer / pro Schulstufe), `@media print` CSS
+- Diff-View zwischen zwei Snapshots
+- Echte zweite Engine (LNS, Backtracking-Verifier)
+- Web Worker, falls Solver auf größeren Schulen langsam wird
+
 ## [1.0.0] - 2026-05-10 — Erste stabile Version 🎉
 
 **Die App funktioniert.** Nach 16 Phasen Entwicklung erstellt der

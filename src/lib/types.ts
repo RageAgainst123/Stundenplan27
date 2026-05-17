@@ -127,16 +127,77 @@ export interface LessonSpec {
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
 	source: 'csv' | 'manual';     // provenance
 	/**
-	 * Phase 17 (opt-in): Team-Teaching Stunden-Aufteilung pro Lehrer für UI-Anzeige.
-	 * Wird nur vom Smart-Merge-CSV-Import befüllt. Beispiel für M Stufe 5 mit
-	 * 4 Slots, Hauptlehrer 4h + 2 Stütz-Lehrer:
-	 *   { hauptId: 4, stuetz1Id: 2, stuetz2Id: 3 }
+	 * Phase 17: Team-Teaching mit Segmenten.
 	 *
-	 * Der Solver IGNORIERT dieses Feld komplett — `count` ist weiterhin die
-	 * Anzahl echter Slots, `teachers[]` sind alle Lehrer die im Slot sitzen.
-	 * Das Feld dient nur zur Dokumentation in der SpecList und im Editor.
+	 * Eine Lehreinheit mit N Lehrern und `count` Stunden kann strukturell in
+	 * mehrere Segmente zerlegt werden — jedes Segment hat eine eigene Stunden-
+	 * Anzahl und ein eigenes Lehrer-Team aus `teachers[]`.
+	 *
+	 * Beispiel: Mathematik 5. Stufe, count=4, teachers=[Lindner, Nagel, Titze]
+	 *   teachingSegments: [
+	 *     { hours: 2, teachers: ['Lindner','Nagel','Titze'] },  // alle drei
+	 *     { hours: 1, teachers: ['Lindner','Titze'] },           // Titze zusätzlich
+	 *     { hours: 1, teachers: ['Lindner'] }                    // allein
+	 *   ]
+	 *
+	 * Constraints (validiert in `validateTeachingSegments`):
+	 *   - sum(segments[i].hours) === count
+	 *   - jede TeacherId in segments[i].teachers MUSS in spec.teachers vorkommen
+	 *   - segments[i].teachers.length >= 1
+	 *
+	 * Solver-Effekt (siehe `solver-v2/units.ts`): Eine Spec mit segments wird
+	 * intern in N separate Units gesplittet (eine pro Segment, mit `count = hours`
+	 * und entsprechendem Teacher-Team). Der bestehende Coupling-/Multi-Teacher-
+	 * Mechanismus übernimmt von dort.
+	 *
+	 * `teachingSegments=undefined` (Default) bedeutet: implizit ein einziges
+	 * Segment, alle Lehrer in jeder Stunde dabei — Verhalten wie vor Phase 17.
 	 */
-	teamComposition?: Record<TeacherId, number>;
+	teachingSegments?: TeachingSegment[];
+}
+
+/**
+ * Phase 17: ein Team-Teaching-Segment innerhalb einer LessonSpec.
+ * `hours` ist halbzahlig erlaubt analog zu LessonSpec.count.
+ * `teachers` ist Teilmenge von LessonSpec.teachers, nie leer.
+ * `label` ist optionaler User-Text zur Beschreibung (z.B. "mit Stütz").
+ */
+export interface TeachingSegment {
+	hours: number;
+	teachers: TeacherId[];
+	label?: string;
+}
+
+/**
+ * Phase 17: Validierung der `teachingSegments`-Aufteilung einer Spec.
+ * Rückgabe: leeres Array = OK, sonst Fehlermeldungen pro Verstoß.
+ */
+export function validateTeachingSegments(spec: Pick<LessonSpec, 'count' | 'teachers' | 'teachingSegments'>): string[] {
+	const errs: string[] = [];
+	const segs = spec.teachingSegments;
+	if (!segs || segs.length === 0) return errs; // kein Splitting = OK
+	const sum = segs.reduce((s, seg) => s + (Number(seg.hours) || 0), 0);
+	// 0.05-Toleranz für Rundungsfehler bei halbzahligen Stunden
+	if (Math.abs(sum - spec.count) > 0.05) {
+		errs.push(`Segmente-Summe ${sum}h ≠ Stunden ${spec.count}h`);
+	}
+	const teacherSet = new Set(spec.teachers);
+	for (let i = 0; i < segs.length; i++) {
+		const seg = segs[i];
+		if (!Array.isArray(seg.teachers) || seg.teachers.length === 0) {
+			errs.push(`Segment ${i + 1}: kein Lehrer ausgewählt`);
+			continue;
+		}
+		for (const tid of seg.teachers) {
+			if (!teacherSet.has(tid)) {
+				errs.push(`Segment ${i + 1}: Lehrer ${tid.slice(0, 8)}… nicht im Spec-Team`);
+			}
+		}
+		if (!(seg.hours > 0)) {
+			errs.push(`Segment ${i + 1}: Stunden muss > 0 sein`);
+		}
+	}
+	return errs;
 }
 
 export interface PlacedLesson {

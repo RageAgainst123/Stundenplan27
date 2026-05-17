@@ -19,7 +19,7 @@
 // Wichtig: Dieses Modul VERÄNDERT das Verhalten nur wenn aktiviert. Default
 // im Parser ist `smartMerge=false` → bit-identisch zum Stand vor Phase 17.
 
-import type { LessonSpec } from '../types';
+import type { LessonSpec, TeachingSegment } from '../types';
 import type { ImportResult } from './csv';
 
 export interface RawMergeRow {
@@ -180,21 +180,36 @@ export function buildSpecsWithSmartMerge(input: SmartMergeInput): {
 		// Stunden>0, plus 1+ Erg-only rows.
 		if (uniqueHaupt.size === 1 && ergRows.length >= 1 && stundenRows.length === 1) {
 			const main = stundenRows[0];
-			const supportTeachers = [
-				...new Set(ergRows.map(r => r.teacherId))
-			].filter(tid => tid !== main.teacherId);
-
-			// Build team composition: sum erg-hours per support teacher
-			const teamComp: Record<string, number> = { [main.teacherId]: main.stunden };
+			// Pro Stütz-Lehrer: Summe seiner Erg-Stunden (multiple Zeilen werden summiert).
+			const supportHoursByTeacher = new Map<string, number>();
 			for (const er of ergRows) {
-				teamComp[er.teacherId] = (teamComp[er.teacherId] ?? 0) + er.ergStunden;
+				if (er.teacherId === main.teacherId) continue;
+				supportHoursByTeacher.set(
+					er.teacherId,
+					(supportHoursByTeacher.get(er.teacherId) ?? 0) + er.ergStunden
+				);
 			}
+			const supportTeachers = [...supportHoursByTeacher.keys()];
+			// Cap auf Hauptlehrer-Stunden — kein Stütz kann in mehr Slots sitzen
+			// als der Hauptlehrer überhaupt hat.
+			const supportHours = supportTeachers.map(tid =>
+				Math.min(supportHoursByTeacher.get(tid)!, main.stunden)
+			);
+			// Phase 17: Best-Guess-Aufteilung in teachingSegments. Algorithmus
+			// "nested coverage": die Stütz-Lehrer sind absteigend nach Stunden
+			// gestaffelt, jeder Stütz ist in den ersten N Slots dabei.
+			const teachingSegments = buildBestGuessSegments(
+				main.stunden,
+				main.teacherId,
+				supportTeachers,
+				supportHours
+			);
 
 			specs.push({
 				...rowToSpec(main, makeId),
 				count: main.stunden, // ← The KEY: Slot-count = main teacher hours, NOT sum
 				teachers: [main.teacherId, ...supportTeachers],
-				teamComposition: teamComp
+				teachingSegments
 			});
 			stats.teamGroupsMerged++;
 			continue;
@@ -249,6 +264,55 @@ export function buildSpecsWithSmartMerge(input: SmartMergeInput): {
 	stats.warnings.forEach(w => input.warnings.push(`Smart-Merge: ${w}`));
 
 	return { specs, stats };
+}
+
+/**
+ * Best-Guess für die Aufteilung einer Team-Teaching-Spec in `teachingSegments`.
+ *
+ * Algorithmus (nested coverage):
+ *  - Hauptlehrer ist in JEDEM Segment dabei (in allen `mainHours` Slots)
+ *  - Stütz-Lehrer sind absteigend nach Stunden gestaffelt: der Stütz mit den
+ *    meisten Stunden sitzt in den ersten N Slots dabei, der zweite in den
+ *    ersten M < N Slots, usw.
+ *  - Segment-Breakpoints = sortierte Unique-Set der Stunden-Werte
+ *
+ * Beispiel: main 4h, stützen [3h, 2h] →
+ *   Breakpoints: [0, 2, 3, 4]
+ *   Segment 1 (0..2 = 2h): main + beide stützen
+ *   Segment 2 (2..3 = 1h): main + 3h-Stütz (2h-Stütz raus)
+ *   Segment 3 (3..4 = 1h): nur main
+ */
+function buildBestGuessSegments(
+	mainHours: number,
+	mainTeacherId: string,
+	supportTeachers: string[],
+	supportHours: number[]
+): TeachingSegment[] {
+	if (supportTeachers.length === 0 || mainHours <= 0) {
+		return [{ hours: mainHours, teachers: [mainTeacherId] }];
+	}
+	// Paare (tid, hours) absteigend nach Stunden sortieren
+	const pairs = supportTeachers
+		.map((tid, i) => ({ tid, hours: supportHours[i] }))
+		.sort((a, b) => b.hours - a.hours);
+	// Breakpoints zwischen 0 und mainHours
+	const breakpoints = [0, ...pairs.map(p => p.hours), mainHours]
+		.filter((v, i, a) => a.indexOf(v) === i)
+		.filter(v => v >= 0 && v <= mainHours)
+		.sort((a, b) => a - b);
+	const segments: TeachingSegment[] = [];
+	for (let i = 0; i + 1 < breakpoints.length; i++) {
+		const segStart = breakpoints[i];
+		const segEnd = breakpoints[i + 1];
+		const segH = segEnd - segStart;
+		if (segH <= 0) continue;
+		const teachers = [mainTeacherId];
+		for (const p of pairs) {
+			if (p.hours > segStart) teachers.push(p.tid);
+		}
+		segments.push({ hours: segH, teachers });
+	}
+	return segments;
 }
 
 function rowToSpec(row: SmartRow, makeId: () => string): LessonSpec {

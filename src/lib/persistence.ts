@@ -95,6 +95,28 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			const sub = subjectByCode.get(s.subject);
 			s.afternoonAllowed = sub?.isMain ? 'never' : 'allowed';
 		}
+
+		// Phase 17: das kurzlebige `teamComposition`-Feld (Vorgänger von
+		// teachingSegments) aus localStorage stripen. Old JSON-Backups
+		// können es enthalten.
+		if ('teamComposition' in s) {
+			delete (s as unknown as Record<string, unknown>).teamComposition;
+		}
+		// teachingSegments: defensives Cleanup — kaputte Einträge werden
+		// gelöscht, die Spec verhält sich dann wie pre-Phase-17.
+		const sx = s as unknown as { teachingSegments?: unknown };
+		if (Array.isArray(sx.teachingSegments)) {
+			const cleaned = (sx.teachingSegments as unknown[]).filter(seg =>
+				seg !== null && typeof seg === 'object'
+				&& Array.isArray((seg as { teachers?: unknown }).teachers)
+				&& ((seg as { teachers: unknown[] }).teachers).length > 0
+				&& typeof (seg as { hours?: unknown }).hours === 'number'
+				&& (seg as { hours: number }).hours > 0
+			);
+			sx.teachingSegments = cleaned.length === 0 ? undefined : cleaned;
+		} else if (sx.teachingSegments !== undefined) {
+			sx.teachingSegments = undefined;
+		}
 	}
 	for (const subject of doc.subjects ?? []) {
 		const sub = subject as Subject & { maxConsecutive?: number };

@@ -1,16 +1,19 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
-	import type { GradeLevel, LessonSpec, WeekPattern } from '../lib/types';
+	import type { GradeLevel, LessonSpec, TeachingSegment, WeekPattern } from '../lib/types';
 	import { GRADES } from '../lib/types';
 	import { blockPresets, blockLabel, blockKey, parseBlockKey, groupColor } from '../lib/blocks';
 	import { teacherColor as teacherColorH } from '../lib/teacher-helpers';
+	import TeamTeachingEditor from './TeamTeachingEditor.svelte';
 
 	let filterTeacher = $state<string>('');
 	let filterSubject = $state<string>('');
 	let filterGroup = $state<string>('');
 	let groupBy = $state<'none' | 'group'>('group');
 	let selectedIds = $state<Set<string>>(new Set());
+	/** Phase 17: welche Spec-Zeilen haben den Team-Teaching-Editor offen */
+	let expandedTeamEditor = $state<Set<string>>(new Set());
 
 	const weekOptions: { v: WeekPattern; label: string }[] = [
 		{ v: 'every', label: 'jede Woche' },
@@ -54,13 +57,6 @@
 		const second = s.teachers[1];
 		if (second && second !== id) s.teachers = [id, second];
 		else s.teachers = id ? [id] : [];
-	}
-
-	/** Add or remove the optional second teacher (team-teaching). */
-	function setSecondTeacher(s: LessonSpec, id: string) {
-		const primary = s.teachers[0] ?? '';
-		if (!id || id === primary) s.teachers = primary ? [primary] : [];
-		else s.teachers = [primary, id];
 	}
 
 	/** Set the optional time-of-day preference for a single spec. */
@@ -281,10 +277,147 @@
 		spec.couplingId = undefined;
 	}
 
+	// ---- Phase 17: Team-Teaching-Editor (inline) ----
+	function toggleTeamEditor(specId: string): void {
+		if (expandedTeamEditor.has(specId)) expandedTeamEditor.delete(specId);
+		else expandedTeamEditor.add(specId);
+		expandedTeamEditor = new Set(expandedTeamEditor);
+	}
+	function closeTeamEditor(specId: string): void {
+		expandedTeamEditor.delete(specId);
+		expandedTeamEditor = new Set(expandedTeamEditor);
+	}
+
+	// ---- Phase 17: Bulk-Aktion "Als Team-Teaching zusammenführen" ----
+	function bulkMergeTeamTeaching(): void {
+		const sel = store.doc.specs.filter(s => selectedIds.has(s.id));
+		if (sel.length < 2) {
+			alert('Bitte mindestens zwei Lehreinheiten auswählen.');
+			return;
+		}
+		// Validierung: gleicher Subject + gleiche Klasse(n) + gleiche Stufen
+		const subj = sel[0].subject;
+		const klStr = [...sel[0].classes].sort().join('+');
+		const gradStr = [...sel[0].grades].sort().join(',');
+		const mismatchedIdx = sel.findIndex(s =>
+			s.subject !== subj
+			|| [...s.classes].sort().join('+') !== klStr
+			|| [...s.grades].sort().join(',') !== gradStr
+		);
+		if (mismatchedIdx >= 0) {
+			alert(
+				`Zusammenführen nur möglich bei gleichem Fach, Klasse und Stufe.\n\n` +
+				`Erste Spec: ${subj} / ${klStr} / Stufe ${gradStr}\n` +
+				`${mismatchedIdx + 1}. Spec weicht ab: ${sel[mismatchedIdx].subject} / ` +
+				`${sel[mismatchedIdx].classes.join('+')} / Stufe ${sel[mismatchedIdx].grades.join(',')}`
+			);
+			return;
+		}
+		// Hauptlehrer = der mit den meisten Stunden. Bei Gleichstand: erster.
+		const sortedByCount = [...sel].sort((a, b) => b.count - a.count);
+		const main = sortedByCount[0];
+		const supportSpecs = sortedByCount.slice(1);
+		// Alle Lehrer-IDs sammeln (in der Reihenfolge: Haupt + Stützen nach Stunden absteigend)
+		const allTeachers: string[] = [];
+		const seen = new Set<string>();
+		for (const sp of sortedByCount) {
+			for (const tid of sp.teachers) {
+				if (!seen.has(tid)) {
+					allTeachers.push(tid);
+					seen.add(tid);
+				}
+			}
+		}
+		// Heuristik für Vorschlags-Segmente:
+		//   Hauptlehrer ist in allen Segmenten.
+		//   Pro Stütz-Lehrer: x Stunden mit dem Stütz dazu.
+		//   Konkret: greifen die Anzahl-Stunden der Stützen und bauen
+		//   abgestufte Segmente von "alle drei" → "nur einer Stütz" → "allein".
+		const supportHours = supportSpecs.map(sp => Math.min(sp.count, main.count));
+		// Sortiere absteigend für nested coverage:
+		supportHours.sort((a, b) => b - a);
+		const segments: TeachingSegment[] = [];
+		let remaining = main.count;
+		let prevStart = 0;
+		// Anzahl Stützen die in den Stunden 0..supportHours[i]-1 dabei sind
+		// = number of supports with supportHours[i] > prevStart
+		const breakpoints = [0, ...supportHours, main.count]
+			.filter((v, i, a) => a.indexOf(v) === i)
+			.sort((a, b) => a - b);
+		for (let i = 0; i + 1 < breakpoints.length; i++) {
+			const segStart = breakpoints[i];
+			const segEnd = breakpoints[i + 1];
+			const segHours = segEnd - segStart;
+			if (segHours <= 0) continue;
+			// In diesem Slot-Bereich sind alle Stützen drin deren supportHours > segStart
+			const teachers = [main.teachers[0] ?? allTeachers[0]];
+			for (let k = 0; k < supportHours.length; k++) {
+				if (supportHours[k] > segStart) {
+					const tid = supportSpecs[k].teachers[0];
+					if (tid && !teachers.includes(tid)) teachers.push(tid);
+				}
+			}
+			segments.push({ hours: segHours, teachers });
+			remaining -= segHours;
+			void prevStart;
+		}
+		void remaining;
+		// Confirm-Dialog mit Vorschau
+		const teamNames = allTeachers
+			.map(tid => store.doc.teachers.find(t => t.id === tid)?.name ?? tid)
+			.join(', ');
+		const segmentsText = segments
+			.map((seg, i) => {
+				const names = seg.teachers
+					.map(tid => store.doc.teachers.find(t => t.id === tid)?.name?.split(' ')[0] ?? '?')
+					.join(' + ');
+				return `  ${i + 1}. ${seg.hours}h: ${names}`;
+			})
+			.join('\n');
+		const ok = confirm(
+			`🤝 ${sel.length} Lehreinheiten als Team-Teaching zusammenführen?\n\n` +
+			`Subject: ${subj}, Klasse ${klStr}, Stufe ${gradStr}\n` +
+			`Lehrer-Team: ${teamNames}\n` +
+			`Hauptlehrer (mit den meisten Stunden): ${store.doc.teachers.find(t => t.id === main.teachers[0])?.name}\n\n` +
+			`Slot-Anzahl der neuen Spec: ${main.count}h\n\n` +
+			`Vorgeschlagene Aufteilung:\n${segmentsText}\n\n` +
+			`⚠ Die anderen ${supportSpecs.length} Lehreinheiten werden gelöscht.\n\n` +
+			`Du kannst die Aufteilung danach noch im Team-Teaching-Editor anpassen.`
+		);
+		if (!ok) return;
+		// In-place mutation des Haupt-Specs + Löschen der Support-Specs.
+		main.teachers = [...allTeachers];
+		main.teachingSegments = segments;
+		// Pinned Placements der gelöschten Specs werden entfernt (sind eh
+		// inkonsistent, weil die Specs nicht mehr existieren).
+		const supportIds = new Set(supportSpecs.map(s => s.id));
+		store.doc.specs = store.doc.specs.filter(s => !supportIds.has(s.id));
+		store.doc.placed = store.doc.placed.filter(p => !supportIds.has(p.specId));
+		// Auswahl bereinigen + Editor öffnen damit User die Aufteilung sieht
+		selectedIds.clear();
+		selectedIds = new Set();
+		expandedTeamEditor.add(main.id);
+		expandedTeamEditor = new Set(expandedTeamEditor);
+		store.persistNow();
+	}
+
 	// ---- Group analysis (for bulk-toolbar visibility) ----
 	const selectedSpecs = $derived(store.doc.specs.filter(s => selectedIds.has(s.id)));
 	const canCouple = $derived(selectedSpecs.length >= 2);
 	const canUncouple = $derived(selectedSpecs.some(s => s.couplingId));
+	// canMergeTeamTeaching: 2+ Specs, alle gleiches Subject + Klasse + Stufe
+	const canMergeTeamTeaching = $derived.by(() => {
+		if (selectedSpecs.length < 2) return false;
+		const first = selectedSpecs[0];
+		const subj = first.subject;
+		const klStr = [...first.classes].sort().join('+');
+		const gradStr = [...first.grades].sort().join(',');
+		return selectedSpecs.every(s =>
+			s.subject === subj
+			&& [...s.classes].sort().join('+') === klStr
+			&& [...s.grades].sort().join(',') === gradStr
+		);
+	});
 
 	// ---- Active stats for header ----
 	const activeCount = $derived(store.doc.specs.filter(s => s.includeInSolver).length);
@@ -321,7 +454,15 @@
 {#if selectedIds.size > 0}
 	<div class="bulk-toolbar">
 		<strong>{selectedIds.size}</strong> ausgewählt:
-		<button class="btn small primary" disabled={!canCouple} onclick={bulkCouple} title="Gemeinsamer Slot — Lehrer unterrichten zeitgleich">⛓ Koppeln</button>
+		<button class="btn small primary" disabled={!canCouple} onclick={bulkCouple} title="Gemeinsamer Slot — Lehrer unterrichten zeitgleich (getrennte Gruppen)">⛓ Koppeln</button>
+		<button
+			class="btn small primary"
+			disabled={!canMergeTeamTeaching}
+			onclick={bulkMergeTeamTeaching}
+			title={canMergeTeamTeaching
+				? 'Mehrere Lehreinheiten gleichen Fachs/Klasse/Stufe zu einer Team-Teaching-Spec mit Segmenten zusammenführen'
+				: 'Erfordert 2+ Specs mit gleichem Fach, Klasse und Stufe'}
+		>🤝 Als Team-Teaching</button>
 		<button class="btn small" disabled={!canUncouple} onclick={bulkUncouple} title="Kopplung auflösen">⛓̸ Entkoppeln</button>
 		<span class="separator"></span>
 		<button class="btn small" onclick={bulkDuplicate}>⎘ Duplizieren</button>
@@ -402,19 +543,36 @@
 						>
 							{#each store.doc.teachers as t}<option value={t.id}>{t.name}</option>{/each}
 						</select>
-						<select
-							value={s.teachers[1] ?? ''}
-							onchange={e => setSecondTeacher(s, (e.currentTarget as HTMLSelectElement).value)}
-							class="second-teacher"
-							class:active={(s.teachers[1] ?? '') !== ''}
-							style:border-left={s.teachers[1] ? `4px solid ${teacherColor(s.teachers[1])}` : undefined}
-							title="Zweiter Lehrer (Team-Teaching). Leer = nur ein Lehrer."
-						>
-							<option value="">+ 2. Lehrer</option>
-							{#each store.doc.teachers as t}
-								{#if t.id !== s.teachers[0]}<option value={t.id}>{t.name}</option>{/if}
+						<!-- Phase 17: Mehrere Lehrer werden als Chips angezeigt + Hinzufügen-Select -->
+						<div class="teacher-extras">
+							{#each s.teachers.slice(1) as tid (tid)}
+								<span class="teacher-chip-row" style:--c={teacherColor(tid)}>
+									{store.doc.teachers.find(t => t.id === tid)?.name?.split(' ')[0] ?? '?'}
+									<button class="chip-remove" onclick={() => { s.teachers = s.teachers.filter(t => t !== tid); }} title="Lehrer entfernen">×</button>
+								</span>
 							{/each}
-						</select>
+							<select
+								value=""
+								onchange={e => { const v = (e.currentTarget as HTMLSelectElement).value; if (v && !s.teachers.includes(v)) { s.teachers = [...s.teachers, v]; } (e.currentTarget as HTMLSelectElement).value = ''; }}
+								class="add-teacher-select"
+								title="Weiteren Lehrer hinzufügen (Team-Teaching)"
+							>
+								<option value="">+ Lehrer</option>
+								{#each store.doc.teachers as t}
+									{#if !s.teachers.includes(t.id)}<option value={t.id}>{t.name}</option>{/if}
+								{/each}
+							</select>
+							{#if s.teachers.length >= 2}
+								<button
+									class="tt-toggle"
+									class:has-segments={!!s.teachingSegments && s.teachingSegments.length > 0}
+									onclick={() => toggleTeamEditor(s.id)}
+									title={s.teachingSegments && s.teachingSegments.length > 0
+										? `Team-Teaching mit ${s.teachingSegments.length} Segment(en) — Editor öffnen`
+										: 'Alle Lehrer in allen Stunden. Klick zum Aufsplitten'}
+								>🤝{#if s.teachingSegments && s.teachingSegments.length > 0}<sup>{s.teachingSegments.length}</sup>{/if}</button>
+							{/if}
+						</div>
 					</td>
 					<td>
 						<div class="classes-cell">
@@ -512,6 +670,13 @@
 						<button class="btn danger small" onclick={() => removeSpec(s.id)} title="Löschen">×</button>
 					</td>
 				</tr>
+				{#if expandedTeamEditor.has(s.id)}
+					<tr class="tt-editor-row">
+						<td colspan="13">
+							<TeamTeachingEditor spec={s} onClose={() => closeTeamEditor(s.id)} />
+						</td>
+					</tr>
+				{/if}
 			{/each}
 		</tbody>
 	</table>
@@ -746,16 +911,73 @@
 	.teachers-cell select {
 		width: 100%;
 	}
-	/* The optional second teacher is greyed out when empty (placeholder) and
-	   becomes solid as soon as a teacher is chosen. */
-	.teachers-cell select.second-teacher {
-		font-size: 11px;
-		color: var(--text-muted);
-		background: transparent;
+	/* Phase 17: ".second-teacher" wurde durch Multi-Lehrer-Chips ersetzt. */
+	/* Phase 17: Multi-Lehrer-Chips + Add-Select + Team-Toggle */
+	.teacher-extras {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 3px;
+		align-items: center;
 	}
-	.teachers-cell select.second-teacher.active {
-		color: var(--text);
+	.teacher-chip-row {
+		display: inline-flex;
+		align-items: center;
+		gap: 3px;
+		padding: 1px 4px 1px 7px;
+		background: color-mix(in srgb, var(--c, #888) 25%, white);
+		border-left: 3px solid var(--c, #888);
+		border-radius: 3px;
+		font-size: 10px;
+		font-weight: 600;
+	}
+	.chip-remove {
+		background: transparent;
+		border: 0;
+		color: var(--text-muted);
+		font-size: 14px;
+		line-height: 1;
+		cursor: pointer;
+		padding: 0 2px;
+	}
+	.chip-remove:hover {
+		color: var(--err);
+	}
+	.add-teacher-select {
+		font-size: 10px;
+		padding: 1px 2px;
+		border: 1px dashed var(--border);
+		background: transparent;
+		color: var(--text-muted);
+		flex: 0 1 auto;
+		max-width: 90px;
+	}
+	.tt-toggle {
+		border: 1px solid var(--border);
 		background: white;
+		border-radius: 4px;
+		padding: 1px 6px;
+		font-size: 12px;
+		cursor: pointer;
+		line-height: 1.4;
+	}
+	.tt-toggle:hover {
+		background: #f0f7ff;
+		border-color: #6ba7e0;
+	}
+	.tt-toggle.has-segments {
+		background: #dcebfa;
+		border-color: #6ba7e0;
+		font-weight: 700;
+	}
+	.tt-toggle sup {
+		font-size: 9px;
+		color: #2563b4;
+		margin-left: 1px;
+	}
+	.tt-editor-row > td {
+		background: #f8fcff;
+		padding: 0 !important;
+		border-top: 0 !important;
 	}
 	.group-label {
 		display: inline-block;

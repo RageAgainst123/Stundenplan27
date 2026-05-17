@@ -23,10 +23,13 @@ ScheduleDoc                         ← localStorage / JSON-Backup
 ├── subjects: Subject[]
 │   └── maxConsecutive: number              (für main_run-Score)
 ├── specs: LessonSpec[]                      ← die "Lerneinheiten"
-│   ├── teachers: TeacherId[]               (1 oder 2 — Team-Teaching)
+│   ├── teachers: TeacherId[]               (1, 2, 3+ — Team-Teaching)
 │   ├── grades: GradeLevel[]                (1 oder mehrere — Multi-Grade)
-│   ├── couplingId?: string                 (≥2 Specs same id = parallel)
+│   ├── couplingId?: string                 (≥2 Specs same id = parallel, GETRENNTE Gruppen)
+│   ├── teachingSegments?: TeachingSegment[](Phase 17: Team-Teaching Aufteilung
+│   │     pro Lehrer-Subset, gemeinsamer Unterricht)
 │   ├── timePref?: 'early' | 'late'         (Soft, optional)
+│   ├── afternoonAllowed?: 'never'|'allowed'|'preferred' (Phase 13)
 │   ├── blocks?: BlockPattern               ([2,2] = 2 Doppelstunden)
 │   ├── count: number                       (Wochenstunden total)
 │   └── weekPattern: 'every'|'even'|'odd'   (G/U-Wochen)
@@ -56,6 +59,38 @@ Eine `LessonSpec` mit `count=4, grades=[5,6], blocks=[2,2]` ergibt:
 Eine **Coupling** aus zwei Specs S1+S2 (`couplingId: 'X'`, je `count=1, grades=[7,8]`):
 - 1 Coupling-Unit hält Instances aus **beiden** Specs
 - Decode → 4 `PlacedLesson` (2 Specs × 2 Stufen, alle im selben Slot)
+
+### Team-Teaching mit Segmenten (Phase 17)
+
+Eine `LessonSpec` mit `teachingSegments` wird **vor** der Unit-Expansion in N
+Pseudo-Specs aufgesplittet (eine pro Segment), jede mit eigenem `teachers[]` und
+`count = segment.hours`. Beispiel `M Stufe 5, count=4, teachers=[A,B,C]`:
+
+```ts
+teachingSegments: [
+  { hours: 2, teachers: [A, B, C] },  // alle drei
+  { hours: 1, teachers: [A, C] },      // C zusätzlich
+  { hours: 1, teachers: [A] }          // allein
+]
+```
+
+Wird im Solver zu **3 separaten Pseudo-Specs** mit gleicher `spec.id` aber
+unterschiedlichen Teams. Hard-Constraints H2/H3 greifen über `Unit.teacherIds`
+unverändert. Die Original-`spec.teachers` (alle Lehrer) bleibt für UI-Anzeige.
+
+**Abgrenzung zu Coupling:**
+- **Coupling** = parallele Stunden in **getrennten Räumen** (BSP K/M)
+- **Team-Teaching** = gemeinsamer Unterricht in **einem Raum** (Hauptlehrer +
+  Stütz-Lehrer in einigen Stunden)
+- Beide können kombiniert werden: zwei Team-Teaching-Specs können koppeln
+
+**Solver-Effekt:** transparent — `expandSegmentedSpecs()` in `units.ts` macht
+die Aufteilung, restlicher Code unverändert. `teachingSegments=undefined` =
+Verhalten wie vor Phase 17.
+
+**Validation:** `validateTeachingSegments()` in `types.ts` prüft:
+`sum(segments.hours) === count`, jeder Segment-Lehrer in `spec.teachers`,
+Segmente nicht leer.
 
 ---
 

@@ -35,6 +35,57 @@ function resolveBlocks(spec: LessonSpec): number[] {
 }
 
 /**
+ * Phase 17: Expand specs with `teachingSegments` into one virtual spec per
+ * segment. Each segment becomes an independent solver-Unit with its own
+ * teacher team and `count = segment.hours`. The visible spec.id is preserved
+ * (so PlacedLesson.specId still maps back to the original) — only the
+ * per-segment Units carry the segment's teacher set.
+ *
+ * Specs WITHOUT teachingSegments pass through unchanged → bestehende Pläne
+ * verhalten sich bit-identisch zu vor Phase 17.
+ *
+ * Validation: ungültige Segment-Splits (Summe ≠ count, leere Teams) werden
+ * defensiv verworfen — die Spec wird wie pre-Phase-17 als 1 Unit behandelt.
+ */
+function expandSegmentedSpecs(specs: readonly LessonSpec[]): LessonSpec[] {
+	const out: LessonSpec[] = [];
+	for (const spec of specs) {
+		const segs = spec.teachingSegments;
+		if (!segs || segs.length === 0) {
+			out.push(spec);
+			continue;
+		}
+		// Defensive validation: kaputter Split → ignorieren, Spec normal
+		// einreihen (Solver verhält sich wie vor Phase 17).
+		const sumHours = segs.reduce((s, seg) => s + (Number(seg.hours) || 0), 0);
+		const allTeachersValid = segs.every(seg =>
+			Array.isArray(seg.teachers) && seg.teachers.length > 0
+			&& seg.teachers.every(tid => spec.teachers.includes(tid))
+		);
+		if (Math.abs(sumHours - spec.count) > 0.05 || !allTeachersValid) {
+			out.push(spec);
+			continue;
+		}
+		// Split-Pfad: pro Segment eine Pseudo-Spec mit reduziertem count
+		// und eigenem Team. blocks=undefined → Solver entscheidet auto.
+		for (const seg of segs) {
+			out.push({
+				...spec,
+				teachers: [...seg.teachers],
+				count: seg.hours,
+				blocks: undefined,
+				// teachingSegments im Pseudo-Spec NICHT durchreichen — sonst
+				// Endlos-Rekursion. Die Original-Spec.id bleibt drin, damit
+				// PlacedLesson und UI weiterhin auf das gleiche Subject/Klasse
+				// usw. zugreifen.
+				teachingSegments: undefined
+			});
+		}
+	}
+	return out;
+}
+
+/**
  * Build the working state from the document. Pure function — does not
  * mutate `doc`.
  *
@@ -98,7 +149,12 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 		return unit;
 	}
 
-	for (const spec of doc.specs) {
+	// Phase 17: vor der Unit-Expansion werden Specs mit teachingSegments
+	// in N Pseudo-Specs aufgesplittet (eine pro Segment). Specs ohne
+	// Segmente bleiben byte-identisch wie vorher.
+	const expandedSpecs = expandSegmentedSpecs(doc.specs);
+
+	for (const spec of expandedSpecs) {
 		if (spec.includeInSolver === false) continue;
 		const grades = spec.grades.length > 0 ? spec.grades : ([] as GradeLevel[]);
 		if (grades.length === 0) continue;
