@@ -8,6 +8,7 @@
 	import RulesPanel from './components/RulesPanel.svelte';
 	import ImportExport from './components/ImportExport.svelte';
 	import WeekView from './components/WeekView.svelte';
+	import { findPlanConflicts, removeConflictedPlacements } from './lib/plan-validation';
 
 	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'weekview' | 'rules' | 'import';
 	let active: Tab = $state('import');
@@ -21,6 +22,32 @@
 		{ id: 'weekview', label: 'Wochenplan 📋' },
 		{ id: 'rules', label: 'Regeln' }
 	];
+
+	// Phase 17: globaler Konflikt-Detektor — läuft bei jeder Doc-Änderung.
+	const conflicts = $derived.by(() => {
+		// Touch reactive dependencies explizit
+		void store.doc.specs.length;
+		void store.doc.placed.length;
+		return findPlanConflicts(store.doc);
+	});
+
+	function autoCleanupConflicts(): void {
+		const removed = removeConflictedPlacements(store.doc, conflicts);
+		if (removed > 0) {
+			store.persistNow();
+			alert(`${removed} konfliktverursachende Platzierungen entfernt. Gepinnte Stunden 🔒 bleiben erhalten.`);
+		}
+	}
+
+	function conflictSummary(): string {
+		if (conflicts.length === 0) return '';
+		const teacherConflicts = conflicts.filter(c => c.reason === 'teacher-double').length;
+		const gradeConflicts = conflicts.filter(c => c.reason === 'grade-double').length;
+		const parts: string[] = [];
+		if (teacherConflicts > 0) parts.push(`${teacherConflicts}× Lehrer doppelt belegt`);
+		if (gradeConflicts > 0) parts.push(`${gradeConflicts}× Stufe doppelt belegt`);
+		return parts.join(' · ');
+	}
 </script>
 
 <header class="app-header">
@@ -44,6 +71,20 @@
 		</button>
 	{/each}
 </nav>
+
+{#if conflicts.length > 0}
+	<div class="conflict-banner" role="alert">
+		<span class="icon">⚠</span>
+		<span class="msg">
+			<strong>Konflikte im aktuellen Plan:</strong>
+			{conflictSummary()}
+			<small>Aufgetreten oft nach Stammdaten-Änderungen (z.B. Lehrer hinzugefügt). Klick auf den Stundenplan-Tab zeigt die Konflikte rot markiert.</small>
+		</span>
+		<button class="btn small" onclick={autoCleanupConflicts} title="Konfliktverursachende Platzierungen entfernen (gepinnte 🔒 bleiben)">
+			🧹 Konflikte aufräumen
+		</button>
+	</div>
+{/if}
 
 <main class="tab-content">
 	{#if active === 'import'}

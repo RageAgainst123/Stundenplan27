@@ -51,12 +51,84 @@
 
 	const teacherColor = (id: string) => teacherColorH(store.doc, id);
 
-	/** Set the primary teacher; preserve a second teacher if one was set
-	 *  (and de-duplicate if the new primary equals the second). */
+	/** Set the primary teacher; preserve all other teachers (de-duplicate).
+	 *  Phase 17: bestehende Placements werden auf neue Konflikte geprüft. */
 	function setPrimaryTeacher(s: LessonSpec, id: string) {
-		const second = s.teachers[1];
-		if (second && second !== id) s.teachers = [id, second];
-		else s.teachers = id ? [id] : [];
+		const oldTeachers = [...s.teachers];
+		const rest = s.teachers.slice(1).filter(t => t !== id);
+		s.teachers = id ? [id, ...rest] : rest;
+		validateAndCleanupAfterTeacherChange(s, oldTeachers);
+	}
+
+	/** Phase 17: Lehrer zur Spec hinzufügen (Team-Teaching). */
+	function addTeacherToSpec(s: LessonSpec, id: string) {
+		if (!id || s.teachers.includes(id)) return;
+		const oldTeachers = [...s.teachers];
+		s.teachers = [...s.teachers, id];
+		validateAndCleanupAfterTeacherChange(s, oldTeachers);
+	}
+
+	/** Phase 17: Lehrer aus Team entfernen. */
+	function removeTeacherFromSpec(s: LessonSpec, id: string) {
+		const oldTeachers = [...s.teachers];
+		s.teachers = s.teachers.filter(t => t !== id);
+		// teachingSegments aufräumen — Segmente die den entfernten Lehrer
+		// enthielten dürfen ihn nicht mehr referenzieren.
+		if (s.teachingSegments && s.teachingSegments.length > 0) {
+			const cleaned = s.teachingSegments
+				.map(seg => ({ ...seg, teachers: seg.teachers.filter(t => t !== id) }))
+				.filter(seg => seg.teachers.length > 0);
+			if (cleaned.length === 0) {
+				s.teachingSegments = undefined;
+			} else {
+				s.teachingSegments = cleaned;
+			}
+		}
+		validateAndCleanupAfterTeacherChange(s, oldTeachers);
+	}
+
+	/**
+	 * Phase 17: Nach Lehrer-Änderung an einer Spec prüfen, ob die aktuellen
+	 * Placements neue Lehrer-Doppelbelegungen erzeugen. Wenn ja, betroffene
+	 * Placements entfernen — der User wird beim nächsten Solver-Lauf neu
+	 * platzieren müssen, aber wir verhindern dass die UI inkonsistente Daten
+	 * zeigt.
+	 */
+	function validateAndCleanupAfterTeacherChange(s: LessonSpec, oldTeachers: string[]): void {
+		const added = s.teachers.filter(t => !oldTeachers.includes(t));
+		if (added.length === 0) return;
+		// Pro hinzugefügten Lehrer: checke ob er in einem der spec-eigenen Slots
+		// schon woanders unterrichtet.
+		const placementsOfThis = store.doc.placed.filter(p => p.specId === s.id);
+		const conflictKeys = new Set<string>();
+		for (const pl of placementsOfThis) {
+			const slotKey = `${pl.day}|${pl.period}`;
+			for (const other of store.doc.placed) {
+				if (other.specId === s.id) continue;
+				if (other.day !== pl.day || other.period !== pl.period) continue;
+				const otherSpec = store.doc.specs.find(x => x.id === other.specId);
+				if (!otherSpec) continue;
+				// Wenn coupling-id gleich ist → erlaubte parallel teaching → kein Konflikt
+				if (s.couplingId && otherSpec.couplingId && s.couplingId === otherSpec.couplingId) continue;
+				const sharedTeacher = added.find(t => otherSpec.teachers.includes(t));
+				if (sharedTeacher) conflictKeys.add(slotKey);
+			}
+		}
+		if (conflictKeys.size === 0) return;
+		// Entferne ALLE Placements (s.specId) für die Konflikt-Slots — der User
+		// soll explizit neu platzieren bzw. Solver laufen lassen.
+		const beforeCount = store.doc.placed.length;
+		store.doc.placed = store.doc.placed.filter(p => {
+			if (p.specId !== s.id) return true;
+			const key = `${p.day}|${p.period}`;
+			return !conflictKeys.has(key);
+		});
+		const removed = beforeCount - store.doc.placed.length;
+		console.warn(
+			`Phase 17 Cleanup: ${removed} Placements von Spec ${s.subject} entfernt, ` +
+			`weil hinzugefügter Lehrer (${added.join(',')}) andere parallele Lehreinheiten blockt.`
+		);
+		store.persistNow();
 	}
 
 	/** Set the optional time-of-day preference for a single spec. */
@@ -548,12 +620,12 @@
 							{#each s.teachers.slice(1) as tid (tid)}
 								<span class="teacher-chip-row" style:--c={teacherColor(tid)}>
 									{store.doc.teachers.find(t => t.id === tid)?.name?.split(' ')[0] ?? '?'}
-									<button class="chip-remove" onclick={() => { s.teachers = s.teachers.filter(t => t !== tid); }} title="Lehrer entfernen">×</button>
+									<button class="chip-remove" onclick={() => removeTeacherFromSpec(s, tid)} title="Lehrer entfernen">×</button>
 								</span>
 							{/each}
 							<select
 								value=""
-								onchange={e => { const v = (e.currentTarget as HTMLSelectElement).value; if (v && !s.teachers.includes(v)) { s.teachers = [...s.teachers, v]; } (e.currentTarget as HTMLSelectElement).value = ''; }}
+								onchange={e => { const v = (e.currentTarget as HTMLSelectElement).value; addTeacherToSpec(s, v); (e.currentTarget as HTMLSelectElement).value = ''; }}
 								class="add-teacher-select"
 								title="Weiteren Lehrer hinzufügen (Team-Teaching)"
 							>

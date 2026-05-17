@@ -107,6 +107,52 @@ textarea {
 	font-weight: 600;
 }
 
+/* Phase 17: globaler Konflikt-Banner */
+.conflict-banner {
+	display: flex;
+	align-items: center;
+	gap: 14px;
+	margin: 8px 20px 0;
+	padding: 10px 14px;
+	background: #fef2f2;
+	border: 1px solid #fca5a5;
+	border-left: 4px solid #dc2626;
+	border-radius: 6px;
+	font-size: 13px;
+	color: #7a1f1f;
+}
+.conflict-banner .icon {
+	font-size: 18px;
+	flex-shrink: 0;
+}
+.conflict-banner .msg {
+	flex: 1;
+	display: flex;
+	flex-direction: column;
+	gap: 2px;
+}
+.conflict-banner .msg strong {
+	font-weight: 700;
+}
+.conflict-banner .msg small {
+	font-size: 11px;
+	color: #b34141;
+}
+.conflict-banner button {
+	flex-shrink: 0;
+	background: #dc2626;
+	color: white;
+	border: 0;
+	border-radius: 4px;
+	padding: 6px 10px;
+	font-size: 12px;
+	font-weight: 600;
+	cursor: pointer;
+}
+.conflict-banner button:hover {
+	background: #b91c1c;
+}
+
 .tab-content {
 	flex: 1;
 	padding: 20px;
