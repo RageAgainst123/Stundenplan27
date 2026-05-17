@@ -126,6 +126,17 @@ export interface LessonSpec {
 	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
 	source: 'csv' | 'manual';     // provenance
+	/**
+	 * Phase 17 (opt-in): Team-Teaching Stunden-Aufteilung pro Lehrer für UI-Anzeige.
+	 * Wird nur vom Smart-Merge-CSV-Import befüllt. Beispiel für M Stufe 5 mit
+	 * 4 Slots, Hauptlehrer 4h + 2 Stütz-Lehrer:
+	 *   { hauptId: 4, stuetz1Id: 2, stuetz2Id: 3 }
+	 *
+	 * Der Solver IGNORIERT dieses Feld komplett — `count` ist weiterhin die
+	 * Anzahl echter Slots, `teachers[]` sind alle Lehrer die im Slot sitzen.
+	 * Das Feld dient nur zur Dokumentation in der SpecList und im Editor.
+	 */
+	teamComposition?: Record<TeacherId, number>;
 }
 
 export interface PlacedLesson {

@@ -11,12 +11,28 @@ import type {
 	Teacher
 } from '../types';
 import { lookupSubjectMeta } from './subject-names';
+import { buildSpecsWithSmartMerge, type SmartMergeStats, type SmartRow } from './smart-merge';
 
 export interface ImportResult {
 	teachers: Teacher[];
 	subjects: Subject[];
 	specs: LessonSpec[];
 	warnings: string[];
+	/** Phase 17: Wenn Smart-Merge aktiv war, hier die Statistik. */
+	smartMergeStats?: SmartMergeStats;
+}
+
+export interface ImportOptions {
+	/**
+	 * Phase 17 (Opt-in): Team-Teaching aus Sokrates erkennen und zusammenführen.
+	 * Default false → exakt das Verhalten vor Phase 17. Aktivieren wenn die CSV
+	 * Lehreinheiten enthält bei denen ein Hauptlehrer (Stunden>0) zusammen mit
+	 * Stütz-Lehrern (ErgStunden>0) unterrichtet, oder Leistungsgruppen parallel
+	 * laufen (z.B. PG_D_Stand_3 + PG_D_AHS_3 in gleicher Stufe).
+	 *
+	 * MS-SiG-Listen sollten das auf DEFAULT (false) lassen.
+	 */
+	smartMerge?: boolean;
 }
 
 interface ParsedRow {
@@ -143,7 +159,7 @@ function teacherKey(info: TeacherInfo): string {
 	return `name:${info.displayName.toLowerCase()}`;
 }
 
-export function importCsv(content: string): ImportResult {
+export function importCsv(content: string, opts: ImportOptions = {}): ImportResult {
 	const text = stripBom(content);
 	const lines = text.split(/\r?\n/).filter(l => l.trim().length > 0);
 	if (lines.length === 0) {
@@ -164,6 +180,9 @@ export function importCsv(content: string): ImportResult {
 	const teacherMap = new Map<string, Teacher>();
 	const subjectMap = new Map<string, Subject>();
 	const specs: LessonSpec[] = [];
+	// Phase 17: für Smart-Merge sammeln wir die rohen Zeilen separat. Wenn
+	// smartMerge=false (Default), wird `smartRows` nie konsultiert.
+	const smartRows: SmartRow[] = [];
 	let teacherCounter = 0;
 
 	for (let i = 1; i < lines.length; i++) {
@@ -228,33 +247,67 @@ export function importCsv(content: string): ImportResult {
 			);
 		}
 
-		specs.push({
-			id: newId(),
-			subject: row.subjectCode,
-			teachers: [teacher.id],
+		// Phase 17: SmartRow für späteres Merging. Macht nichts wenn Smart-
+		// Merge deaktiviert ist — die Daten werden dann verworfen.
+		smartRows.push({
+			rowIndex: i + 1,
+			subjectCode: row.subjectCode,
 			classes: row.classes,
+			groupLabel: row.groupLabel,
+			stunden: row.stunden,
+			ergStunden: row.ergStunden,
 			grades: row.grades,
-			weekPattern: 'every',
-			// Phase 8 v3: the Sokrates "Gruppe" column is descriptive only
-			// (e.g. "DGB 1/2" = grades 5+6). It is NOT a solver coupling.
-			// Real couplings (parallel teaching with multiple teachers) must
-			// be created manually via the bulk "Koppeln" action.
-			groupLabel: row.groupLabel || undefined,
-			couplingId: undefined,
-			count,
-			// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet,
-			// max 1 Doppelstunde pro Spec, keine 3er-Blöcke). Strikte Patterns
-			// nur wenn der User sie explizit setzt.
-			blocks: undefined,
-			includeInSolver: true,
-			source: 'csv'
+			teacherId: teacher.id
 		});
+
+		// DEFAULT-PFAD: Eine Spec pro CSV-Zeile (bisheriges Verhalten).
+		// Dieser Block wird NICHT verändert, damit die MS-SiG-Liste bit-
+		// identisch wie vor Phase 17 importiert wird.
+		if (!opts.smartMerge) {
+			specs.push({
+				id: newId(),
+				subject: row.subjectCode,
+				teachers: [teacher.id],
+				classes: row.classes,
+				grades: row.grades,
+				weekPattern: 'every',
+				// Phase 8 v3: the Sokrates "Gruppe" column is descriptive only
+				// (e.g. "DGB 1/2" = grades 5+6). It is NOT a solver coupling.
+				// Real couplings (parallel teaching with multiple teachers) must
+				// be created manually via the bulk "Koppeln" action.
+				groupLabel: row.groupLabel || undefined,
+				couplingId: undefined,
+				count,
+				// Phase 7B: blocks=undefined → Auto-Modus (Solver entscheidet,
+				// max 1 Doppelstunde pro Spec, keine 3er-Blöcke). Strikte Patterns
+				// nur wenn der User sie explizit setzt.
+				blocks: undefined,
+				includeInSolver: true,
+				source: 'csv'
+			});
+		}
+	}
+
+	// Phase 17 SMART-MERGE-PFAD: erst NACH dem Parsen aller Zeilen anwenden,
+	// damit Team-Teaching gruppen-weit erkannt werden kann.
+	let smartMergeStats: SmartMergeStats | undefined;
+	if (opts.smartMerge) {
+		const merged = buildSpecsWithSmartMerge({
+			rows: smartRows,
+			teachers: Array.from(teacherMap.values()),
+			subjects: Array.from(subjectMap.values()),
+			warnings,
+			makeId: newId
+		});
+		specs.push(...merged.specs);
+		smartMergeStats = merged.stats;
 	}
 
 	return {
 		teachers: Array.from(teacherMap.values()),
 		subjects: Array.from(subjectMap.values()),
 		specs,
-		warnings
+		warnings,
+		smartMergeStats
 	};
 }

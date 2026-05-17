@@ -7,13 +7,28 @@
 
 	let preview = $state<ImportResult | null>(null);
 	let previewFileName = $state<string>('');
+	let lastCsvText = $state<string>('');
 	let importError = $state<string>('');
+	/**
+	 * Wenn true, werden VOR dem Import alle Lehrer/Fächer/Lehreinheiten/Placements
+	 * gelöscht — sinnvoll wenn man eine andere Schule importiert und NICHT
+	 * mergen will. Default false (= bisheriges Merge-Verhalten).
+	 */
+	let replaceOnImport = $state<boolean>(false);
+	/**
+	 * Phase 17: Smart-Merge — Team-Teaching aus Sokrates erkennen. Default
+	 * false → exakt das bisherige Verhalten (eine Spec pro CSV-Zeile).
+	 * Aktivieren wenn die Lehrfächerverteilung Team-Teaching nutzt
+	 * (z.B. Hauptlehrer mit Stütz-Lehrern in einigen Stunden).
+	 */
+	let smartMerge = $state<boolean>(false);
 
 	async function handleCsvFile(file: File) {
 		importError = '';
 		try {
 			const text = await file.text();
-			preview = importCsv(text);
+			lastCsvText = text;
+			preview = importCsv(text, { smartMerge });
 			previewFileName = file.name;
 		} catch (e) {
 			importError = String(e);
@@ -21,8 +36,35 @@
 		}
 	}
 
+	// Bei Toggle der Smart-Merge-Option live neu parsen, wenn schon eine Vorschau aktiv ist
+	$effect(() => {
+		void smartMerge;
+		if (lastCsvText && preview) {
+			try {
+				preview = importCsv(lastCsvText, { smartMerge });
+			} catch (e) {
+				importError = String(e);
+			}
+		}
+	});
+
 	function applyImport() {
 		if (!preview) return;
+		// Wenn replaceOnImport: vorher alle bestehenden Stamm- und Plan-Daten
+		// wegwerfen. Schuljahr bleibt erhalten (= weiterhin im Header sichtbar).
+		// Zweite Bestätigung als Schutz: Verlust ist unwiderruflich.
+		if (replaceOnImport) {
+			const total = store.doc.teachers.length + store.doc.subjects.length + store.doc.specs.length;
+			if (total > 0) {
+				if (!confirm(
+					`⚠ Achtung: Alle vorhandenen Daten werden VOR dem Import gelöscht.\n\n` +
+					`${store.doc.teachers.length} Lehrer, ${store.doc.subjects.length} Fächer, ` +
+					`${store.doc.specs.length} Lehreinheiten und ${store.doc.placed.length} Platzierungen ` +
+					`gehen unwiderruflich verloren.\n\nTrotzdem fortfahren?`
+				)) return;
+			}
+			store.replace(emptyDoc(store.doc.schoolYear));
+		}
 		// Merge strategy: add new teachers/subjects/specs, do not overwrite existing.
 		// Existing items are matched by stable keys: teacher.personalNumber (or name+placeholder)
 		// and subject.code.
@@ -132,6 +174,37 @@
 			danach im Editor frei verändert werden.
 		</p>
 
+		<details class="howto">
+			<summary>📋 Wie exportiere ich die Liste aus Sokrates?</summary>
+			<ol>
+				<li><strong>Auswertungen</strong> → <strong>Dynamische Suche</strong> öffnen</li>
+				<li><strong>Lehrerliste</strong> auswählen</li>
+				<li>Eintrag <strong>800 Lehrfächerverteilung</strong> wählen</li>
+				<li>Folgende Spalten-Checkboxen aktivieren:
+					<ul class="checks">
+						<li>☑ Gegenstand</li>
+						<li>☑ Klasse(n)</li>
+						<li>☑ Gruppe</li>
+						<li>☑ Stunden</li>
+						<li>☑ ErgStunden</li>
+						<li>☑ Schulstufen</li>
+						<li>☑ LehrerIn</li>
+					</ul>
+				</li>
+				<li>Als <code>.csv</code> (Semikolon-getrennt) exportieren und hier hochladen</li>
+			</ol>
+		</details>
+
+		<label class="smart-merge-toggle" class:on={smartMerge}>
+			<input type="checkbox" bind:checked={smartMerge} />
+			<span>
+				<strong>🔬 Team-Teaching erkennen (experimentell)</strong>
+				<small>Wenn aktiv: Hauptlehrer + Stütz-Lehrer (Erg-Stunden) werden zu
+				EINER Lehreinheit zusammengeführt. Leistungsgruppen (Stand/AHS) werden
+				automatisch gekoppelt. <strong>Bei MS-SiG-Liste aus lassen.</strong></small>
+			</span>
+		</label>
+
 		<input
 			type="file"
 			accept=".csv,text/csv"
@@ -154,6 +227,29 @@
 					<li>{c.newSubjects} neue Fächer</li>
 					<li>{c.newSpecs} Lehreinheiten werden angelegt</li>
 				</ul>
+				{#if preview.smartMergeStats}
+					{@const s = preview.smartMergeStats}
+					<div class="merge-stats">
+						<strong>🔬 Smart-Merge aktiv:</strong>
+						<ul>
+							{#if s.teamGroupsMerged > 0}
+								<li>{s.teamGroupsMerged} Team-Teaching-Gruppen zusammengeführt
+								(Hauptlehrer + Stütz-Lehrer)</li>
+							{/if}
+							{#if s.sameTeacherRowsCollapsed > 0}
+								<li>{s.sameTeacherRowsCollapsed} Mehrfachzeilen desselben Lehrers summiert</li>
+							{/if}
+							{#if s.leistungsCouplings > 0}
+								<li>{s.leistungsCouplings} Leistungsgruppen-Kopplungen automatisch gesetzt
+								(Stand+AHS laufen parallel)</li>
+							{/if}
+							{#if s.teamGroupsMerged === 0 && s.sameTeacherRowsCollapsed === 0 && s.leistungsCouplings === 0}
+								<li>Keine Team-Teaching-Muster in dieser CSV gefunden — Resultat
+								identisch zum normalen Import.</li>
+							{/if}
+						</ul>
+					</div>
+				{/if}
 				{#if preview.warnings.length > 0}
 					<details>
 						<summary>{preview.warnings.length} Warnungen</summary>
@@ -164,10 +260,38 @@
 						</ul>
 					</details>
 				{/if}
+				<label class="replace-toggle" class:on={replaceOnImport}>
+					<input type="checkbox" bind:checked={replaceOnImport} />
+					<span><strong>⚠ Alle bestehenden Daten vor dem Import löschen</strong>
+					<small>Aktivieren wenn du eine andere Schule importierst und NICHT mit den
+					bisherigen Daten zusammenführen willst.</small></span>
+				</label>
 				<div class="actions">
 					<button class="btn" onclick={discardPreview}>Verwerfen</button>
-					<button class="btn primary" onclick={applyImport}>Importieren</button>
+					<button
+						class="btn"
+						class:primary={!replaceOnImport}
+						class:danger={replaceOnImport}
+						onclick={applyImport}
+					>
+						{replaceOnImport ? '🗑 Alles löschen & Importieren' : 'Importieren (mergen)'}
+					</button>
 				</div>
+			</div>
+		{/if}
+
+		{#if !preview && (store.doc.teachers.length > 0 || store.doc.subjects.length > 0 || store.doc.specs.length > 0)}
+			<div class="reset-hint">
+				<button class="btn danger" onclick={resetAll}>
+					🗑 Alle Daten löschen und von vorne beginnen
+				</button>
+				<small>
+					Aktuell:
+					<strong>{store.doc.teachers.length}</strong> Lehrer ·
+					<strong>{store.doc.subjects.length}</strong> Fächer ·
+					<strong>{store.doc.specs.length}</strong> Lehreinheiten ·
+					<strong>{store.doc.placed.length}</strong> Platzierungen
+				</small>
 			</div>
 		{/if}
 	</div>
@@ -217,6 +341,35 @@
 		font-size: 13px;
 		margin-bottom: 14px;
 	}
+	.howto {
+		margin: 8px 0 14px;
+		padding: 8px 12px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		font-size: 13px;
+	}
+	.howto > summary {
+		cursor: pointer;
+		font-weight: 600;
+		user-select: none;
+	}
+	.howto ol {
+		margin: 10px 0 4px 22px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.howto .checks {
+		list-style: none;
+		margin: 6px 0 0 0;
+		padding: 0;
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 2px 12px;
+		font-family: var(--mono);
+		font-size: 12px;
+	}
 	.err {
 		color: var(--err);
 		padding: 8px 10px;
@@ -251,6 +404,106 @@
 		display: flex;
 		gap: 8px;
 		margin-top: 12px;
+	}
+	.smart-merge-toggle {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		margin: 0 0 10px;
+		padding: 10px 12px;
+		background: #f0f7ff;
+		border: 1px solid #b8d4f1;
+		border-radius: 6px;
+		font-size: 13px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+	.smart-merge-toggle:hover {
+		background: #e6f0fb;
+	}
+	.smart-merge-toggle.on {
+		background: #dcebfa;
+		border-color: #6ba7e0;
+	}
+	.smart-merge-toggle input {
+		margin-top: 2px;
+		flex-shrink: 0;
+	}
+	.smart-merge-toggle span {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.smart-merge-toggle small {
+		color: var(--text-muted);
+		font-size: 11px;
+	}
+	.merge-stats {
+		margin: 10px 0;
+		padding: 8px 12px;
+		background: #f0f7ff;
+		border: 1px solid #b8d4f1;
+		border-radius: 6px;
+		font-size: 12px;
+	}
+	.merge-stats > strong {
+		display: block;
+		margin-bottom: 4px;
+	}
+	.merge-stats ul {
+		margin: 0 0 0 18px;
+	}
+	.replace-toggle {
+		display: flex;
+		gap: 10px;
+		align-items: flex-start;
+		margin-top: 14px;
+		padding: 10px 12px;
+		background: #fffaf0;
+		border: 1px solid #f4d4a0;
+		border-radius: 6px;
+		font-size: 13px;
+		cursor: pointer;
+		transition: all 0.15s ease;
+	}
+	.replace-toggle:hover {
+		background: #fff5e0;
+	}
+	.replace-toggle.on {
+		background: #fef2f2;
+		border-color: #fca5a5;
+		color: #991b1b;
+	}
+	.replace-toggle input {
+		margin-top: 2px;
+		flex-shrink: 0;
+	}
+	.replace-toggle span {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+	}
+	.replace-toggle small {
+		color: var(--text-muted);
+		font-size: 11px;
+	}
+	.replace-toggle.on small {
+		color: #b34141;
+	}
+	.reset-hint {
+		margin-top: 16px;
+		padding: 12px;
+		background: #fef2f2;
+		border: 1px dashed #fca5a5;
+		border-radius: 6px;
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		align-items: flex-start;
+	}
+	.reset-hint small {
+		color: #7a3737;
+		font-size: 11px;
 	}
 	hr {
 		border: 0;

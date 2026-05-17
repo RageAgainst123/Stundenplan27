@@ -24,7 +24,7 @@
 </script>
 
 <header class="app-header">
-	<h1>MS SiG – Stundenplan {store.doc.schoolYear}</h1>
+	<h1>Stundenplancalc {store.doc.schoolYear}</h1>
 	<input
 		class="year"
 		type="text"
