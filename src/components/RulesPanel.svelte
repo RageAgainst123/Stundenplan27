@@ -79,6 +79,18 @@
 			<input type="number" min="0" step="10" bind:value={c.targetDailyLessons.weight} disabled={!c.targetDailyLessons.enabled} class="weight" />
 		</div>
 
+		<!-- Phase 18: Bevorzugt-Nachmittag Gewicht -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.afternoonPreferred.enabled} />
+				<span>
+					"Bevorzugt nachmittags" Gewicht
+					<span class="hint" title="Wirkt für Lerneinheiten mit afternoonAllowed='preferred' (Dropdown 'Bevorzugt' in der Lehreinheiten-Liste). Penalty pro Vormittag-Slot. Höher = drückt stärker auf Nachmittag. Default 250. Bei 0 wirkungslos.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="25" bind:value={c.afternoonPreferred.weight} disabled={!c.afternoonPreferred.enabled} class="weight" />
+		</div>
+
 		<!-- Beginn in 1. Stunde -->
 		<div class="rule">
 			<label class="lbl">

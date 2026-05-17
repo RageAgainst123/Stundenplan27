@@ -52,12 +52,30 @@ export function wouldViolate(
 		periodsToOccupy.push(p);
 	}
 
+	// Phase 18: Nachmittag-Schwellwert aus ConstraintConfig holen — derselbe
+	// wie für noMainSubjectAfternoon. Default 7. So bleiben H10/H11 mit dem
+	// User-konfigurierten Schwellwert konsistent.
+	const afternoonStart = Math.max(1, Math.min(P, Math.round(
+		state.doc.constraints.noMainSubjectAfternoon?.afternoonStartsAtPeriod ?? 7
+	)));
+
 	// H10: Phase 13 — Specs mit `afternoonAllowed='never'` dürfen nicht in
 	// Nachmittagsslots P7-P8 (inkl. Block-Reichweite). Default für Hauptfächer
 	// nach Migration v4→v5.
 	if (unit.afternoonAllowed === 'never') {
 		for (const p of periodsToOccupy) {
-			if (p >= 7) return 'H10: Nachmittag verboten (Hauptfach)';
+			if (p >= afternoonStart) return 'H10: Nachmittag verboten (Hauptfach)';
+		}
+	}
+
+	// H11: Phase 18 — Specs mit `afternoonAllowed='must'` MÜSSEN im
+	// Nachmittag liegen (alle Perioden ≥ afternoonStart). Spiegelbild zu H10.
+	// Block-Patterns: alle Perioden (auch der Block-Schwanz) müssen
+	// nachmittags sein. Wenn die Spec nicht erfüllbar ist, schlägt der
+	// Construction-Pfad das früh fest und meldet sie als unplaced.
+	if (unit.afternoonAllowed === 'must') {
+		for (const p of periodsToOccupy) {
+			if (p < afternoonStart) return 'H11: muss am Nachmittag liegen';
 		}
 	}
 

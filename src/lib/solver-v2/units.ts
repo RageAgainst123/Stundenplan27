@@ -260,10 +260,13 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 			let subjectCode = '';
 			let blockSize = 1;
 			let weekPattern: WeekPattern = 'every';
-			// Strictest afternoonAllowed across coupled specs wins:
-			// 'never' > 'allowed' > 'preferred'. One never-Spec macht die ganze
-			// Coupling-Gruppe never.
-			let afternoonAllowed: 'never' | 'allowed' | 'preferred' = 'preferred';
+			// Strictest afternoonAllowed across coupled specs wins.
+			// Reihenfolge (von strikt zu lax): 'never' > 'must' > 'allowed' > 'preferred'.
+			// Wenn ein Coupling 'never' UND 'must' enthält → das ist eine
+			// User-Misskonfiguration (unmöglich befriedigbar). Wir wählen
+			// 'never' (sicher) und der Solver wird die 'must'-Spec als
+			// unplaced melden; die Diagnose hat das auch schon gewarnt.
+			let afternoonAllowed: 'never' | 'allowed' | 'preferred' | 'must' = 'preferred';
 			for (const e of group) {
 				const spec = specsById.get(e.specId);
 				if (!spec) continue;
@@ -285,8 +288,13 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 				blockSize = Math.max(blockSize, e.blockSize);
 				weekPattern = spec.weekPattern;
 				const sa = spec.afternoonAllowed ?? 'allowed';
-				if (sa === 'never') afternoonAllowed = 'never';
-				else if (sa === 'allowed' && afternoonAllowed !== 'never') afternoonAllowed = 'allowed';
+				if (sa === 'never') {
+					afternoonAllowed = 'never';
+				} else if (sa === 'must' && afternoonAllowed !== 'never') {
+					afternoonAllowed = 'must';
+				} else if (sa === 'allowed' && afternoonAllowed !== 'never' && afternoonAllowed !== 'must') {
+					afternoonAllowed = 'allowed';
+				}
 				specIds.push(e.specId);
 			}
 			if (allInstances.length === 0) continue;

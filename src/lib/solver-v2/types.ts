@@ -101,7 +101,7 @@ export interface Unit {
 	 * Coupling-Units übernehmen den restriktivsten Wert aller gekoppelten Specs:
 	 * eine 'never'-Spec macht die ganze Coupling-Gruppe 'never'.
 	 */
-	afternoonAllowed: 'never' | 'allowed' | 'preferred';
+	afternoonAllowed: 'never' | 'allowed' | 'preferred' | 'must';
 }
 
 /**
@@ -332,13 +332,11 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// Phase 13: Zieltagespensum + afternoon_preferred.
 	const tDaily = c.targetDailyLessons as { enabled?: boolean; weight?: number; target?: number } | undefined;
 	const tDailyWeight = tDaily?.enabled === false ? 0 : (tDaily?.weight ?? 80);
-	// Phase 13.2: afternoon_preferred-Gewicht hochgezogen von 15 auf 100.
-	// Vorher zu schwach — 'preferred'-Spec auf P1-P3 zahlt z.B. 3×15=45,
-	// nachmittags hingegen 3×any_aft=150. Resultat: Solver legte EH lieber
-	// vormittags weil dort billiger. Plus: 'preferred'-Specs sind jetzt von
-	// any_aft EXEMPT (siehe score.ts), dadurch ist Nachmittag wirklich
-	// kostenlos und Vormittag straft 100/Slot.
-	const afternoonPreferredWeight = 100;
+	// Phase 18: konfigurierbar über ConstraintConfig.afternoonPreferred.
+	// Default 250 (vorher 100 hardcoded). User kann Wert im RulesPanel-Slider
+	// anpassen; bei 0 wird die Komponente effektiv deaktiviert.
+	const aftPref = (c as unknown as { afternoonPreferred?: { enabled?: boolean; weight?: number } }).afternoonPreferred;
+	const afternoonPreferredWeight = aftPref?.enabled === false ? 0 : (aftPref?.weight ?? 250);
 	// Phase 13.3: main_twice = 3+ Vorkommen desselben Hauptfachs am Tag/Stufe.
 	// Sehr hohes Gewicht — pädagogisch dürfen niemals 3× M, D, oder E am
 	// gleichen Tag in derselben Stufe sein, auch nicht mit Lücken dazwischen.

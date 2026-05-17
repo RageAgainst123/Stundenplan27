@@ -289,6 +289,74 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		});
 	}
 
+	// 6e) Phase 18 — Hard-Constraint H11 ('must'): Spec MUSS nachmittags sein.
+	// Pro Lehrer: wieviele Nachmittag-Slots (P7-P8) sind frei? Wieviele
+	// 'must'-Stunden hat er zugewiesen? Wenn must-Stunden > Nachmittag-Slots:
+	// UNSAT durch H11 vorhersagbar.
+	const afternoonStart = Math.max(1, Math.min(P, Math.round(
+		doc.constraints?.noMainSubjectAfternoon?.afternoonStartsAtPeriod ?? 7
+	)));
+	const afternoonPeriods = P - afternoonStart + 1; // P7+P8 = 2 bei Default
+	for (const teacher of doc.teachers) {
+		const blockedAft = (teacher.unavailable ?? []).filter(u => u.period >= afternoonStart).length;
+		const aftAvailable = D * afternoonPeriods - blockedAft;
+		let mustLoad = 0;
+		for (const spec of doc.specs) {
+			if (spec.includeInSolver === false) continue;
+			if ((spec.afternoonAllowed ?? 'allowed') !== 'must') continue;
+			if (!spec.teachers.includes(teacher.id)) continue;
+			mustLoad += Math.round(spec.count);
+		}
+		if (mustLoad > 0 && mustLoad > aftAvailable) {
+			hints.push({
+				severity: 'error',
+				message: `Lehrer "${teacher.name}" hat ${mustLoad} Stunden mit "Nachmittag Pflicht", aber nur ${aftAvailable} freie Nachmittag-Slots (P${afternoonStart}–P${P}, ${blockedAft} gesperrt). Entweder Nachmittag-Verfügbarkeit erweitern oder einzelne Lerneinheiten von "Pflicht" auf "Bevorzugt" oder "Egal" setzen.`
+			});
+		}
+	}
+
+	// 6f) Phase 18 — Pro Stufe: 'must'-Stunden vs. afternoon-Slots-pro-Stufe.
+	const aftSlotsPerGrade = D * afternoonPeriods;
+	const mustLoadByGrade = new Map<GradeLevel, number>();
+	const seenCouplingsMust = new Set<string>();
+	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
+		if ((spec.afternoonAllowed ?? 'allowed') !== 'must') continue;
+		if (spec.couplingId) {
+			if (seenCouplingsMust.has(spec.couplingId)) continue;
+			seenCouplingsMust.add(spec.couplingId);
+		}
+		for (const g of spec.grades) {
+			mustLoadByGrade.set(g, (mustLoadByGrade.get(g) ?? 0) + Math.round(spec.count));
+		}
+	}
+	for (const [grade, load] of mustLoadByGrade) {
+		if (load > aftSlotsPerGrade) {
+			hints.push({
+				severity: 'error',
+				message: `Schulstufe ${grade}. SSt. hat ${load} "Pflicht-Nachmittag"-Stunden, aber nur ${aftSlotsPerGrade} Nachmittag-Slots (5 Tage × ${afternoonPeriods} Perioden). Plan UNSAT — Stunden reduzieren oder weniger Specs auf "Pflicht" setzen.`
+			});
+		} else if (load > aftSlotsPerGrade - 2) {
+			hints.push({
+				severity: 'warn',
+				message: `Schulstufe ${grade}. SSt. ist eng am Nachmittag-Limit: ${load}/${aftSlotsPerGrade} "Pflicht-Nachmittag"-Stunden. Wenig Spielraum.`
+			});
+		}
+	}
+
+	// 6g) Phase 18 — Pinned 'must'-Spec auf Vormittag-Slot.
+	for (const p of doc.placed) {
+		if (!p.pinned) continue;
+		if (p.period >= afternoonStart) continue;
+		const spec = doc.specs.find(s => s.id === p.specId);
+		if (!spec) continue;
+		if ((spec.afternoonAllowed ?? 'allowed') !== 'must') continue;
+		hints.push({
+			severity: 'warn',
+			message: `Pin auf ${p.day} ${p.period}. Stunde verletzt H11 ("Pflicht-Nachmittag", ${spec.subject}). Beim Solver-Lauf wird der Pin verworfen.`
+		});
+	}
+
 	// 7) Pinned-Slot-Verfügbarkeitskonflikt: Spec gepinnt aber Lehrer ist gesperrt.
 	// Team-Teaching-aware: jeder Team-Lehrer muss frei sein.
 	for (const p of doc.placed) {

@@ -179,6 +179,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.targetDailyLessons !== 'object' || c12.targetDailyLessons === null) {
 			c12.targetDailyLessons = { enabled: true, weight: 80, target: 6 };
 		}
+		// Phase 18: afternoonPreferred — Gewicht für preferred-Modus konfigurierbar.
+		// Default 250 (vorher 100 hardcoded → war zu schwach gegen min_daily/no_free).
+		if (typeof c12.afternoonPreferred !== 'object' || c12.afternoonPreferred === null) {
+			c12.afternoonPreferred = { enabled: true, weight: 250 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.

@@ -161,13 +161,13 @@
 		}
 	}
 
-	/** Phase 13: Nachmittag-Politik pro Spec. */
+	/** Phase 13/18: Nachmittag-Politik pro Spec. */
 	function setAfternoon(s: LessonSpec, v: string) {
-		if (v === 'never' || v === 'allowed' || v === 'preferred') s.afternoonAllowed = v;
+		if (v === 'never' || v === 'allowed' || v === 'preferred' || v === 'must') s.afternoonAllowed = v;
 	}
 
-	/** Phase 13 Bulk: Nachmittag-Politik für alle ausgewählten Specs. */
-	function bulkSetAfternoon(v: 'never' | 'allowed' | 'preferred') {
+	/** Phase 13/18 Bulk: Nachmittag-Politik für alle ausgewählten Specs. */
+	function bulkSetAfternoon(v: 'never' | 'allowed' | 'preferred' | 'must') {
 		for (const s of store.doc.specs) {
 			if (!selectedIds.has(s.id)) continue;
 			s.afternoonAllowed = v;
@@ -574,11 +574,12 @@
 			<option value="early">Früh (P1–P3)</option>
 			<option value="late">Spät (P5–P8)</option>
 		</select>
-		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v === 'never' || v === 'allowed' || v === 'preferred') bulkSetAfternoon(v); (e.currentTarget as HTMLSelectElement).value = ''; }} title="Nachmittag-Politik (P7–P8) für ausgewählte Lerneinheiten">
+		<select class="bulk-select" onchange={(e) => { const v = (e.currentTarget as HTMLSelectElement).value; if (v === 'never' || v === 'allowed' || v === 'preferred' || v === 'must') bulkSetAfternoon(v); (e.currentTarget as HTMLSelectElement).value = ''; }} title="Nachmittag-Politik (P7–P8) für ausgewählte Lerneinheiten">
 			<option value="">Nachmittag…</option>
 			<option value="never">🌅 Nie nachmittags (Hard)</option>
 			<option value="allowed">↔ Egal</option>
 			<option value="preferred">🌆 Bevorzugt nachmittags</option>
+			<option value="must">⛔ Pflicht nachmittags (Hard)</option>
 		</select>
 		<button class="btn danger small" onclick={bulkDelete}>🗑 Löschen</button>
 		<span style="margin-left:auto"></span>
@@ -736,11 +737,13 @@
 							class="afternoon-select"
 							class:never={s.afternoonAllowed === 'never'}
 							class:preferred={s.afternoonAllowed === 'preferred'}
-							title="Nachmittag (P7–P8): 'Nie' = Hard-Constraint, 'Egal' = soft, 'Bevorzugt' = soll nachmittags sein"
+							class:must={s.afternoonAllowed === 'must'}
+							title="Nachmittag (P7–P8): 'Nie' = Hard, 'Egal' = soft, 'Bevorzugt' = soll nachmittags sein, 'Pflicht' = MUSS nachmittags (Hard)"
 						>
 							<option value="never">🌅 Nie</option>
 							<option value="allowed">↔ Egal</option>
 							<option value="preferred">🌆 Bevorzugt</option>
+							<option value="must">⛔ Pflicht</option>
 						</select>
 					</td>
 					<td>
@@ -966,6 +969,13 @@
 		background: rgba(244, 162, 97, 0.15);
 		color: #c47e34;
 		font-weight: 600;
+	}
+	/* Phase 18: 'must' = Hard-Constraint, klare visuelle Differenzierung. */
+	.afternoon-select.must {
+		background: rgba(220, 38, 38, 0.15);
+		color: #b91c1c;
+		font-weight: 700;
+		border-color: #fca5a5;
 	}
 	.block-select.auto {
 		font-style: italic;

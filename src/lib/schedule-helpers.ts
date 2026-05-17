@@ -83,6 +83,17 @@ export function checkPlacementConflict(
 		}
 	}
 
+	// Phase 13/18: afternoonAllowed-Hard-Constraints (H10/H11) für Drag&Drop.
+	const afternoonStart = Math.max(1, Math.min(8, Math.round(
+		doc.constraints?.noMainSubjectAfternoon?.afternoonStartsAtPeriod ?? 7
+	)));
+	if (spec.afternoonAllowed === 'never' && period >= afternoonStart) {
+		push(`Lerneinheit "${spec.subject}" darf nicht am Nachmittag (P${afternoonStart}+) liegen.`);
+	}
+	if (spec.afternoonAllowed === 'must' && period < afternoonStart) {
+		push(`Lerneinheit "${spec.subject}" muss am Nachmittag (P${afternoonStart}+) liegen.`);
+	}
+
 	const targetGrades = new Set(spec.grades);
 
 	for (const p of doc.placed) {

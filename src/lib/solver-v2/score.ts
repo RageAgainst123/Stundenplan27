@@ -229,7 +229,14 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		// Phase 13.2: Specs mit afternoonAllowed='preferred' sind aus dem
 		// gleichen Grund exempt — User hat „bevorzugt nachmittags" gewählt,
 		// any_aft hier zu kassieren würde dem Signal entgegenwirken.
-		const afternoonExempt = timePref === 'late' || unit.afternoonAllowed === 'preferred';
+		// Phase 18: 'must' ist ebenfalls exempt von any_aft/main_aft — Hard-
+		// Constraint H11 stellt sicher dass die Spec nachmittags ist, eine
+		// zusätzliche Soft-Penalty wäre redundant und würde Score-Vergleiche
+		// verzerren.
+		const afternoonExempt =
+			timePref === 'late'
+			|| unit.afternoonAllowed === 'preferred'
+			|| unit.afternoonAllowed === 'must';
 		for (const inst of unit.instances) {
 			const p = period - 1 + inst.blockPos;
 			if (p >= P) continue;
@@ -240,7 +247,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			}
 			// Phase 13: afternoon_preferred — Spec SOLL nachmittags sein,
 			// liegt aber im Vormittag. Penalty pro Vormittag-Slot. Reziprok
-			// zu any_aft/main_aft.
+			// zu any_aft/main_aft. Nur für 'preferred' — 'must' ist via H11
+			// schon hart erzwungen.
 			if (unit.afternoonAllowed === 'preferred' && p + 1 < afternoonStart) {
 				breakdown.afternoon_preferred++;
 			}

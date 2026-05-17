@@ -108,7 +108,7 @@ export interface LessonSpec {
 	 */
 	timePref?: 'early' | 'late';
 	/**
-	 * Phase 13: Feinsteuerung der Nachmittag-Platzierung pro Lerneinheit.
+	 * Phase 13/18: Feinsteuerung der Nachmittag-Platzierung pro Lerneinheit.
 	 *
 	 *  - `'never'` (Hard-Constraint H10): die Spec darf nie auf Nachmittagsslots
 	 *    (P7-P8 inkl. Block-Reichweite). Default für Hauptfächer (`Subject.isMain=true`)
@@ -117,11 +117,16 @@ export interface LessonSpec {
 	 *    Solver versucht Vormittag aber bevorzugt (siehe `any_aft`-Penalty).
 	 *  - `'preferred'` (Soft, Inverse): Spec SOLL nachmittags sein. Penalty wenn
 	 *    der Solver sie morgens platziert. Geeignet z. B. für BBO, EH, GZ.
+	 *    Gewicht via `ConstraintConfig.afternoonPreferred.weight` einstellbar.
+	 *  - `'must'` (Hard-Constraint H11, Phase 18): Spec MUSS am Nachmittag liegen
+	 *    (alle Perioden ≥ afternoonStart). Spiegelbild zu `'never'`. UNSAT-Risiko
+	 *    wenn nicht genug Nachmittag-Slots oder Lehrer-Verfügbarkeit konkurriert
+	 *    — Pre-Flight-Diagnose warnt.
 	 *
 	 * Migration v4→v5 setzt initial `'never'` für Specs deren Subject `isMain=true`,
 	 * sonst `'allowed'`. User kann via SpecList-Dropdown pro Spec überschreiben.
 	 */
-	afternoonAllowed?: 'never' | 'allowed' | 'preferred';
+	afternoonAllowed?: 'never' | 'allowed' | 'preferred' | 'must';
 	count: number;                // Gesamt-Wochenstunden, halbzahlig erlaubt (0.5, 1.5)
 	blocks?: BlockPattern;        // Aufteilung in Blöcke; default [1,1,…count]. sum(blocks) === count
 	includeInSolver: boolean;     // false → Solver lässt aus (manuell platzierbar)
@@ -302,6 +307,13 @@ export interface ConstraintConfig {
 	 * parallel als Untergrenze.
 	 */
 	targetDailyLessons: { enabled: boolean; weight: number; target: number };
+	/**
+	 * Phase 18: Gewicht für `afternoon_preferred`-Score (Specs mit
+	 * `afternoonAllowed='preferred'` im Vormittag → Penalty pro Vormittag-Slot).
+	 * Default 250 (vorher 100 hardcoded → war zu schwach). User kann über
+	 * RulesPanel-Slider hoch- oder runterdrehen.
+	 */
+	afternoonPreferred: { enabled: boolean; weight: number };
 }
 
 // Phase 10 weight calibration (after solver-side diagnosis):
@@ -336,7 +348,10 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	teacherMinLessonsPerDay: { enabled: true, weight: 150, min: 2 },
 	// Phase 13: Zieltagespensum 6 ±1, quadratische Penalty. Gewicht moderat
 	// — strukturell wirksam ohne andere Constraints zu überlagern.
-	targetDailyLessons: { enabled: true, weight: 80, target: 6 }
+	targetDailyLessons: { enabled: true, weight: 80, target: 6 },
+	// Phase 18: höheres Default-Gewicht als pre-18-Hardcoded-100, damit
+	// `'preferred'` praktisch spürbar wird (vorher zu schwach gegen min_daily etc).
+	afternoonPreferred: { enabled: true, weight: 250 }
 };
 
 export interface ScheduleDoc {
