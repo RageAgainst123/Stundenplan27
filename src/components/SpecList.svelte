@@ -9,8 +9,9 @@
 
 	let filterTeacher = $state<string>('');
 	let filterSubject = $state<string>('');
+	let filterGrade = $state<string>(''); // '', '5', '6', '7', '8'
 	let filterGroup = $state<string>('');
-	let groupBy = $state<'none' | 'group'>('group');
+	let groupBy = $state<'none' | 'group' | 'grade'>('group');
 	let selectedIds = $state<Set<string>>(new Set());
 	/** Phase 17: welche Spec-Zeilen haben den Team-Teaching-Editor offen */
 	let expandedTeamEditor = $state<Set<string>>(new Set());
@@ -22,9 +23,11 @@
 	];
 
 	const filtered = $derived.by(() => {
+		const gradeNum = filterGrade ? parseInt(filterGrade, 10) : 0;
 		const list = store.doc.specs.filter(s => {
 			if (filterTeacher && !s.teachers.includes(filterTeacher)) return false;
 			if (filterSubject && s.subject !== filterSubject) return false;
+			if (gradeNum > 0 && !s.grades.includes(gradeNum as 5 | 6 | 7 | 8)) return false;
 			// Filter dropdown lists couplings (solver-relevant).
 			if (filterGroup && s.couplingId !== filterGroup) return false;
 			return true;
@@ -38,6 +41,18 @@
 				if (!ag && bg) return 1;
 				if (ag !== bg) return ag.localeCompare(bg);
 				return a.subject.localeCompare(b.subject);
+			});
+		}
+		if (groupBy === 'grade') {
+			// Specs sortiert nach niedrigster Stufe, dann Subject. Multi-Grade-Specs
+			// (z.B. [5,6]) sortieren nach ihrer kleinsten Stufe.
+			return [...list].sort((a, b) => {
+				const ag = Math.min(...(a.grades.length > 0 ? a.grades : [99]));
+				const bg = Math.min(...(b.grades.length > 0 ? b.grades : [99]));
+				if (ag !== bg) return ag - bg;
+				// Innerhalb gleicher Stufe: nach Subject sortieren
+				if (a.subject !== b.subject) return a.subject.localeCompare(b.subject);
+				return 0;
 			});
 		}
 		return list;
@@ -511,14 +526,22 @@
 			<option value="">Alle Fächer</option>
 			{#each store.doc.subjects as s}<option value={s.code}>{s.code}</option>{/each}
 		</select>
+		<select bind:value={filterGrade} title="Filter: nur Lehreinheiten einer bestimmten Schulstufe">
+			<option value="">Alle Stufen</option>
+			<option value="5">5. Stufe</option>
+			<option value="6">6. Stufe</option>
+			<option value="7">7. Stufe</option>
+			<option value="8">8. Stufe</option>
+		</select>
 		<select bind:value={filterGroup} title="Filter: nur eine Solver-Kopplung anzeigen">
 			<option value="">Alle Kopplungen</option>
 			{#each allGroups as g}<option value={g}>{g}</option>{/each}
 		</select>
-		<label class="check-inline">
-			<input type="checkbox" checked={groupBy === 'group'} onchange={(e) => (groupBy = (e.currentTarget as HTMLInputElement).checked ? 'group' : 'none')} />
-			nach Kopplung gruppieren
-		</label>
+		<select bind:value={groupBy} class="group-by-select" title="Sortier-/Gruppier-Modus für die Liste">
+			<option value="none">Keine Sortierung</option>
+			<option value="group">nach Kopplung gruppieren</option>
+			<option value="grade">nach Stufe sortieren</option>
+		</select>
 	</div>
 	<button class="btn primary" onclick={newSpec}>+ Neue Lehreinheit</button>
 </div>
@@ -797,12 +820,9 @@
 		border-radius: 4px;
 		font-size: 13px;
 	}
-	.check-inline {
-		display: inline-flex;
-		gap: 4px;
-		font-size: 12px;
-		color: var(--text-muted);
-		align-items: center;
+	/* Phase 17: groupBy ist jetzt ein Dropdown statt Checkbox — .check-inline obsolete. */
+	.group-by-select {
+		font-weight: 600;
 	}
 	.bulk-toolbar {
 		position: sticky;
