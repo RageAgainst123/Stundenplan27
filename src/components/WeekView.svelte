@@ -357,25 +357,34 @@
 												{#if slot.placements.length > 0}
 													<div class="row" class:team={couplingBg !== ''}>
 														{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
-															{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
-															{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
+															{@const teachersAll = cp.spec.teachers.map(tid => teacherById(tid)).filter((t): t is NonNullable<typeof t> => !!t)}
 															{@const visible = isHighlighted(cp.spec, slot.startGrade)}
-															{@const tcol = teacher?.color ?? '#9ca3af'}
-															{@const t2col = teacher2?.color ?? tcol}
+															{@const tcol = teachersAll[0]?.color ?? '#9ca3af'}
+															{@const tcolLast = teachersAll.length > 1 ? teachersAll[teachersAll.length - 1].color : tcol}
+															{@const teachersBg = teachersAll.length <= 1
+																? `color-mix(in srgb, ${tcol} 45%, white)`
+																: 'linear-gradient(to right, ' + teachersAll.map((t, i) => {
+																	const from = ((i / teachersAll.length) * 100).toFixed(2);
+																	const to = (((i + 1) / teachersAll.length) * 100).toFixed(2);
+																	return `color-mix(in srgb, ${t.color} 45%, white) ${from}% ${to}%`;
+																}).join(', ') + ')'}
+															{@const namesTooltip = teachersAll.map(t => t.name).join(' + ')}
 															{@const dimmedByWeek = cp.spec.weekPattern !== 'every' && cp.spec.weekPattern !== weekInfo.parity}
 															<div
 																class="placed"
 																class:filtered={!visible}
 																class:dimmed-week={dimmedByWeek}
+																class:multi-teacher={teachersAll.length > 2}
 																style:--tcol={tcol}
-																style:--t2col={t2col}
-																style:background={teacher2
-																	? `linear-gradient(to right, color-mix(in srgb, ${tcol} 45%, white) 0 50%, color-mix(in srgb, ${t2col} 45%, white) 50% 100%)`
-																	: `color-mix(in srgb, ${tcol} 45%, white)`}
+																style:--t2col={tcolLast}
+																style:background={teachersBg}
 															>
-																<span class="subj" title={teacher?.name + (teacher2 ? ' + ' + teacher2.name : '')}>
+																<span class="subj" title={namesTooltip}>
 																	{cp.spec.subject}
 																</span>
+																{#if teachersAll.length > 2}
+																	<span class="teacher-count" title={namesTooltip}>{teachersAll.length}👥</span>
+																{/if}
 																{#if cp.spec.weekPattern !== 'every'}
 																	<span class="week-badge">{cp.spec.weekPattern === 'even' ? 'G' : 'U'}</span>
 																{/if}
@@ -743,6 +752,24 @@
 		border-radius: 2px;
 		background: rgba(255, 255, 255, 0.6);
 	}
+	/* Phase 17: bei 3+ Lehrern dezent "N👥" Badge oben rechts — damit User
+	   trotz visueller Streifen erkennt wieviele Lehrer drin sind. */
+	.teacher-count {
+		position: absolute;
+		top: 1px;
+		right: 2px;
+		font-size: 9px;
+		font-weight: 700;
+		color: rgba(0, 0, 0, 0.65);
+		padding: 0 3px;
+		border-radius: 3px;
+		background: rgba(255, 255, 255, 0.7);
+		line-height: 1.2;
+	}
+	.placed.multi-teacher {
+		/* Kleine Hervorhebung des Multi-Teaching-Status durch dezenten Rahmen */
+		box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+	}
 
 	/* ---- Compact-Modus für Vergleichsansicht (slotCount > 1) ---- */
 	/* 2 Slots nebeneinander: kompaktere Cells, kleinere Schrift,
@@ -846,5 +873,12 @@
 	}
 	.plan-slot.compact-3-4 .week-badge {
 		display: none; /* zu klein für G/U-Badge — Tooltip via title bleibt */
+	}
+	.plan-slot.compact-3-4 .teacher-count {
+		display: none; /* gleicher Grund — Tooltip via title bleibt */
+	}
+	.plan-slot.compact-2 .teacher-count {
+		font-size: 8px;
+		padding: 0 2px;
 	}
 </style>

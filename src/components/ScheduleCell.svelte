@@ -89,8 +89,7 @@
 >
 	<div class="row" class:team={couplingBg !== ''}>
 		{#each cellPlacements as cp, idx (cp.placed.specId + '|' + cp.placed.day + '|' + cp.placed.period + '|' + cp.placed.grade + '|' + idx)}
-			{@const teacher = teacherById(cp.spec.teachers[0] ?? '')}
-			{@const teacher2 = cp.spec.teachers.length > 1 ? teacherById(cp.spec.teachers[1]) : undefined}
+			{@const cpTeachers = cp.spec.teachers.map(tid => teacherById(tid)).filter((t): t is NonNullable<typeof t> => !!t)}
 			{@const visible = isHighlighted(cp.spec, grade)}
 			<div
 				class="placed"
@@ -102,8 +101,7 @@
 			>
 				<LessonCell
 					spec={cp.spec}
-					teacher={teacher}
-					teacher2={teacher2}
+					teachers={cpTeachers}
 					pinned={cp.placed.pinned}
 					weekParity={weekParity}
 					onTogglePin={() => togglePin(cp.spec.id)}
