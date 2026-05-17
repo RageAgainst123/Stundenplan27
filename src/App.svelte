@@ -23,18 +23,41 @@
 		{ id: 'rules', label: 'Regeln' }
 	];
 
-	// Phase 17: globaler Konflikt-Detektor — läuft bei jeder Doc-Änderung.
-	const conflicts = $derived.by(() => {
-		// Touch reactive dependencies explizit
+	// Phase 17: globaler Konflikt-Detektor.
+	// WICHTIG: $derived hätte hier bei jedem CSV-Import den UI-Thread blockiert,
+	// weil findPlanConflicts O(placed²) durchläuft und bei jeder spec.push()-
+	// Mutation synchron neu gerechnet würde. Wir verwenden $effect mit
+	// requestIdleCallback/setTimeout-Debounce — UI bleibt responsive, der
+	// Banner aktualisiert sich nach ~150ms statt blockierend bei jedem Push.
+	let conflicts = $state<ReturnType<typeof findPlanConflicts>>([]);
+	let conflictDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+	$effect(() => {
+		// Touch reactive dependencies — sehr leicht, kein eigentliches Lesen.
 		void store.doc.specs.length;
 		void store.doc.placed.length;
-		return findPlanConflicts(store.doc);
+		void store.doc.teachers.length;
+		// Debounce: bei Bulk-Mutations (CSV-Import) feuert das hier 100× hintereinander.
+		// Wir rechnen erst 150ms nach der LETZTEN Mutation.
+		if (conflictDebounceTimer !== null) clearTimeout(conflictDebounceTimer);
+		conflictDebounceTimer = setTimeout(() => {
+			conflicts = findPlanConflicts(store.doc);
+			conflictDebounceTimer = null;
+		}, 150);
+		return () => {
+			if (conflictDebounceTimer !== null) {
+				clearTimeout(conflictDebounceTimer);
+				conflictDebounceTimer = null;
+			}
+		};
 	});
 
 	function autoCleanupConflicts(): void {
-		const removed = removeConflictedPlacements(store.doc, conflicts);
+		// Vor dem Cleanup nochmal frisch berechnen — falls Banner-State stale ist.
+		const fresh = findPlanConflicts(store.doc);
+		const removed = removeConflictedPlacements(store.doc, fresh);
 		if (removed > 0) {
 			store.persistNow();
+			conflicts = findPlanConflicts(store.doc); // refresh state
 			alert(`${removed} konfliktverursachende Platzierungen entfernt. Gepinnte Stunden 🔒 bleiben erhalten.`);
 		}
 	}
