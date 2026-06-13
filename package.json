@@ -25,6 +25,7 @@
     "vitest": "^4.1.5"
   },
   "dependencies": {
-    "@thisux/sveltednd": "^0.4.1"
+    "@thisux/sveltednd": "^0.4.1",
+    "exceljs": "^4.4.0"
   }
 }
