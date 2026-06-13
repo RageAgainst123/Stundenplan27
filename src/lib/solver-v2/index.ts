@@ -274,6 +274,143 @@ function emptyRelaxation(): RelaxationInfo {
 	};
 }
 
+// ----- DZN-Export (Phase 18) ------------------------------------------------
+
+/**
+ * Phase 18: Vollständiger Solver-Snapshot für Debug/Reproduktion.
+ *
+ * Enthält:
+ *  - meta: Schuljahr, Timestamp, Format-Version
+ *  - units: Solver-interne Atomar-Einheiten (rückwärtskompatibel zum alten Format)
+ *  - specs: Original-LessonSpecs vor Expansion (inkl. teachingSegments, afternoonAllowed)
+ *  - teachers: Stammdaten mit unavailable-Slots (für Lehrer-Last-Audit)
+ *  - subjects: Stammdaten mit isMain-Flag
+ *  - constraints: ConstraintConfig zum Reproduzieren der Soft-Constraint-Gewichte
+ *  - placements: aktueller doc.placed (Pinned + freie Platzierungen)
+ *  - droppedPins: vom Solver verworfene Pins (Validierungs-Fehler)
+ *  - relaxation: Auto-Lockerung-Info wenn der Solver Constraints gelockert hat
+ *  - scoreBreakdown: letzte bekannte Score-Werte
+ *  - options: StartSolveOptions wie pool/hotStart/diversify
+ *
+ * Format ist JSON (trotz .dzn-Endung — Legacy aus MiniZinc-Zeit, Phase 5-10).
+ */
+const DZN_EXPORT_VERSION = 2;
+
+function buildDznDump(args: {
+	doc: ScheduleDoc;
+	state: SolverState | null;
+	breakdown: ScoreBreakdown | null;
+	relaxation: RelaxationInfo | null;
+	tStart: number;
+	options: StartSolveOptions;
+}): string {
+	const { doc, state, breakdown, relaxation, tStart, options } = args;
+
+	const dump: Record<string, unknown> = {
+		meta: {
+			exportVersion: DZN_EXPORT_VERSION,
+			exportedAt: new Date().toISOString(),
+			schoolYear: doc.schoolYear,
+			solverElapsedMs: Date.now() - tStart,
+			source: 'solver-v2',
+			docSchemaVersion: doc.meta?.schemaVersion ?? null,
+		},
+		// Solver-Optionen die diesen Lauf konfiguriert haben.
+		options: {
+			totalBudgetMs: options.totalBudgetMs ?? null,
+			innerBudgetMs: options.innerBudgetMs ?? null,
+			poolBudgetMs: options.poolBudgetMs ?? null,
+			hotStart: options.hotStart ?? false,
+			diversify: options.diversify ?? null,
+		},
+		// Original-Stammdaten (für Reproduktion ohne Solver-State).
+		teachers: doc.teachers.map(t => ({
+			id: t.id,
+			name: t.name,
+			shortNumber: t.shortNumber,
+			personalNumber: t.personalNumber,
+			isLeader: t.isLeader,
+			placeholder: t.placeholder,
+			subjects: [...t.subjects],
+			unavailable: t.unavailable.map(u => ({ day: u.day, period: u.period })),
+		})),
+		subjects: doc.subjects.map(s => ({
+			code: s.code,
+			name: s.name,
+			category: s.category,
+			isMain: s.isMain,
+			maxConsecutive: s.maxConsecutive,
+			hoursPerWeek: s.hoursPerWeek,
+		})),
+		specs: doc.specs.map(s => ({
+			id: s.id,
+			subject: s.subject,
+			teachers: [...s.teachers],
+			classes: [...s.classes],
+			grades: [...s.grades],
+			weekPattern: s.weekPattern,
+			groupLabel: s.groupLabel,
+			couplingId: s.couplingId,
+			count: s.count,
+			blocks: s.blocks,
+			timePref: s.timePref,
+			afternoonAllowed: s.afternoonAllowed,
+			includeInSolver: s.includeInSolver,
+			source: s.source,
+			teachingSegments: s.teachingSegments,
+		})),
+		constraints: doc.constraints,
+		// Aktueller Plan-Stand für Reproduktion (Pinned + freie).
+		placements: doc.placed.map(p => ({
+			specId: p.specId,
+			day: p.day,
+			period: p.period,
+			grade: p.grade,
+			pinned: p.pinned,
+		})),
+	};
+
+	if (state) {
+		// Solver-State-spezifische Felder. Wenn state===null (getDzn vor Solver-
+		// Start aufgerufen), bleiben die fields weg — das ist erlaubt und
+		// signalisiert „kein Lauf gestartet".
+		dump.nUnits = state.nUnits;
+		dump.units = state.units.map(u => ({
+			idx: u.idx,
+			kind: u.kind,
+			subjectCode: u.subjectCode,
+			teacherId: u.teacherId,
+			teacherIds: [...u.teacherIds],
+			grades: [...u.grades],
+			blockSize: u.blockSize,
+			pinned: u.pinned,
+			specIds: [...u.specIds],
+			weekPattern: u.weekPattern,
+			afternoonAllowed: u.afternoonAllowed,
+		}));
+		dump.droppedPins = (state.droppedPins ?? []).map(dp => ({
+			specId: dp.specId,
+			subjectCode: dp.subjectCode,
+			day: dp.day,
+			period: dp.period,
+			reason: dp.reason,
+		}));
+	} else {
+		dump.nUnits = 0;
+		dump.units = [];
+		dump.droppedPins = [];
+	}
+
+	if (breakdown) {
+		dump.scoreBreakdown = breakdown;
+	}
+	if (relaxation) {
+		dump.relaxation = relaxation;
+	}
+
+	return JSON.stringify(dump, null, 2);
+}
+
 // ----- Public API -----------------------------------------------------------
 
 /**
@@ -294,6 +431,11 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 
 	let aborted = false;
 	let stateForDump: SolverState | null = null;
+	// Phase 18: zuletzt-bekannter Score + Relaxation-Info für DZN-Export.
+	// Werden vom done-Pfad gesetzt; bleiben null wenn vor Solver-Lauf getDzn()
+	// gerufen wird.
+	let lastBreakdownForDump: ScoreBreakdown | null = null;
+	let lastRelaxationForDump: RelaxationInfo | null = null;
 
 	function emit<K extends keyof EventMap>(event: K, e: EventMap[K]): void {
 		emitter.emit(event, e);
@@ -311,21 +453,14 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			return emitter.on(event as string, cb as (e: unknown) => void);
 		},
 		getDzn(): string {
-			if (!stateForDump) return '';
-			// v2 has no DZN — produce a JSON snapshot instead
-			return JSON.stringify({
-				nUnits: stateForDump.nUnits,
-				units: stateForDump.units.map(u => ({
-					idx: u.idx,
-					kind: u.kind,
-					subjectCode: u.subjectCode,
-					teacherId: u.teacherId,
-					grades: u.grades,
-					blockSize: u.blockSize,
-					pinned: u.pinned,
-					specIds: u.specIds,
-				})),
-			}, null, 2);
+			return buildDznDump({
+				doc,
+				state: stateForDump,
+				breakdown: lastBreakdownForDump,
+				relaxation: lastRelaxationForDump,
+				tStart,
+				options: opts,
+			});
 		},
 	};
 
@@ -716,6 +851,9 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 		_complete: boolean,
 		relaxation: RelaxationInfo = emptyRelaxation()
 	): void {
+		// Phase 18: für DZN-Export merken
+		lastBreakdownForDump = breakdown;
+		lastRelaxationForDump = relaxation;
 		const placed = placementToPlacedLessons(state, state.placement);
 		const unplacedSpecIds = new Set<string>();
 		if (unplacedIdxs) {

@@ -165,11 +165,14 @@
 	function downloadDzn(): void {
 		const dzn = session?.getDzn() || lastDzn;
 		if (!dzn) return;
-		const blob = new Blob([dzn], { type: 'text/plain;charset=utf-8' });
+		const blob = new Blob([dzn], { type: 'application/json;charset=utf-8' });
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `stundenplan-${new Date().toISOString().replace(/[:.]/g, '-')}.dzn`;
+		// Phase 18: .json statt .dzn — Inhalt ist seit Phase 11 immer JSON gewesen,
+		// .dzn-Endung war Legacy aus MiniZinc-Zeit. .json macht es für Editoren
+		// und Tools direkt nutzbar.
+		a.download = `stundenplan-snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -693,7 +696,7 @@
 				</button>
 				<div class="debug-actions">
 					<button class="btn small" onclick={copyLog} disabled={logEntries.length === 0} title="Log als Text in die Zwischenablage kopieren">📋 Log kopieren</button>
-					<button class="btn small" onclick={downloadDzn} disabled={!lastDzn && !session} title="DZN-Datei herunterladen für externe Solver-Analyse">🔬 DZN herunterladen</button>
+					<button class="btn small" onclick={downloadDzn} disabled={!lastDzn && !session} title="JSON-Snapshot des Solver-Inputs: Stammdaten, Lehreinheiten (inkl. Team-Teaching-Segmente), Constraints, Units, Placements, Score, Lockerungs-Info. Für Debug/Bug-Reports.">🔬 Solver-Snapshot</button>
 				</div>
 			</div>
 			{#if logOpen}
