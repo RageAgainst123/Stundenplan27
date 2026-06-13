@@ -377,66 +377,60 @@ function renderSlotStrips(
 		const teacherColor = colorOf(teacher, overrides);
 		const argbStripe = hexToArgb(teacherColor);
 
+		void argbStripe; // jetzt nicht mehr als Border-Akzent verwendet (Fix 3)
+
 		// === Hintergrundfarbe + Text-Farbe ===
+		// Fix 3: Border-Farben jetzt EINHEITLICH grau (colored/filtered) bzw.
+		// schwarz (bw). Kein farbiger Left-Border mehr — sah uneinheitlich aus.
 		let bgArgb: string;
 		let textArgb: string;
-		let borderLeftStyle: 'thin' | 'medium' = 'thin';
-		let borderLeftArgb = 'FFD1D5DB';
 		if (mode === 'bw') {
 			bgArgb = 'FFFFFFFF';
 			textArgb = 'FF000000';
-			borderLeftStyle = 'medium';
-			borderLeftArgb = 'FF000000';
 		} else if (mode === 'filtered' && filterActive && !slotMatchesFilter) {
-			// Ausgegraut: hellgrau + dezenter Text
 			bgArgb = 'FFF3F4F6';
 			textArgb = 'FF9CA3AF';
-			borderLeftStyle = 'thin';
-			borderLeftArgb = 'FFE5E7EB';
 		} else {
 			const lightFill = blendWithWhite(teacherColor, 0.65);
 			bgArgb = hexToArgb(lightFill);
 			textArgb = isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827';
-			if (s === 0) {
-				borderLeftStyle = 'medium';
-				borderLeftArgb = argbStripe;
-			}
 		}
 
 		// === Text-Inhalt ===
 		// Phase 18.3: Subject in JEDEM Streifen sichtbar (User-Wunsch).
-		// Erster Streifen zusätzlich mit Stufe+Wochenpattern in zweiter Zeile.
+		// Fix 4: Im 'filtered'-Mode KEINE Stufen + Wochenpattern (User wollte
+		// die im bereinigten Klassenplan nicht sehen — Stufen sind durch
+		// Spalten-Header ersichtlich).
 		let text: string;
 		const isLast = s === stripCount - 1;
 		const plusBadge = (isLast && showPlus) ? ` +${teachers.length - stripCount}` : '';
 
 		if (mode === 'filtered') {
-			// "Bereinigt": nur Subject — kein L-Badge
-			if (s === 0) {
-				text = `${primary.subject}\n${gradesStr}${weekBadge}`;
-			} else {
-				text = primary.subject;
-			}
+			// "Bereinigt": nur Subject — kein L-Badge, kein Stufen-Zusatz
+			text = primary.subject;
 		} else {
 			// 'colored' und 'bw': Subject + L-Badge in jedem Streifen
 			const badge = `L${teacher.shortNumber}`;
-			if (s === 0) {
+			if (s === 0 && mode === 'colored') {
+				// Nur farbig: Stufe + Wochenpattern in zweiter Zeile des ersten Streifens
 				text = `${primary.subject} ${badge}${plusBadge}\n${gradesStr}${weekBadge}`;
 			} else {
 				text = `${primary.subject} ${badge}${plusBadge}`;
 			}
 		}
 
+		// Einheitliche Border-Farbe: thin grau (colored/filtered) bzw. thin schwarz (bw)
+		const borderArgb = mode === 'bw' ? 'FF000000' : 'FFD1D5DB';
 		cell.value = text;
 		cell.style = {
 			font: { size: s === 0 ? 9 : 8, bold: true, color: { argb: textArgb } },
 			alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
 			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } },
 			border: {
-				top: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
-				bottom: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
-				left: { style: borderLeftStyle, color: { argb: borderLeftArgb } },
-				right: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
+				top: { style: 'thin', color: { argb: borderArgb } },
+				bottom: { style: 'thin', color: { argb: borderArgb } },
+				left: { style: 'thin', color: { argb: borderArgb } },
+				right: { style: 'thin', color: { argb: borderArgb } },
 			},
 		};
 		col += width;
@@ -484,7 +478,7 @@ function addClassPlanFilteredSheet(
 	// Plus: Statt Dropdown nutzen wir ein LISTEN-Header oben mit allen
 	// Lehrern (als visuelle Filter-Anweisung) — User kann via Find/Replace
 	// oder einfach durchklicken die Tab-Übersicht nutzen.
-	ws.getCell(1, 1).value = 'Klassenplan — bereinigt (ohne L-Badges, Lehrerfarben sichtbar)';
+	ws.getCell(1, 1).value = 'Klassenplan bereinigt — visuelles Lehrer-Farb-Mapping unten. Für gefilterte Einzelansicht eines Lehrers den jeweiligen Lehrer-Tab nutzen.';
 	ws.mergeCells(1, 1, 1, TOTAL_COLS);
 	ws.getCell(1, 1).style = {
 		font: { bold: true, size: 12 },
@@ -559,27 +553,14 @@ function addClassPlanFilteredSheet(
 	}
 	ws.getRow(4).height = 24;
 
-	// === Zeile 5: Stufen ===
-	for (let d = 0; d < DAYS.length; d++) {
-		for (let g = 0; g < GRADES.length; g++) {
-			const startCol = colForGrade(d, g, 0);
-			const endCol = startCol + SUB_PER_GRADE - 1;
-			ws.mergeCells(5, startCol, 5, endCol);
-			const cell = ws.getCell(5, startCol);
-			cell.value = `${GRADES[g]}.`;
-			cell.style = {
-				font: { bold: true, size: 11, color: { argb: 'FF374151' } },
-				alignment: { horizontal: 'center', vertical: 'middle' },
-				fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-				border: thinBorder('FF9CA3AF'),
-			};
-		}
-	}
-	ws.getRow(5).height = 18;
+	// Fix 4: Keine Stufen-Zeile im Filter-Sheet (User-Wunsch — Stufen sind
+	// im "bereinigten" Plan visuell durch die Spalten-Position klar).
+	// Stunden-Zeilen starten direkt ab Zeile 5.
+	ws.pageSetup.printTitlesRow = '4:4'; // nur Tag-Header bei Druck wiederholen
 
-	// === Stunden-Zeilen ab Zeile 6 ===
+	// === Stunden-Zeilen ab Zeile 5 ===
 	for (let p = 0; p < PERIODS.length; p++) {
-		const rowIdx = 6 + p;
+		const rowIdx = 5 + p;
 		const period = PERIODS[p];
 		const periodCell = ws.getCell(rowIdx, 1);
 		periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
@@ -618,9 +599,9 @@ function addClassPlanFilteredSheet(
 		ws.getRow(rowIdx).height = 38;
 	}
 
-	// Tagestrenner
+	// Tagestrenner (Stunden-Zeilen starten jetzt bei Zeile 5)
 	for (let p = 0; p < PERIODS.length; p++) {
-		const rowIdx = 6 + p;
+		const rowIdx = 5 + p;
 		for (let d = 0; d < DAYS.length - 1; d++) {
 			const lastCol = 2 + (d + 1) * COLS_PER_DAY - 1;
 			const cell = ws.getCell(rowIdx, lastCol);
@@ -638,81 +619,100 @@ function addClassPlanBwSheet(
 	doc: ScheduleDoc,
 	slotMap: Map<string, SlotEntry[]>
 ): void {
+	// Layout: Tage UNTEREINANDER (Fix 5).
+	// Spalten: Col 1 = Stunden-Info, danach 4 Stufen × SUB_PER_GRADE Sub-Spalten
+	//          (insgesamt 1 + 4*4 = 17 Spalten).
+	// Stufen-Header NUR einmal ganz oben (Fix 6 — Stufen sind durch Spalten klar).
+	// Pro Tag: 1 Tag-Titel-Zeile (gemerged) + 8 Stunden-Zeilen.
+	// A4 quer (Fix 7).
+	const COLS_PER_GRADE_BW = SUB_PER_GRADE; // 4 sub-Spalten pro Stufe
+	const SW_COLS_DATA = GRADES.length * COLS_PER_GRADE_BW; // 16
+	const SW_TOTAL_COLS = 1 + SW_COLS_DATA; // 17
+
 	const ws = wb.addWorksheet('Klassenplan S-W', {
 		pageSetup: {
-			paperSize: 8 as unknown as import('exceljs').PaperSize,
+			paperSize: 9 as unknown as import('exceljs').PaperSize, // A4 (Fix 7)
 			orientation: 'landscape',
 			fitToPage: true,
 			fitToWidth: 1,
 			fitToHeight: 1,
-			printTitlesRow: '1:2',
+			printTitlesRow: '1:1', // Stufen-Header bei Druck wiederholen
 			blackAndWhite: true,
 			margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
 		},
 	});
 
-	ws.getColumn(1).width = 13;
-	const subWidth = 11 / SUB_PER_GRADE;
-	for (let i = 2; i <= TOTAL_COLS; i++) ws.getColumn(i).width = subWidth;
+	function colForGradeSw(gradeIdx: number, sub = 0): number {
+		return 2 + gradeIdx * COLS_PER_GRADE_BW + sub;
+	}
 
-	// Header Zeile 1: Tag-Namen
-	for (let d = 0; d < DAYS.length; d++) {
-		const startCol = 2 + d * COLS_PER_DAY;
-		const endCol = startCol + COLS_PER_DAY - 1;
+	ws.getColumn(1).width = 11;
+	const subWidthSw = 28 / COLS_PER_GRADE_BW; // breiter weil weniger Spalten
+	for (let i = 2; i <= SW_TOTAL_COLS; i++) ws.getColumn(i).width = subWidthSw;
+
+	// === Zeile 1: Stufen-Header (einmal ganz oben) ===
+	const headerCell = ws.getCell(1, 1);
+	headerCell.value = 'Stunde';
+	headerCell.style = {
+		font: { bold: true, size: 10, color: { argb: 'FF000000' } },
+		alignment: { horizontal: 'center', vertical: 'middle' },
+		fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+		border: thinBorder('FF000000'),
+	};
+	for (let g = 0; g < GRADES.length; g++) {
+		const startCol = colForGradeSw(g, 0);
+		const endCol = startCol + COLS_PER_GRADE_BW - 1;
 		ws.mergeCells(1, startCol, 1, endCol);
 		const cell = ws.getCell(1, startCol);
-		cell.value = DAYS[d];
+		cell.value = `${GRADES[g]}. Stufe`;
 		cell.style = {
-			font: { bold: true, size: 13, color: { argb: 'FFFFFFFF' } },
+			font: { bold: true, size: 11, color: { argb: 'FF000000' } },
 			alignment: { horizontal: 'center', vertical: 'middle' },
-			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
 			border: thinBorder('FF000000'),
 		};
 	}
-	ws.getRow(1).height = 24;
-
-	// Header Zeile 2: Stufen
-	for (let d = 0; d < DAYS.length; d++) {
-		for (let g = 0; g < GRADES.length; g++) {
-			const startCol = colForGrade(d, g, 0);
-			const endCol = startCol + SUB_PER_GRADE - 1;
-			ws.mergeCells(2, startCol, 2, endCol);
-			const cell = ws.getCell(2, startCol);
-			cell.value = `${GRADES[g]}.`;
-			cell.style = {
-				font: { bold: true, size: 11, color: { argb: 'FF000000' } },
-				alignment: { horizontal: 'center', vertical: 'middle' },
-				fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
-				border: thinBorder('FF000000'),
-			};
-		}
-	}
-	ws.getRow(2).height = 18;
+	ws.getRow(1).height = 20;
 
 	// Track which teachers actually appear in the plan (for legend)
 	const usedTeachers = new Map<string, Teacher>();
 
-	// Stunden-Zeilen
-	for (let p = 0; p < PERIODS.length; p++) {
-		const rowIdx = 3 + p;
-		const period = PERIODS[p];
-		const periodCell = ws.getCell(rowIdx, 1);
-		periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
-		periodCell.style = {
-			font: { bold: true, size: 10 },
-			alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+	// === Pro Tag: 1 Titel-Zeile + 8 Stunden-Zeilen, gestapelt ===
+	let currentRow = 2;
+	for (let d = 0; d < DAYS.length; d++) {
+		// Tag-Titel-Zeile (gemerged über alle Spalten, schwarzer Hintergrund + weißer Text)
+		ws.mergeCells(currentRow, 1, currentRow, SW_TOTAL_COLS);
+		const titleCell = ws.getCell(currentRow, 1);
+		titleCell.value = DAYS[d];
+		titleCell.style = {
+			font: { bold: true, size: 14, color: { argb: 'FFFFFFFF' } },
+			alignment: { horizontal: 'center', vertical: 'middle' },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } },
 			border: thinBorder('FF000000'),
 		};
+		ws.getRow(currentRow).height = 22;
+		currentRow++;
 
-		for (let d = 0; d < DAYS.length; d++) {
+		// Stunden-Zeilen
+		for (let p = 0; p < PERIODS.length; p++) {
+			const period = PERIODS[p];
+			// Linke Spalte: Stunden-Nr + Uhrzeit
+			const periodCell = ws.getCell(currentRow, 1);
+			periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
+			periodCell.style = {
+				font: { bold: true, size: 9 },
+				alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+				fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+				border: thinBorder('FF000000'),
+			};
+
 			for (let g = 0; g < GRADES.length; g++) {
-				const startCol = colForGrade(d, g, 0);
-				const endCol = startCol + SUB_PER_GRADE - 1;
+				const startCol = colForGradeSw(g, 0);
+				const endCol = startCol + COLS_PER_GRADE_BW - 1;
 				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
 				if (entries.length === 0) {
-					ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
-					const cell = ws.getCell(rowIdx, startCol);
+					ws.mergeCells(currentRow, startCol, currentRow, endCol);
+					const cell = ws.getCell(currentRow, startCol);
 					cell.style = {
 						border: thinBorder('FF000000'),
 						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
@@ -728,38 +728,37 @@ function addClassPlanBwSheet(
 						usedTeachers.set(t.id, t);
 					}
 				}
-				const stripCount = Math.min(teachers.length, SUB_PER_GRADE);
-				const widths = distributeStripWidths(SUB_PER_GRADE, stripCount);
-				renderSlotStrips(ws, rowIdx, startCol, entries, teachers, stripCount, widths, {}, 'bw');
+				const stripCount = Math.min(teachers.length, COLS_PER_GRADE_BW);
+				const widths = distributeStripWidths(COLS_PER_GRADE_BW, stripCount);
+				renderSlotStrips(ws, currentRow, startCol, entries, teachers, stripCount, widths, {}, 'bw');
 			}
+			ws.getRow(currentRow).height = 26;
+			currentRow++;
 		}
-		ws.getRow(rowIdx).height = 38;
 	}
 
 	// === Legende unten ===
-	const legendStart = 3 + PERIODS.length + 1;
-	ws.getCell(legendStart, 1).value = 'Legende — Lehrer-Kürzel:';
-	ws.mergeCells(legendStart, 1, legendStart, TOTAL_COLS);
-	ws.getCell(legendStart, 1).style = {
+	currentRow++; // 1 Zeile Spacer
+	ws.getCell(currentRow, 1).value = 'Legende — Lehrer-Kürzel:';
+	ws.mergeCells(currentRow, 1, currentRow, SW_TOTAL_COLS);
+	ws.getCell(currentRow, 1).style = {
 		font: { bold: true, italic: true, size: 11 },
-		alignment: { horizontal: 'left', vertical: 'middle' },
+		alignment: { horizontal: 'left', vertical: 'middle', indent: 1 },
 		fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
 		border: thinBorder('FF000000'),
 	};
-	ws.getRow(legendStart).height = 20;
+	ws.getRow(currentRow).height = 20;
+	currentRow++;
 
-	// Pro Lehrer: ein Eintrag "L5 — Lehrer XYZ"
-	// In 4 Spalten-Layout um Platz zu sparen
 	const sortedLehrer = [...usedTeachers.values()].sort((a, b) => a.shortNumber - b.shortNumber);
-	const cols = 4;
-	const colWidth = Math.floor(TOTAL_COLS / cols);
-	let rIdx = legendStart + 1;
+	const legendCols = 4;
+	const legendColWidth = Math.floor(SW_TOTAL_COLS / legendCols);
 	let cIdx = 0;
 	for (const teacher of sortedLehrer) {
-		const startCol = 1 + cIdx * colWidth;
-		const endCol = Math.min(startCol + colWidth - 1, TOTAL_COLS);
-		ws.mergeCells(rIdx, startCol, rIdx, endCol);
-		const cell = ws.getCell(rIdx, startCol);
+		const startCol = 1 + cIdx * legendColWidth;
+		const endCol = Math.min(startCol + legendColWidth - 1, SW_TOTAL_COLS);
+		ws.mergeCells(currentRow, startCol, currentRow, endCol);
+		const cell = ws.getCell(currentRow, startCol);
 		cell.value = `L${teacher.shortNumber}  —  ${teacher.name}`;
 		cell.style = {
 			font: { size: 10 },
@@ -767,23 +766,13 @@ function addClassPlanBwSheet(
 			border: thinBorder('FF000000'),
 		};
 		cIdx++;
-		if (cIdx >= cols) {
+		if (cIdx >= legendCols) {
 			cIdx = 0;
-			rIdx++;
-			ws.getRow(rIdx - 1).height = 16;
+			ws.getRow(currentRow).height = 16;
+			currentRow++;
 		}
 	}
-	if (cIdx > 0) ws.getRow(rIdx).height = 16;
-
-	// Tagestrenner schwarz
-	for (let p = 0; p < PERIODS.length; p++) {
-		const rowIdx = 3 + p;
-		for (let d = 0; d < DAYS.length - 1; d++) {
-			const lastCol = 2 + (d + 1) * COLS_PER_DAY - 1;
-			const cell = ws.getCell(rowIdx, lastCol);
-			cell.border = { ...cell.border, right: { style: 'medium', color: { argb: 'FF000000' } } };
-		}
-	}
+	if (cIdx > 0) ws.getRow(currentRow).height = 16;
 }
 
 // ============================================================================

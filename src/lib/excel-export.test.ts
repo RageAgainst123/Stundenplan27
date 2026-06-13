@@ -130,7 +130,7 @@ describe('buildExcel — Stundenplan-Export', () => {
 		expect(val).toContain('L1'); // Müller Anna shortNumber=1
 	}, 20_000);
 
-	it('Klassenplan-Filter-Sheet: enthält Lehrer-Header oben mit Farben', async () => {
+	it('Klassenplan-Filter-Sheet: Lehrer-Header oben, KEIN Stufen-Header (Fix 4)', async () => {
 		const doc = setupDoc();
 		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
 		const ExcelJS = await import('exceljs');
@@ -141,16 +141,20 @@ describe('buildExcel — Stundenplan-Export', () => {
 		const ws = wb.getWorksheet('Klassenplan-Filter')!;
 		expect(ws).toBeDefined();
 		// Zeile 2 enthält Lehrer-Header. Zelle B2 sollte mit "L" anfangen.
-		const cell = String(ws.getCell(2, 2).value ?? '');
-		expect(cell).toMatch(/^L\d/);
-		// Bereinigt: Im Slot Mo P1 (Zeile 6 weil Header 5-zeilig) erscheint
-		// "D" aber KEIN "L1" (kein Lehrer-Badge im Filter-Sheet)
-		const slot = String(ws.getCell(6, 2).value ?? '');
+		const teacherHeader = String(ws.getCell(2, 2).value ?? '');
+		expect(teacherHeader).toMatch(/^L\d/);
+		// Zeile 4 = Tag-Header (gemerged), Stunden direkt ab Zeile 5 (kein Stufen-Zeile mehr)
+		const tagHeader = String(ws.getCell(4, 2).value ?? '');
+		expect(tagHeader).toBe('Mo');
+		// Slot Mo P1 Stufe 5 ist jetzt Zeile 5 (kein Stufen-Header dazwischen).
+		// Bereinigt: "D" aber KEIN "L1" und KEIN "5" (Stufen-Zusatz)
+		const slot = String(ws.getCell(5, 2).value ?? '');
 		expect(slot).toContain('D');
 		expect(slot).not.toContain('L1');
+		expect(slot).not.toContain('\n5'); // kein gradesStr in zweiter Zeile
 	}, 20_000);
 
-	it('Klassenplan S-W: Subject mit L-Badge in jedem Streifen', async () => {
+	it('Klassenplan S-W: Tage UNTEREINANDER gestapelt mit Stufen-Header nur oben (Fix 5+6)', async () => {
 		const doc = setupDoc();
 		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
 		const ExcelJS = await import('exceljs');
@@ -160,17 +164,41 @@ describe('buildExcel — Stundenplan-Export', () => {
 		await wb.xlsx.load(await blob.arrayBuffer());
 		const ws = wb.getWorksheet('Klassenplan S-W')!;
 		expect(ws).toBeDefined();
-		// Mo P3 Stufe 6 Team-Teaching: Streifen 1 = Col 6 (M+L2), Streifen 2 = Col 8 (M+L3)
-		const strip1 = String(ws.getCell(5, 6).value ?? '');
-		const strip2 = String(ws.getCell(5, 8).value ?? '');
-		expect(strip1).toContain('M');
-		expect(strip1).toContain('L2');
-		expect(strip2).toContain('M'); // ← NEU: Subject auch im 2. Streifen
-		expect(strip2).toContain('L3');
-		// Legende existiert
-		const legendRow = 3 + 8 + 1; // 3 Header + 8 Periods + 1 Spacer
-		const legendCell = String(ws.getCell(legendRow, 1).value ?? '');
-		expect(legendCell).toContain('Legende');
+		// Zeile 1: Stufen-Header. Zelle A1 = "Stunde", B1 = "5. Stufe".
+		expect(String(ws.getCell(1, 1).value ?? '')).toContain('Stunde');
+		expect(String(ws.getCell(1, 2).value ?? '')).toContain('5');
+		// Zeile 2: Mo-Titel-Zeile (gemerged)
+		const moTitle = String(ws.getCell(2, 1).value ?? '');
+		expect(moTitle).toBe('Mo');
+		// Zeile 3 = Mo P1, Stufe 5 startet bei Spalte 2.
+		// Mit 1 Lehrer ist die Zelle gemerged über 4 Sub-Spalten.
+		const moP1S5 = String(ws.getCell(3, 2).value ?? '');
+		expect(moP1S5).toContain('D');
+		expect(moP1S5).toContain('L1');
+		// Mo-Block ist Zeile 2 (Titel) + 8 Stunden = Zeile 2-10.
+		// Di-Titel-Zeile ist Zeile 11.
+		const diTitle = String(ws.getCell(11, 1).value ?? '');
+		expect(diTitle).toBe('Di');
+	}, 20_000);
+
+	it('Klassenplan S-W: Legende unten enthält Lehrer-Kürzel', async () => {
+		const doc = setupDoc();
+		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
+		const ExcelJS = await import('exceljs');
+		const Workbook = (ExcelJS as { Workbook?: typeof import('exceljs').Workbook }).Workbook
+			?? ((ExcelJS as { default?: { Workbook: typeof import('exceljs').Workbook } }).default?.Workbook);
+		const wb = new Workbook!();
+		await wb.xlsx.load(await blob.arrayBuffer());
+		const ws = wb.getWorksheet('Klassenplan S-W')!;
+		// Tage-Block: 5 Tage × (1 Titel + 8 Stunden) = 45 Zeilen ab Zeile 2 → bis Zeile 46.
+		// Spacer + Legende ab Zeile ~48.
+		// Suche zeile mit "Legende" — Range 47..55
+		let legendRow = -1;
+		for (let r = 47; r <= 55; r++) {
+			const v = String(ws.getCell(r, 1).value ?? '');
+			if (v.includes('Legende')) { legendRow = r; break; }
+		}
+		expect(legendRow).toBeGreaterThan(0);
 	}, 20_000);
 
 	it('Multi-Lehrer-Slot (Team-Teaching): Subject in JEDEM Streifen sichtbar (Phase 18.3)', async () => {
