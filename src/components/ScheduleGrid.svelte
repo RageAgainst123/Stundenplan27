@@ -5,6 +5,7 @@
 	import type { DragPayload } from '../lib/types-ui';
 	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
 	import { unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
+	import { buildScheduleExport } from '../lib/schedule-export';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
@@ -134,6 +135,25 @@
 		return checkPlacementConflict(store.doc, spec, day, period).reasons;
 	}
 
+	/**
+	 * Phase 18: Stundenplan exportieren als JSON.
+	 * Enthält Tag, Stunde, Stufe, Lehrer (Name+Farbe), Team-Teaching-Info,
+	 * Subject-Name. Denormalisierte byDay-View für direkte Anzeige.
+	 */
+	function exportSchedule(): void {
+		const data = buildScheduleExport(store.doc);
+		const blob = new Blob([JSON.stringify(data, null, 2)], {
+			type: 'application/json;charset=utf-8'
+		});
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		const ts = new Date().toISOString().replace(/[:.]/g, '-');
+		a.download = `stundenplan-${ts}.json`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+
 	/** Verwirft die nicht-gepinnten Stunden und behält alle 🔒 Pins.
 	 *  Standard-Aktion: trifft den häufigen Fall "neu generieren mit
 	 *  meinen Vorgaben". */
@@ -210,6 +230,13 @@
 	<GenerateButton />
 	{#if store.doc.placed.length > 0}
 		{@const pinnedCount = store.doc.placed.filter(p => p.pinned).length}
+		<button
+			class="btn small"
+			onclick={exportSchedule}
+			title="Stundenplan als JSON exportieren — Tag, Stunde, Stufe, Lehrer mit Farben, Team-Teaching, Subject-Namen"
+		>
+			📤 Plan exportieren
+		</button>
 		<button
 			class="btn danger small"
 			onclick={resetUnpinned}
