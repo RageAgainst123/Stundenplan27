@@ -124,7 +124,8 @@
 			<div class="opts">
 				<label>
 					<input type="checkbox" bind:checked={includeClassPlan} />
-					<strong>Klassenplan</strong> — farbig, A3 quer, 1 Sheet
+					<strong>Klassenplan-Sheets (3)</strong>
+					<small>— „Klassenplan" farbig + „Klassenplan-Filter" bereinigt (mit Lehrer-Header) + „Klassenplan S-W" schwarz/weiß mit Legende</small>
 				</label>
 				<label>
 					<input type="checkbox" bind:checked={includePerTeacher} />
@@ -304,6 +305,11 @@
 	}
 	.opts label strong {
 		font-weight: 700;
+	}
+	.opts label small {
+		color: var(--text-muted);
+		font-size: 11px;
+		display: inline;
 	}
 	.actions {
 		display: flex;

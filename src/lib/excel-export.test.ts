@@ -76,8 +76,13 @@ describe('buildExcel — Stundenplan-Export', () => {
 			?? ((ExcelJS as { default?: { Workbook: typeof import('exceljs').Workbook } }).default?.Workbook);
 		const wb = new Workbook!();
 		await wb.xlsx.load(await blob.arrayBuffer());
-		expect(wb.worksheets.length).toBe(1);
-		expect(wb.worksheets[0].name).toBe('Klassenplan');
+		// Phase 18.3: includeClassPlan erzeugt jetzt 3 Sheets:
+		// Klassenplan (farbig) + Klassenplan-Filter + Klassenplan S-W
+		expect(wb.worksheets.length).toBe(3);
+		const names = wb.worksheets.map(w => w.name);
+		expect(names).toContain('Klassenplan');
+		expect(names).toContain('Klassenplan-Filter');
+		expect(names).toContain('Klassenplan S-W');
 	}, 20_000);
 
 	it('Klassenplan-Sheet: korrekte Dimensionen + Header-Inhalte', async () => {
@@ -125,7 +130,50 @@ describe('buildExcel — Stundenplan-Export', () => {
 		expect(val).toContain('L1'); // Müller Anna shortNumber=1
 	}, 20_000);
 
-	it('Multi-Lehrer-Slot (Team-Teaching): 2 Streifen mit beiden L-Badges sichtbar', async () => {
+	it('Klassenplan-Filter-Sheet: enthält Lehrer-Header oben mit Farben', async () => {
+		const doc = setupDoc();
+		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
+		const ExcelJS = await import('exceljs');
+		const Workbook = (ExcelJS as { Workbook?: typeof import('exceljs').Workbook }).Workbook
+			?? ((ExcelJS as { default?: { Workbook: typeof import('exceljs').Workbook } }).default?.Workbook);
+		const wb = new Workbook!();
+		await wb.xlsx.load(await blob.arrayBuffer());
+		const ws = wb.getWorksheet('Klassenplan-Filter')!;
+		expect(ws).toBeDefined();
+		// Zeile 2 enthält Lehrer-Header. Zelle B2 sollte mit "L" anfangen.
+		const cell = String(ws.getCell(2, 2).value ?? '');
+		expect(cell).toMatch(/^L\d/);
+		// Bereinigt: Im Slot Mo P1 (Zeile 6 weil Header 5-zeilig) erscheint
+		// "D" aber KEIN "L1" (kein Lehrer-Badge im Filter-Sheet)
+		const slot = String(ws.getCell(6, 2).value ?? '');
+		expect(slot).toContain('D');
+		expect(slot).not.toContain('L1');
+	}, 20_000);
+
+	it('Klassenplan S-W: Subject mit L-Badge in jedem Streifen', async () => {
+		const doc = setupDoc();
+		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
+		const ExcelJS = await import('exceljs');
+		const Workbook = (ExcelJS as { Workbook?: typeof import('exceljs').Workbook }).Workbook
+			?? ((ExcelJS as { default?: { Workbook: typeof import('exceljs').Workbook } }).default?.Workbook);
+		const wb = new Workbook!();
+		await wb.xlsx.load(await blob.arrayBuffer());
+		const ws = wb.getWorksheet('Klassenplan S-W')!;
+		expect(ws).toBeDefined();
+		// Mo P3 Stufe 6 Team-Teaching: Streifen 1 = Col 6 (M+L2), Streifen 2 = Col 8 (M+L3)
+		const strip1 = String(ws.getCell(5, 6).value ?? '');
+		const strip2 = String(ws.getCell(5, 8).value ?? '');
+		expect(strip1).toContain('M');
+		expect(strip1).toContain('L2');
+		expect(strip2).toContain('M'); // ← NEU: Subject auch im 2. Streifen
+		expect(strip2).toContain('L3');
+		// Legende existiert
+		const legendRow = 3 + 8 + 1; // 3 Header + 8 Periods + 1 Spacer
+		const legendCell = String(ws.getCell(legendRow, 1).value ?? '');
+		expect(legendCell).toContain('Legende');
+	}, 20_000);
+
+	it('Multi-Lehrer-Slot (Team-Teaching): Subject in JEDEM Streifen sichtbar (Phase 18.3)', async () => {
 		const doc = setupDoc();
 		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
 		const ExcelJS = await import('exceljs');
@@ -140,10 +188,10 @@ describe('buildExcel — Stundenplan-Export', () => {
 		// Mit 2 Streifen Verteilung [2,2]: Streifen 1 → Col 6 (M + L2), Streifen 2 → Col 8 (L3).
 		const strip1 = String(ws.getCell(3 + 2, 6).value ?? ''); // Zeile p3 = 3+2=5
 		const strip2 = String(ws.getCell(3 + 2, 8).value ?? '');
-		// Erster Streifen enthält Subject + L2 (Schmidt = sn 2)
+		// Phase 18.3: Subject in JEDEM Streifen sichtbar
 		expect(strip1).toContain('M');
 		expect(strip1).toContain('L2');
-		// Zweiter Streifen enthält L3 (Weber = sn 3)
+		expect(strip2).toContain('M'); // ← Subject auch im 2. Streifen
 		expect(strip2).toContain('L3');
 	}, 20_000);
 

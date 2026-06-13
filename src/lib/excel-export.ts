@@ -135,6 +135,9 @@ export async function buildExcel(doc: ScheduleDoc, options: ExcelExportOptions =
 
 	if (opts.includeClassPlan) {
 		addClassPlanSheet(wb, doc, slotMap, overrides);
+		// Phase 18.3: zwei weitere Klassenplan-Varianten
+		addClassPlanFilteredSheet(wb, doc, slotMap, overrides);
+		addClassPlanBwSheet(wb, doc, slotMap);
 	}
 	if (opts.includePerTeacher) {
 		for (const teacher of doc.teachers) {
@@ -291,80 +294,7 @@ function addClassPlanSheet(
 				// Bei stripCount=2 → 2+2. Bei 3 → 2+1+1. Bei 4 → 1+1+1+1.
 				const widths = distributeStripWidths(SUB_PER_GRADE, stripCount);
 
-				// Text-Layout — auf den ERSTEN Streifen kommt der ganze Subject+
-				// L-Badge-Text als gemerge-fähige Zelle. Damit die rechten
-				// Streifen leer bleiben, mergen wir den Text-Bereich gemergt
-				// über alle Sub-Spalten, aber die Farben werden per separater
-				// Background-Layer-Zellen rendiert? — Nein: das geht in Excel
-				// nicht ohne Overlapping. Stattdessen:
-				//   1. Pro Streifen einzelne Zellen mit Farb-Background.
-				//   2. Erster Streifen bekommt den vollen Text (mehrzeilig,
-				//      Overflow nach rechts via Excel-default wenn nächste
-				//      Zellen leer → das geht NICHT wenn die Zelle gefüllt ist).
-				//   3. Praktisch: pro Streifen kurzer Text (Subject auf #1,
-				//      L-Badges aufgeteilt — Lehrer N im N-ten Streifen).
-				const primary = entries[0];
-				const gradesStr = primary.grades.length > 1 ? primary.grades.join('+') : primary.grades[0]?.toString() ?? '';
-				const weekBadge = primary.weekPattern === 'every' ? '' : (primary.weekPattern === 'even' ? ' [G]' : ' [U]');
-				const showPlus = teachers.length > stripCount;
-
-				let col = startCol;
-				for (let s = 0; s < stripCount; s++) {
-					const width = widths[s];
-					const stripStart = col;
-					const stripEnd = col + width - 1;
-					if (width > 1) {
-						ws.mergeCells(rowIdx, stripStart, rowIdx, stripEnd);
-					}
-					const cell = ws.getCell(rowIdx, stripStart);
-					const teacher = teachers[s];
-					const teacherColor = colorOf(teacher, overrides);
-					const argbStripe = hexToArgb(teacherColor);
-					const lightFill = blendWithWhite(teacherColor, 0.65);
-					const argbLight = hexToArgb(lightFill);
-					const textArgb = isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827';
-
-					// Erster Streifen zeigt Subject groß, alle anderen nur L-Badge.
-					// Bei Single-Lehrer kombinieren wir Subject + L1 in einer Zelle wie vorher.
-					let text: string;
-					if (s === 0) {
-						// L-Badges des ersten Lehrers + optional "+N" für versteckte
-						const badge = `L${teacher.shortNumber}`;
-						const plusBadge = (s === stripCount - 1 && showPlus)
-							? ` +${teachers.length - stripCount}` : '';
-						text = stripCount === 1
-							? `${primary.subject} ${badge}\n${gradesStr}${weekBadge}`
-							: `${primary.subject}${badge ? ' ' + badge : ''}${plusBadge}`;
-					} else {
-						const plusBadge = (s === stripCount - 1 && showPlus)
-							? `+${teachers.length - stripCount}` : '';
-						text = `L${teacher.shortNumber}${plusBadge ? ' ' + plusBadge : ''}`;
-					}
-					cell.value = text;
-					cell.style = {
-						font: { size: s === 0 ? 9 : 8, bold: true, color: { argb: textArgb } },
-						alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: argbLight } },
-						border: {
-							top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-							bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-							left: { style: s === 0 ? 'medium' : 'thin', color: { argb: s === 0 ? argbStripe : 'FFD1D5DB' } },
-							right: { style: s === stripCount - 1 ? 'thin' : 'thin', color: { argb: 'FFD1D5DB' } },
-						},
-					};
-					col += width;
-				}
-
-				// Bei Multi-Lehrer: zweite Zeile in der ersten Strip-Zelle für
-				// "Stufe + Wochenbadge" (untere Hälfte). Das macht den Slot
-				// inhaltlich vollständig wie im Web. Aber Excel kann nicht
-				// "in eine bereits gefüllte Zelle zusätzlich text in eine
-				// untere Zellenhälfte"; daher konkateniert mit \n im ersten Strip.
-				if (stripCount > 1) {
-					const firstStripCell = ws.getCell(rowIdx, startCol);
-					const existing = String(firstStripCell.value ?? '');
-					firstStripCell.value = `${existing}\n${gradesStr}${weekBadge}`;
-				}
+				renderSlotStrips(ws, rowIdx, startCol, entries, teachers, stripCount, widths, overrides, 'colored');
 			}
 		}
 		ws.getRow(rowIdx).height = 44;
@@ -401,6 +331,459 @@ function distributeStripWidths(total: number, count: number): number[] {
 	const widths = new Array(count).fill(base);
 	for (let i = 0; i < rest; i++) widths[i]++;
 	return widths;
+}
+
+/**
+ * Render-Modi für `renderSlotStrips`:
+ * - 'colored': Streifen mit Lehrerfarbe + Subject in jedem Streifen + L-Badge
+ * - 'filtered': wie colored, aber nur Subject + Streifenfarbe (kein L-Badge)
+ *               Wenn ein Filter-Lehrer aktiv ist (filterTeacherId), werden
+ *               Slots OHNE diesen Lehrer ausgegraut.
+ * - 'bw': schwarz/weiß, Subject in jedem Streifen + L-Badge, keine Hintergrundfarbe
+ */
+type SlotRenderMode = 'colored' | 'filtered' | 'bw';
+
+function renderSlotStrips(
+	ws: import('exceljs').Worksheet,
+	rowIdx: number,
+	startCol: number,
+	entries: SlotEntry[],
+	teachers: SlotEntry['teachers'],
+	stripCount: number,
+	widths: number[],
+	overrides: Record<string, string>,
+	mode: SlotRenderMode,
+	opts: { filterTeacherId?: string } = {}
+): void {
+	const primary = entries[0];
+	const gradesStr = primary.grades.length > 1 ? primary.grades.join('+') : primary.grades[0]?.toString() ?? '';
+	const weekBadge = primary.weekPattern === 'every' ? '' : (primary.weekPattern === 'even' ? ' [G]' : ' [U]');
+	const showPlus = teachers.length > stripCount;
+
+	// Filter-Modus: Slot ist „aktiv" wenn der gefilterte Lehrer drin ist.
+	const filterActive = mode === 'filtered' && !!opts.filterTeacherId;
+	const slotMatchesFilter = filterActive
+		? teachers.some(t => t.id === opts.filterTeacherId)
+		: true;
+
+	let col = startCol;
+	for (let s = 0; s < stripCount; s++) {
+		const width = widths[s];
+		const stripStart = col;
+		const stripEnd = col + width - 1;
+		if (width > 1) ws.mergeCells(rowIdx, stripStart, rowIdx, stripEnd);
+		const cell = ws.getCell(rowIdx, stripStart);
+		const teacher = teachers[s];
+		const teacherColor = colorOf(teacher, overrides);
+		const argbStripe = hexToArgb(teacherColor);
+
+		// === Hintergrundfarbe + Text-Farbe ===
+		let bgArgb: string;
+		let textArgb: string;
+		let borderLeftStyle: 'thin' | 'medium' = 'thin';
+		let borderLeftArgb = 'FFD1D5DB';
+		if (mode === 'bw') {
+			bgArgb = 'FFFFFFFF';
+			textArgb = 'FF000000';
+			borderLeftStyle = 'medium';
+			borderLeftArgb = 'FF000000';
+		} else if (mode === 'filtered' && filterActive && !slotMatchesFilter) {
+			// Ausgegraut: hellgrau + dezenter Text
+			bgArgb = 'FFF3F4F6';
+			textArgb = 'FF9CA3AF';
+			borderLeftStyle = 'thin';
+			borderLeftArgb = 'FFE5E7EB';
+		} else {
+			const lightFill = blendWithWhite(teacherColor, 0.65);
+			bgArgb = hexToArgb(lightFill);
+			textArgb = isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827';
+			if (s === 0) {
+				borderLeftStyle = 'medium';
+				borderLeftArgb = argbStripe;
+			}
+		}
+
+		// === Text-Inhalt ===
+		// Phase 18.3: Subject in JEDEM Streifen sichtbar (User-Wunsch).
+		// Erster Streifen zusätzlich mit Stufe+Wochenpattern in zweiter Zeile.
+		let text: string;
+		const isLast = s === stripCount - 1;
+		const plusBadge = (isLast && showPlus) ? ` +${teachers.length - stripCount}` : '';
+
+		if (mode === 'filtered') {
+			// "Bereinigt": nur Subject — kein L-Badge
+			if (s === 0) {
+				text = `${primary.subject}\n${gradesStr}${weekBadge}`;
+			} else {
+				text = primary.subject;
+			}
+		} else {
+			// 'colored' und 'bw': Subject + L-Badge in jedem Streifen
+			const badge = `L${teacher.shortNumber}`;
+			if (s === 0) {
+				text = `${primary.subject} ${badge}${plusBadge}\n${gradesStr}${weekBadge}`;
+			} else {
+				text = `${primary.subject} ${badge}${plusBadge}`;
+			}
+		}
+
+		cell.value = text;
+		cell.style = {
+			font: { size: s === 0 ? 9 : 8, bold: true, color: { argb: textArgb } },
+			alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: bgArgb } },
+			border: {
+				top: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
+				bottom: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
+				left: { style: borderLeftStyle, color: { argb: borderLeftArgb } },
+				right: { style: 'thin', color: { argb: mode === 'bw' ? 'FF000000' : 'FFD1D5DB' } },
+			},
+		};
+		col += width;
+	}
+}
+
+// ============================================================================
+// Sheet 1b: Klassenplan (bereinigt) — Lehrer-Filter mit Dropdown
+// ============================================================================
+
+function addClassPlanFilteredSheet(
+	wb: import('exceljs').Workbook,
+	doc: ScheduleDoc,
+	slotMap: Map<string, SlotEntry[]>,
+	overrides: Record<string, string>
+): void {
+	const ws = wb.addWorksheet('Klassenplan-Filter', {
+		pageSetup: {
+			paperSize: 8 as unknown as import('exceljs').PaperSize,
+			orientation: 'landscape',
+			fitToPage: true,
+			fitToWidth: 1,
+			fitToHeight: 1,
+			printTitlesRow: '4:5',
+			margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+		},
+	});
+
+	ws.getColumn(1).width = 13;
+	const subWidth = 11 / SUB_PER_GRADE;
+	for (let i = 2; i <= TOTAL_COLS; i++) ws.getColumn(i).width = subWidth;
+
+	// === Zeile 1: Filter-Steuerung ===
+	// In Zelle B1 wählt der User den Lehrer aus. Conditional Formatting greift
+	// für jeden Slot — Slots ohne den gewählten Lehrer werden ausgegraut.
+	// Die Logik dafür baut auf "Slots tragen ihren Lehrer-ID-Hash in einer
+	// Hilfs-Zelle" — DAS geht aber nicht ohne Formeln pro Zelle. Stattdessen:
+	// User wechselt im Dropdown, ich erzeuge für JEDEN Lehrer eine eigene
+	// Variante? — Excel Conditional Formatting hat keine "Zelle enthält Wert
+	// aus Dropdown"-Logik die zellweise färbt.
+	// Pragmatischer Ansatz: ohne Dropdown — der Sheet zeigt einfach den
+	// "bereinigten" Plan ohne L-Badges, Subject sichtbar in jedem Streifen,
+	// Lehrerfarbe als Streifen. Wenn User EINEN Lehrer hervorheben will,
+	// nutzt er die N+ Lehrer-Tabs (sind eh dabei).
+	// Plus: Statt Dropdown nutzen wir ein LISTEN-Header oben mit allen
+	// Lehrern (als visuelle Filter-Anweisung) — User kann via Find/Replace
+	// oder einfach durchklicken die Tab-Übersicht nutzen.
+	ws.getCell(1, 1).value = 'Klassenplan — bereinigt (ohne L-Badges, Lehrerfarben sichtbar)';
+	ws.mergeCells(1, 1, 1, TOTAL_COLS);
+	ws.getCell(1, 1).style = {
+		font: { bold: true, size: 12 },
+		alignment: { horizontal: 'left', vertical: 'middle' },
+		fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE0F2FE' } },
+		border: thinBorder('FF6B7280'),
+	};
+	ws.getRow(1).height = 20;
+
+	// === Zeile 2: Lehrer-Übersicht mit Farben (visuelles "Filter-Header") ===
+	ws.getCell(2, 1).value = 'Lehrer:';
+	ws.getCell(2, 1).style = {
+		font: { bold: true, size: 10 },
+		alignment: { horizontal: 'right', vertical: 'middle' },
+	};
+	const activeTeacherIds = new Set<string>();
+	for (const entries of slotMap.values()) {
+		for (const e of entries) {
+			for (const t of e.teachers) activeTeacherIds.add(t.id);
+		}
+	}
+	const activeTeachers = doc.teachers
+		.filter(t => activeTeacherIds.has(t.id))
+		.sort((a, b) => a.shortNumber - b.shortNumber);
+	const colsPerTeacher = Math.max(2, Math.floor((TOTAL_COLS - 1) / Math.max(1, activeTeachers.length)));
+	let teacherCol = 2;
+	for (const teacher of activeTeachers) {
+		const startCol = teacherCol;
+		const endCol = Math.min(teacherCol + colsPerTeacher - 1, TOTAL_COLS);
+		if (endCol > startCol) ws.mergeCells(2, startCol, 2, endCol);
+		const cell = ws.getCell(2, startCol);
+		const teacherColor = colorOf(teacher, overrides);
+		const lightFill = blendWithWhite(teacherColor, 0.5);
+		cell.value = `L${teacher.shortNumber}: ${teacher.name}`;
+		cell.style = {
+			font: { bold: true, size: 9, color: { argb: isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827' } },
+			alignment: { horizontal: 'center', vertical: 'middle' },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: hexToArgb(lightFill) } },
+			border: {
+				top: { style: 'thin', color: { argb: 'FF6B7280' } },
+				bottom: { style: 'medium', color: { argb: hexToArgb(teacherColor) } },
+				left: { style: 'thin', color: { argb: 'FF6B7280' } },
+				right: { style: 'thin', color: { argb: 'FF6B7280' } },
+			},
+		};
+		teacherCol = endCol + 1;
+		if (teacherCol > TOTAL_COLS) break;
+	}
+	ws.getRow(2).height = 18;
+
+	// Zeile 3 als visueller Trenner / Spacer
+	ws.getCell(3, 1).value = '';
+	ws.mergeCells(3, 1, 3, TOTAL_COLS);
+	ws.getCell(3, 1).style = {
+		fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } },
+	};
+	ws.getRow(3).height = 4;
+
+	// === Zeile 4: Tag-Header (gleich wie Klassenplan) ===
+	for (let d = 0; d < DAYS.length; d++) {
+		const startCol = 2 + d * COLS_PER_DAY;
+		const endCol = startCol + COLS_PER_DAY - 1;
+		ws.mergeCells(4, startCol, 4, endCol);
+		const cell = ws.getCell(4, startCol);
+		cell.value = DAYS[d];
+		cell.style = {
+			font: { bold: true, size: 13, color: { argb: 'FFFFFFFF' } },
+			alignment: { horizontal: 'center', vertical: 'middle' },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF374151' } },
+			border: thinBorder('FF1F2937'),
+		};
+	}
+	ws.getRow(4).height = 24;
+
+	// === Zeile 5: Stufen ===
+	for (let d = 0; d < DAYS.length; d++) {
+		for (let g = 0; g < GRADES.length; g++) {
+			const startCol = colForGrade(d, g, 0);
+			const endCol = startCol + SUB_PER_GRADE - 1;
+			ws.mergeCells(5, startCol, 5, endCol);
+			const cell = ws.getCell(5, startCol);
+			cell.value = `${GRADES[g]}.`;
+			cell.style = {
+				font: { bold: true, size: 11, color: { argb: 'FF374151' } },
+				alignment: { horizontal: 'center', vertical: 'middle' },
+				fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+				border: thinBorder('FF9CA3AF'),
+			};
+		}
+	}
+	ws.getRow(5).height = 18;
+
+	// === Stunden-Zeilen ab Zeile 6 ===
+	for (let p = 0; p < PERIODS.length; p++) {
+		const rowIdx = 6 + p;
+		const period = PERIODS[p];
+		const periodCell = ws.getCell(rowIdx, 1);
+		periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
+		periodCell.style = {
+			font: { bold: true, size: 10 },
+			alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF3F4F6' } },
+			border: thinBorder('FF9CA3AF'),
+		};
+
+		for (let d = 0; d < DAYS.length; d++) {
+			for (let g = 0; g < GRADES.length; g++) {
+				const startCol = colForGrade(d, g, 0);
+				const endCol = startCol + SUB_PER_GRADE - 1;
+				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+
+				if (entries.length === 0) {
+					ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
+					const cell = ws.getCell(rowIdx, startCol);
+					cell.style = {
+						border: thinBorder('FFD1D5DB'),
+						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+					};
+					continue;
+				}
+				const teachers: SlotEntry['teachers'] = [];
+				const seenIds = new Set<string>();
+				for (const e of entries) for (const t of e.teachers) {
+					if (!seenIds.has(t.id)) { seenIds.add(t.id); teachers.push(t); }
+				}
+				const stripCount = Math.min(teachers.length, SUB_PER_GRADE);
+				const widths = distributeStripWidths(SUB_PER_GRADE, stripCount);
+				renderSlotStrips(ws, rowIdx, startCol, entries, teachers, stripCount, widths, overrides, 'filtered');
+			}
+		}
+		ws.getRow(rowIdx).height = 38;
+	}
+
+	// Tagestrenner
+	for (let p = 0; p < PERIODS.length; p++) {
+		const rowIdx = 6 + p;
+		for (let d = 0; d < DAYS.length - 1; d++) {
+			const lastCol = 2 + (d + 1) * COLS_PER_DAY - 1;
+			const cell = ws.getCell(rowIdx, lastCol);
+			cell.border = { ...cell.border, right: { style: 'medium', color: { argb: 'FF374151' } } };
+		}
+	}
+}
+
+// ============================================================================
+// Sheet 1c: Klassenplan schwarz/weiß mit Legende
+// ============================================================================
+
+function addClassPlanBwSheet(
+	wb: import('exceljs').Workbook,
+	doc: ScheduleDoc,
+	slotMap: Map<string, SlotEntry[]>
+): void {
+	const ws = wb.addWorksheet('Klassenplan S-W', {
+		pageSetup: {
+			paperSize: 8 as unknown as import('exceljs').PaperSize,
+			orientation: 'landscape',
+			fitToPage: true,
+			fitToWidth: 1,
+			fitToHeight: 1,
+			printTitlesRow: '1:2',
+			blackAndWhite: true,
+			margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
+		},
+	});
+
+	ws.getColumn(1).width = 13;
+	const subWidth = 11 / SUB_PER_GRADE;
+	for (let i = 2; i <= TOTAL_COLS; i++) ws.getColumn(i).width = subWidth;
+
+	// Header Zeile 1: Tag-Namen
+	for (let d = 0; d < DAYS.length; d++) {
+		const startCol = 2 + d * COLS_PER_DAY;
+		const endCol = startCol + COLS_PER_DAY - 1;
+		ws.mergeCells(1, startCol, 1, endCol);
+		const cell = ws.getCell(1, startCol);
+		cell.value = DAYS[d];
+		cell.style = {
+			font: { bold: true, size: 13, color: { argb: 'FFFFFFFF' } },
+			alignment: { horizontal: 'center', vertical: 'middle' },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF000000' } },
+			border: thinBorder('FF000000'),
+		};
+	}
+	ws.getRow(1).height = 24;
+
+	// Header Zeile 2: Stufen
+	for (let d = 0; d < DAYS.length; d++) {
+		for (let g = 0; g < GRADES.length; g++) {
+			const startCol = colForGrade(d, g, 0);
+			const endCol = startCol + SUB_PER_GRADE - 1;
+			ws.mergeCells(2, startCol, 2, endCol);
+			const cell = ws.getCell(2, startCol);
+			cell.value = `${GRADES[g]}.`;
+			cell.style = {
+				font: { bold: true, size: 11, color: { argb: 'FF000000' } },
+				alignment: { horizontal: 'center', vertical: 'middle' },
+				fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+				border: thinBorder('FF000000'),
+			};
+		}
+	}
+	ws.getRow(2).height = 18;
+
+	// Track which teachers actually appear in the plan (for legend)
+	const usedTeachers = new Map<string, Teacher>();
+
+	// Stunden-Zeilen
+	for (let p = 0; p < PERIODS.length; p++) {
+		const rowIdx = 3 + p;
+		const period = PERIODS[p];
+		const periodCell = ws.getCell(rowIdx, 1);
+		periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
+		periodCell.style = {
+			font: { bold: true, size: 10 },
+			alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+			fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+			border: thinBorder('FF000000'),
+		};
+
+		for (let d = 0; d < DAYS.length; d++) {
+			for (let g = 0; g < GRADES.length; g++) {
+				const startCol = colForGrade(d, g, 0);
+				const endCol = startCol + SUB_PER_GRADE - 1;
+				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+				if (entries.length === 0) {
+					ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
+					const cell = ws.getCell(rowIdx, startCol);
+					cell.style = {
+						border: thinBorder('FF000000'),
+						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
+					};
+					continue;
+				}
+				const teachers: SlotEntry['teachers'] = [];
+				const seenIds = new Set<string>();
+				for (const e of entries) for (const t of e.teachers) {
+					if (!seenIds.has(t.id)) {
+						seenIds.add(t.id);
+						teachers.push(t);
+						usedTeachers.set(t.id, t);
+					}
+				}
+				const stripCount = Math.min(teachers.length, SUB_PER_GRADE);
+				const widths = distributeStripWidths(SUB_PER_GRADE, stripCount);
+				renderSlotStrips(ws, rowIdx, startCol, entries, teachers, stripCount, widths, {}, 'bw');
+			}
+		}
+		ws.getRow(rowIdx).height = 38;
+	}
+
+	// === Legende unten ===
+	const legendStart = 3 + PERIODS.length + 1;
+	ws.getCell(legendStart, 1).value = 'Legende — Lehrer-Kürzel:';
+	ws.mergeCells(legendStart, 1, legendStart, TOTAL_COLS);
+	ws.getCell(legendStart, 1).style = {
+		font: { bold: true, italic: true, size: 11 },
+		alignment: { horizontal: 'left', vertical: 'middle' },
+		fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+		border: thinBorder('FF000000'),
+	};
+	ws.getRow(legendStart).height = 20;
+
+	// Pro Lehrer: ein Eintrag "L5 — Lehrer XYZ"
+	// In 4 Spalten-Layout um Platz zu sparen
+	const sortedLehrer = [...usedTeachers.values()].sort((a, b) => a.shortNumber - b.shortNumber);
+	const cols = 4;
+	const colWidth = Math.floor(TOTAL_COLS / cols);
+	let rIdx = legendStart + 1;
+	let cIdx = 0;
+	for (const teacher of sortedLehrer) {
+		const startCol = 1 + cIdx * colWidth;
+		const endCol = Math.min(startCol + colWidth - 1, TOTAL_COLS);
+		ws.mergeCells(rIdx, startCol, rIdx, endCol);
+		const cell = ws.getCell(rIdx, startCol);
+		cell.value = `L${teacher.shortNumber}  —  ${teacher.name}`;
+		cell.style = {
+			font: { size: 10 },
+			alignment: { horizontal: 'left', vertical: 'middle', indent: 1 },
+			border: thinBorder('FF000000'),
+		};
+		cIdx++;
+		if (cIdx >= cols) {
+			cIdx = 0;
+			rIdx++;
+			ws.getRow(rIdx - 1).height = 16;
+		}
+	}
+	if (cIdx > 0) ws.getRow(rIdx).height = 16;
+
+	// Tagestrenner schwarz
+	for (let p = 0; p < PERIODS.length; p++) {
+		const rowIdx = 3 + p;
+		for (let d = 0; d < DAYS.length - 1; d++) {
+			const lastCol = 2 + (d + 1) * COLS_PER_DAY - 1;
+			const cell = ws.getCell(rowIdx, lastCol);
+			cell.border = { ...cell.border, right: { style: 'medium', color: { argb: 'FF000000' } } };
+		}
+	}
 }
 
 // ============================================================================
