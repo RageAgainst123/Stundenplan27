@@ -161,6 +161,22 @@ export async function buildExcel(doc: ScheduleDoc, options: ExcelExportOptions =
 // Sheet 1: Klassenplan
 // ============================================================================
 
+/**
+ * Phase 18: Wieviele Sub-Spalten pro Stufe. Erlaubt N=1..SUB_PER_GRADE
+ * Lehrer-Streifen pro Slot (wie die Multi-Lehrer-Visualisierung im Web).
+ * 4 ist ein guter Kompromiss: bis 4 Lehrer eigene Streifen, ab 5 wird der
+ * 4. Streifen für "Lehrer 4 + N" mehrfach genutzt (sehr selten — Schul-Realität).
+ */
+const SUB_PER_GRADE = 4;
+const COLS_PER_DAY = GRADES.length * SUB_PER_GRADE; // 16
+const TOTAL_DATA_COLS = DAYS.length * COLS_PER_DAY; // 80
+const TOTAL_COLS = 1 + TOTAL_DATA_COLS; // 81
+
+function colForGrade(dayIdx: number, gradeIdx: number, sub = 0): number {
+	// Spalten-Index 1-basiert. +1 weil Spalte 1 = Stunden-Info.
+	return 2 + dayIdx * COLS_PER_DAY + gradeIdx * SUB_PER_GRADE + sub;
+}
+
 function addClassPlanSheet(
 	wb: import('exceljs').Workbook,
 	doc: ScheduleDoc,
@@ -174,23 +190,24 @@ function addClassPlanSheet(
 			fitToPage: true,
 			fitToWidth: 1,
 			fitToHeight: 1,
-			printTitlesRow: '1:3',
+			printTitlesRow: '1:2',
 			margins: { left: 0.4, right: 0.4, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 },
 		},
 	});
 
 	// Spalten-Layout:
-	//   Col A: Stunden-Info (Nr + Uhrzeit), Breite 12
-	//   Pro Tag: 4 Spalten (Stufen 5/6/7/8), je 9 breit
-	//   Total: 1 + 5×4 = 21 Spalten
+	//   Col 1: Stunden-Info (Nr + Uhrzeit), Breite 13
+	//   Pro Stufe: SUB_PER_GRADE schmale Spalten — bei 1 Lehrer alle merged,
+	//   bei N Lehrern (N≤4) je Lehrer ein Streifen, bei N>4 ersten 3 Lehrer
+	//   eigene Streifen + Rest gemerged.
 	ws.getColumn(1).width = 13;
-	for (let i = 2; i <= 21; i++) ws.getColumn(i).width = 11;
+	const subWidth = 11 / SUB_PER_GRADE; // ~2.75 pro Sub-Spalte
+	for (let i = 2; i <= TOTAL_COLS; i++) ws.getColumn(i).width = subWidth;
 
-	// === Header Zeile 1: Tag-Namen, gemerged über 4 Spalten ===
-	ws.getCell(1, 1).value = '';
+	// === Header Zeile 1: Tag-Namen, gemerged über COLS_PER_DAY Spalten ===
 	for (let d = 0; d < DAYS.length; d++) {
-		const startCol = 2 + d * 4;
-		const endCol = startCol + 3;
+		const startCol = 2 + d * COLS_PER_DAY;
+		const endCol = startCol + COLS_PER_DAY - 1;
 		ws.mergeCells(1, startCol, 1, endCol);
 		const cell = ws.getCell(1, startCol);
 		cell.value = DAYS[d];
@@ -203,12 +220,13 @@ function addClassPlanSheet(
 	}
 	ws.getRow(1).height = 24;
 
-	// === Header Zeile 2: Stufen pro Tag ===
-	ws.getCell(2, 1).value = '';
+	// === Header Zeile 2: Stufen pro Tag (jeweils gemerged über SUB_PER_GRADE) ===
 	for (let d = 0; d < DAYS.length; d++) {
 		for (let g = 0; g < GRADES.length; g++) {
-			const col = 2 + d * 4 + g;
-			const cell = ws.getCell(2, col);
+			const startCol = colForGrade(d, g, 0);
+			const endCol = startCol + SUB_PER_GRADE - 1;
+			ws.mergeCells(2, startCol, 2, endCol);
+			const cell = ws.getCell(2, startCol);
 			cell.value = `${GRADES[g]}.`;
 			cell.style = {
 				font: { bold: true, size: 11, color: { argb: 'FF374151' } },
@@ -220,17 +238,10 @@ function addClassPlanSheet(
 	}
 	ws.getRow(2).height = 18;
 
-	// === Header Zeile 3: Stunden-Header-Zeile (leer/reserved für Title-Repeat) ===
-	// Wir machen Zeile 3 als Header-Hilfszeile NICHT — die Stunden starten direkt in Zeile 3
-	// printTitlesRow '1:3' wiederholt Zeile 1-3. Wir machen Zeile 3 als Stunden-Trenn-Zeile leer.
-	// Stattdessen: nur 2 Header-Zeilen, printTitlesRow auf '1:2' setzen. Anpassen:
-	ws.pageSetup.printTitlesRow = '1:2';
-
 	// === Stunden-Zeilen ===
 	for (let p = 0; p < PERIODS.length; p++) {
 		const rowIdx = 3 + p;
 		const period = PERIODS[p];
-		// Linke Spalte: Stunden-Nr + Uhrzeit
 		const periodCell = ws.getCell(rowIdx, 1);
 		periodCell.value = `${period}.\n${DEFAULT_PERIOD_TIMES[p]}`;
 		periodCell.style = {
@@ -242,63 +253,154 @@ function addClassPlanSheet(
 
 		for (let d = 0; d < DAYS.length; d++) {
 			for (let g = 0; g < GRADES.length; g++) {
-				const col = 2 + d * 4 + g;
-				const cell = ws.getCell(rowIdx, col);
+				const startCol = colForGrade(d, g, 0);
+				const endCol = startCol + SUB_PER_GRADE - 1;
 				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+
 				if (entries.length === 0) {
-					// Leerer Slot
+					// Leerer Slot — alle Sub-Spalten gemerged + weiß
+					ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
+					const cell = ws.getCell(rowIdx, startCol);
 					cell.style = {
 						border: thinBorder('FFD1D5DB'),
 						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } },
 					};
 					continue;
 				}
-				// Bei mehreren Entries (z.B. Coupling) den ersten dominant nehmen,
-				// weitere als Text dazu hängen
-				const primary = entries[0];
-				const lehrer = primary.teachers[0];
-				const lehrerColor = lehrer ? colorOf(lehrer, overrides) : '#9CA3AF';
-				const argbFill = hexToArgb(lehrerColor);
-				// Helle Tönung: nur halbe Sättigung für Background
-				const lightFill = blendWithWhite(lehrerColor, 0.65);
-				const argbLight = hexToArgb(lightFill);
-				const textArgb = isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827';
 
-				let text = formatCellText(primary);
-				if (entries.length > 1) {
-					for (let e = 1; e < entries.length; e++) {
-						text += `\n${formatCellText(entries[e])}`;
+				// Alle Lehrer der Entries sammeln (deduped, in Reihenfolge des Auftretens).
+				// Bei Coupling: Spec A + Spec B haben verschiedene teacher[0] → 2 Streifen.
+				// Bei Team-Teaching: 1 Spec hat teachers=[A,B,C] → 3 Streifen.
+				const teachers: SlotEntry['teachers'] = [];
+				const seenIds = new Set<string>();
+				for (const e of entries) {
+					for (const t of e.teachers) {
+						if (!seenIds.has(t.id)) {
+							seenIds.add(t.id);
+							teachers.push(t);
+						}
 					}
 				}
-				cell.value = text;
-				cell.style = {
-					font: { size: 9, bold: true, color: { argb: textArgb } },
-					alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
-					fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: argbLight } },
-					border: {
-						top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-						right: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-						bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
-						left: { style: 'medium', color: { argb: argbFill } },
-					},
-				};
+
+				// Anzahl Streifen: bis SUB_PER_GRADE eigene Streifen, danach
+				// bekommt der letzte Streifen die Farbe von Lehrer #(SUB_PER_GRADE-1)
+				// und L-Badges zeigen weiterhin alle (inkl. "+N").
+				const stripCount = Math.min(teachers.length, SUB_PER_GRADE);
+				// Verteilung der Sub-Spalten auf Streifen — gleichmäßig.
+				// Bei stripCount=1 → ein Streifen über alle 4 Sub-Spalten (merged).
+				// Bei stripCount=2 → 2+2. Bei 3 → 2+1+1. Bei 4 → 1+1+1+1.
+				const widths = distributeStripWidths(SUB_PER_GRADE, stripCount);
+
+				// Text-Layout — auf den ERSTEN Streifen kommt der ganze Subject+
+				// L-Badge-Text als gemerge-fähige Zelle. Damit die rechten
+				// Streifen leer bleiben, mergen wir den Text-Bereich gemergt
+				// über alle Sub-Spalten, aber die Farben werden per separater
+				// Background-Layer-Zellen rendiert? — Nein: das geht in Excel
+				// nicht ohne Overlapping. Stattdessen:
+				//   1. Pro Streifen einzelne Zellen mit Farb-Background.
+				//   2. Erster Streifen bekommt den vollen Text (mehrzeilig,
+				//      Overflow nach rechts via Excel-default wenn nächste
+				//      Zellen leer → das geht NICHT wenn die Zelle gefüllt ist).
+				//   3. Praktisch: pro Streifen kurzer Text (Subject auf #1,
+				//      L-Badges aufgeteilt — Lehrer N im N-ten Streifen).
+				const primary = entries[0];
+				const gradesStr = primary.grades.length > 1 ? primary.grades.join('+') : primary.grades[0]?.toString() ?? '';
+				const weekBadge = primary.weekPattern === 'every' ? '' : (primary.weekPattern === 'even' ? ' [G]' : ' [U]');
+				const showPlus = teachers.length > stripCount;
+
+				let col = startCol;
+				for (let s = 0; s < stripCount; s++) {
+					const width = widths[s];
+					const stripStart = col;
+					const stripEnd = col + width - 1;
+					if (width > 1) {
+						ws.mergeCells(rowIdx, stripStart, rowIdx, stripEnd);
+					}
+					const cell = ws.getCell(rowIdx, stripStart);
+					const teacher = teachers[s];
+					const teacherColor = colorOf(teacher, overrides);
+					const argbStripe = hexToArgb(teacherColor);
+					const lightFill = blendWithWhite(teacherColor, 0.65);
+					const argbLight = hexToArgb(lightFill);
+					const textArgb = isDarkColor(lightFill) ? 'FFFFFFFF' : 'FF111827';
+
+					// Erster Streifen zeigt Subject groß, alle anderen nur L-Badge.
+					// Bei Single-Lehrer kombinieren wir Subject + L1 in einer Zelle wie vorher.
+					let text: string;
+					if (s === 0) {
+						// L-Badges des ersten Lehrers + optional "+N" für versteckte
+						const badge = `L${teacher.shortNumber}`;
+						const plusBadge = (s === stripCount - 1 && showPlus)
+							? ` +${teachers.length - stripCount}` : '';
+						text = stripCount === 1
+							? `${primary.subject} ${badge}\n${gradesStr}${weekBadge}`
+							: `${primary.subject}${badge ? ' ' + badge : ''}${plusBadge}`;
+					} else {
+						const plusBadge = (s === stripCount - 1 && showPlus)
+							? `+${teachers.length - stripCount}` : '';
+						text = `L${teacher.shortNumber}${plusBadge ? ' ' + plusBadge : ''}`;
+					}
+					cell.value = text;
+					cell.style = {
+						font: { size: s === 0 ? 9 : 8, bold: true, color: { argb: textArgb } },
+						alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+						fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: argbLight } },
+						border: {
+							top: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+							bottom: { style: 'thin', color: { argb: 'FFD1D5DB' } },
+							left: { style: s === 0 ? 'medium' : 'thin', color: { argb: s === 0 ? argbStripe : 'FFD1D5DB' } },
+							right: { style: s === stripCount - 1 ? 'thin' : 'thin', color: { argb: 'FFD1D5DB' } },
+						},
+					};
+					col += width;
+				}
+
+				// Bei Multi-Lehrer: zweite Zeile in der ersten Strip-Zelle für
+				// "Stufe + Wochenbadge" (untere Hälfte). Das macht den Slot
+				// inhaltlich vollständig wie im Web. Aber Excel kann nicht
+				// "in eine bereits gefüllte Zelle zusätzlich text in eine
+				// untere Zellenhälfte"; daher konkateniert mit \n im ersten Strip.
+				if (stripCount > 1) {
+					const firstStripCell = ws.getCell(rowIdx, startCol);
+					const existing = String(firstStripCell.value ?? '');
+					firstStripCell.value = `${existing}\n${gradesStr}${weekBadge}`;
+				}
 			}
 		}
-		ws.getRow(rowIdx).height = 42;
+		ws.getRow(rowIdx).height = 44;
 	}
 
-	// Tagestrenner sichtbar — letzten Stunden-Spalte pro Tag bekommen rechte Mittel-Border
+	// Tagestrenner sichtbar — letzten Sub-Spalte pro Tag bekommen rechte Mittel-Border
 	for (let p = 0; p < PERIODS.length; p++) {
 		const rowIdx = 3 + p;
 		for (let d = 0; d < DAYS.length - 1; d++) {
-			const col = 2 + d * 4 + 3; // letzte Spalte des Tags
-			const cell = ws.getCell(rowIdx, col);
+			const lastCol = 2 + (d + 1) * COLS_PER_DAY - 1;
+			const cell = ws.getCell(rowIdx, lastCol);
 			cell.border = {
 				...cell.border,
 				right: { style: 'medium', color: { argb: 'FF374151' } },
 			};
 		}
 	}
+}
+
+/**
+ * Verteilt `total` Sub-Spalten gleichmäßig auf `count` Streifen.
+ * Bei Rest mehr Spalten an die ersten Streifen.
+ *
+ * distributeStripWidths(4, 1) → [4]
+ * distributeStripWidths(4, 2) → [2, 2]
+ * distributeStripWidths(4, 3) → [2, 1, 1]
+ * distributeStripWidths(4, 4) → [1, 1, 1, 1]
+ */
+function distributeStripWidths(total: number, count: number): number[] {
+	if (count <= 0) return [];
+	if (count === 1) return [total];
+	const base = Math.floor(total / count);
+	const rest = total - base * count;
+	const widths = new Array(count).fill(base);
+	for (let i = 0; i < rest; i++) widths[i]++;
+	return widths;
 }
 
 // ============================================================================

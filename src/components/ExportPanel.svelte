@@ -209,12 +209,29 @@
 										{@const entries = slotMap.get(`${day}|${period}|${grade}`) ?? []}
 										{@const primary = entries[0]}
 										{#if primary}
-											{@const baseColor = primary.teachers[0] ? effectiveColor(primary.teachers[0].id, primary.teachers[0].color) : '#9ca3af'}
-											{@const lightColor = blendWhite(baseColor, 0.65)}
-											<td class="slot filled" style:background={lightColor} style:border-left={`3px solid ${baseColor}`}>
+											{@const allTeachers = (() => {
+												const seen = new Set<string>();
+												const list: typeof primary.teachers = [];
+												for (const e of entries) {
+													for (const t of e.teachers) {
+														if (!seen.has(t.id)) { seen.add(t.id); list.push(t); }
+													}
+												}
+												return list;
+											})()}
+											{@const firstColor = allTeachers[0] ? effectiveColor(allTeachers[0].id, allTeachers[0].color) : '#9ca3af'}
+											{@const bgGradient = allTeachers.length <= 1
+												? blendWhite(firstColor, 0.65)
+												: 'linear-gradient(to right, ' + allTeachers.map((t, i) => {
+														const c = blendWhite(effectiveColor(t.id, t.color), 0.65);
+														const from = (i / allTeachers.length * 100).toFixed(1);
+														const to = ((i + 1) / allTeachers.length * 100).toFixed(1);
+														return `${c} ${from}% ${to}%`;
+													}).join(', ') + ')'}
+											<td class="slot filled" style:background={bgGradient} style:border-left={`3px solid ${firstColor}`}>
 												<div class="slot-line">
 													<span class="subj">{primary.subject}</span>
-													<span class="teach">{primary.teachers.slice(0, 3).map(t => 'L' + t.shortNumber).join(' ')}{#if primary.teachers.length > 3} +{primary.teachers.length - 3}{/if}</span>
+													<span class="teach">{allTeachers.slice(0, 3).map(t => 'L' + t.shortNumber).join(' ')}{#if allTeachers.length > 3} +{allTeachers.length - 3}{/if}</span>
 												</div>
 												<div class="slot-meta">
 													{primary.grades.join('+')}

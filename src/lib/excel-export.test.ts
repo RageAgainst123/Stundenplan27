@@ -90,14 +90,16 @@ describe('buildExcel — Stundenplan-Export', () => {
 		await wb.xlsx.load(await blob.arrayBuffer());
 		const ws = wb.getWorksheet('Klassenplan')!;
 
-		// Zeile 1: Tag-Header. Zelle B1 muss "Mo" sein (gemerged über 4)
+		// Phase 18 mit N-Spalten-Split: pro Tag jetzt 16 Spalten (4 Stufen × 4 Subs).
+		// Zeile 1: Tag-Header gemerged über COLS_PER_DAY=16 Spalten.
 		expect(ws.getCell(1, 2).value).toBe('Mo');
-		expect(ws.getCell(1, 6).value).toBe('Di');
-		expect(ws.getCell(1, 18).value).toBe('Fr');
+		expect(ws.getCell(1, 18).value).toBe('Di'); // 2 + 1*16 = 18
+		expect(ws.getCell(1, 66).value).toBe('Fr'); // 2 + 4*16 = 66
 
-		// Zeile 2: Stufen
+		// Zeile 2: Stufen pro Tag — jeweils gemerged über 4 Sub-Spalten.
+		// Mo Stufe 5 startet bei Spalte 2, Stufe 8 bei 2 + 3*4 = 14.
 		expect(ws.getCell(2, 2).value).toBe('5.');
-		expect(ws.getCell(2, 5).value).toBe('8.');
+		expect(ws.getCell(2, 14).value).toBe('8.');
 
 		// Stunden-Zeilen ab Zeile 3
 		const period1Cell = ws.getCell(3, 1).value;
@@ -114,11 +116,35 @@ describe('buildExcel — Stundenplan-Export', () => {
 		await wb.xlsx.load(await blob.arrayBuffer());
 		const ws = wb.getWorksheet('Klassenplan')!;
 
-		// Mo P1 Stufe 5 = Zeile 3, Spalte 2
+		// Mo P1 Stufe 5 startet bei Spalte 2 (erster Lehrer-Streifen). Bei
+		// 1 Lehrer ist die Zelle gemerged über alle 4 Sub-Spalten — der Text
+		// steht im ersten Streifen.
 		const cell = ws.getCell(3, 2);
 		const val = String(cell.value ?? '');
 		expect(val).toContain('D');
 		expect(val).toContain('L1'); // Müller Anna shortNumber=1
+	}, 20_000);
+
+	it('Multi-Lehrer-Slot (Team-Teaching): 2 Streifen mit beiden L-Badges sichtbar', async () => {
+		const doc = setupDoc();
+		const blob = await buildExcel(doc, { includePerTeacher: false, includeTeacherOverview: false });
+		const ExcelJS = await import('exceljs');
+		const Workbook = (ExcelJS as { Workbook?: typeof import('exceljs').Workbook }).Workbook
+			?? ((ExcelJS as { default?: { Workbook: typeof import('exceljs').Workbook } }).default?.Workbook);
+		const wb = new Workbook!();
+		await wb.xlsx.load(await blob.arrayBuffer());
+		const ws = wb.getWorksheet('Klassenplan')!;
+
+		// Mo P3 Stufe 6 hat M mit t2+t3 → 2 Streifen.
+		// Stufe 6 ist g=1, Mo ist d=0 → startCol = 2 + 0*16 + 1*4 = 6.
+		// Mit 2 Streifen Verteilung [2,2]: Streifen 1 → Col 6 (M + L2), Streifen 2 → Col 8 (L3).
+		const strip1 = String(ws.getCell(3 + 2, 6).value ?? ''); // Zeile p3 = 3+2=5
+		const strip2 = String(ws.getCell(3 + 2, 8).value ?? '');
+		// Erster Streifen enthält Subject + L2 (Schmidt = sn 2)
+		expect(strip1).toContain('M');
+		expect(strip1).toContain('L2');
+		// Zweiter Streifen enthält L3 (Weber = sn 3)
+		expect(strip2).toContain('L3');
 	}, 20_000);
 
 	it('Lehrer-Sheet enthält Title mit Lehrer-Name und L-Kürzel', async () => {
