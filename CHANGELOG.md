@@ -79,6 +79,24 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 2, Schritt 5 — Solver läuft im Web Worker
+- **`startSolveSession`** (`worker-bridge.ts`) ersetzt `startSolve` als
+  UI-Einstieg: gleiche Session-API, aber der Solver rechnet in einem
+  Web Worker (`solve.worker.ts`) — der UI-Thread bleibt während des
+  gesamten Laufs frei (kein Jank, Tab-Wechsel und Grid-Updates flüssig).
+- Abort läuft über eine Worker-Message (greift beim nächsten Chunk,
+  gemessen ~260 ms); antwortet der Worker nicht binnen 3 s, wird er hart
+  terminiert und die letzte bekannte Lösung übernommen.
+- DZN-Debug-Snapshot kommt huckepack mit dem done-Event (getDzn ist
+  synchron — während des Laufs nicht verfügbar).
+- Fallback ohne Worker-Support (jsdom/Tests): Inline-startSolve wie bisher.
+- 5 neue Bridge-Tests (Fallback, Event-Spiegelung, Doppel-done-Schutz,
+  Abort-Protokoll, Terminate-Fallback mit Fake-Worker).
+- Bundle: +1 Worker-Chunk (~50 KB raw, dupliziert den Solver-Code) —
+  bewusster Trade-off für den freien UI-Thread.
+- E2E verifiziert: Worker-Chunk lädt unter dem GitHub-Pages-Base-Pfad,
+  Live-Score-Streaming, Abort übernimmt Best-Lösung.
+
 ### Runde 2, Schritt 4 — SA-Experimente (alle verworfen, dokumentiert)
 T₀-Kalibrierung aus der Delta-Verteilung, budget-adaptive Kühlung,
 Seitwärts-Akzeptanz bei toter Temperatur — alle drei (und die Kombination

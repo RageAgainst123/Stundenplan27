@@ -1,6 +1,10 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
-	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput, type DiversifyStrategy } from '../lib/solver-v2/index';
+	import { type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput, type DiversifyStrategy } from '../lib/solver-v2/index';
+	// R2 Schritt 5: Solver läuft im Web Worker (UI-Thread bleibt frei);
+	// die Bridge hat dieselbe SolveSession-API und fällt ohne
+	// Worker-Support auf das bisherige Inline-startSolve zurück.
+	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { PlacedLesson } from '../lib/types';
 	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
@@ -280,7 +284,7 @@
 		preRunScore = scoreBeforeRun;
 		preDiversifyScore = extra.diversify ? scoreBeforeRun : null;
 		startTicker();
-		const s = startSolve($state.snapshot(store.doc) as any, {
+		const s = startSolveSession($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
 			// gerne mehrere Minuten laufen — Anytime-Modus heißt der User
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
