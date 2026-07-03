@@ -49,6 +49,26 @@
 				"noFreeZeroRuns": "3/5",
 				"_befund": "SA-Kaltstart alle 250ms (KRITISCH-1): 2 von 5 Läufen bleiben mit Klassen-Lücke stecken (Score >21000). Hohe Varianz, ~35% weniger Iterationen als Sync."
 			}
+		},
+		{
+			"label": "schritt-2-resumable-ls",
+			"commit": "(siehe git log: feat(solver) resumable LS)",
+			"date": "2026-07-03",
+			"machine": "Geo-Windows-Dev",
+			"async_produktionspfad": {
+				"median": {
+					"weightedTotal": 12480,
+					"breakdown.no_free": 0
+				},
+				"range": { "weightedTotal": [11702, 22240] },
+				"noFreeZeroRuns": "4/5",
+				"_befund": [
+					"Resume-Fix wirkt: Seed 99999 von 21320/no_free=1 auf 12454/no_free=0 repariert.",
+					"Seed 7 bleibt stecken — Random-Moves treffen die eine spezifische Klassen-Lücke nicht (→ Schritt 4: class-gap-repair-Move).",
+					"Async-Iterations-Rückstand vs Sync ist großteils jsdom-Yield-Artefakt (~120ms/setTimeout in vitest; Browser ~2ms). CHUNK_MS bleibt 250 für UI-Liveness.",
+					"Äquivalenz bewiesen: 3 Resume-Chunks à 1000 Iter == 1 Lauf à 3000 Iter (Test in localSearch.test.ts)."
+				]
+			}
 		}
 	]
 }

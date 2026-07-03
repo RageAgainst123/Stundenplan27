@@ -36,6 +36,14 @@ export class Rng {
 	constructor(seed: number) {
 		this.state = (seed | 0) || 1;
 	}
+	/** Aktuellen internen Zustand lesen — für Resume über LS-Chunk-Grenzen. */
+	getState(): number {
+		return this.state;
+	}
+	/** Internen Zustand setzen — Gegenstück zu getState() beim Resume. */
+	setState(s: number): void {
+		this.state = (s | 0) || 1;
+	}
 	next(): number {
 		// xorshift32
 		let x = this.state;

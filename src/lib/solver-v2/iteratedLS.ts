@@ -15,7 +15,7 @@
 
 import { Rng } from './moves';
 import { construct } from './construct';
-import { localSearch, type LocalSearchOptions } from './localSearch';
+import { localSearch, type LocalSearchOptions, type LsResumeState } from './localSearch';
 import { computeScore } from './score';
 import {
 	SLOT_UNPLACED,
@@ -250,6 +250,13 @@ export function iteratedLocalSearch(
  * LS budget into ~250 ms chunks with `await new Promise(setTimeout(..., 0))`
  * yields between chunks. That lets external setTimeout-scheduled aborts fire
  * and keeps the host event loop (browser UI, vitest worker) responsive.
+ *
+ * Schritt 2 der Solver-Optimierung: Chunks setzen die LS-Session via
+ * `resume` NAHTLOS fort (Temperatur, Tabu, Walk-Punkt, RNG) statt jede
+ * 250ms komplett frisch zu starten. Vor dem Fix akzeptierte jeder Chunk-
+ * Start bei T=100 massenhaft Verschlechterungen — empirisch blieben 2 von
+ * 5 Bench-Läufen mit einer Klassen-Lücke stecken (bench-baseline.json).
+ * Die Best-Restauration passiert erst am ECHTEN Ende des Inner-Budgets.
  */
 export async function iteratedLocalSearchAsync(
 	state: SolverState,
@@ -271,25 +278,38 @@ export async function iteratedLocalSearchAsync(
 		const scoreBefore = ils.bestBreakdown.total;
 		const lsTStart = Date.now();
 		let abortedInner = false;
+		// Ein Full-Scan pro Inner-Run (nicht pro Chunk!) — danach trägt
+		// resume.curBreakdown den Walk-Score über die Chunk-Grenzen.
+		const innerBreakdown = computeScore(ctx.state, ctx.weights);
+		let resume: LsResumeState | undefined = undefined;
 		// Slice the inner LS into CHUNK_MS pieces with macrotask yields between.
 		while (true) {
 			const chunkRemaining = thisBudget - (Date.now() - lsTStart);
 			if (chunkRemaining <= 0) break;
 			if (ctx.opts.shouldAbort?.()) { abortedInner = true; break; }
 			const chunkBudget = Math.min(CHUNK_MS, chunkRemaining);
-			const ls = localSearch(ctx.state, computeScore(ctx.state, ctx.weights), {
+			const ls = localSearch(ctx.state, innerBreakdown, {
 				weights: ctx.weights,
 				maxIterations: 1_000_000,
 				timeBudgetMs: chunkBudget,
-				seed: ctx.rng.int(0, 2147483647),
+				seed: ctx.rng.int(0, 2147483647), // nur der 1. Chunk nutzt den Seed
 				tStart: tStartLS,
 				kempeBoost,
+				resume,
+				restoreBestOnExit: false,
 				onImprovement: makeImprovementHook(ils, ctx),
 				shouldAbort: ctx.opts.shouldAbort,
 			});
 			ils.totalIterations += ls.iterations;
+			resume = ls.resumeState;
 			if (ctx.opts.shouldAbort?.()) { abortedInner = true; break; }
 			await new Promise<void>((resolve) => setTimeout(resolve, 0));
+		}
+		// Echtes Ende des Inner-Runs: jetzt (und erst jetzt) das beste
+		// Placement dieses Runs restaurieren — wie es die Sync-Variante am
+		// Ende jedes localSearch-Aufrufs tut.
+		if (resume) {
+			ctx.state.placement.set(resume.bestPlacement);
 		}
 		updateProductivity(ils, scoreBefore);
 

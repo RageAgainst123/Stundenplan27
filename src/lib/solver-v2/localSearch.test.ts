@@ -152,6 +152,121 @@ describe('localSearch — tabu semantics', () => {
 	});
 });
 
+describe('localSearch — resume (Schritt 2: SA-Kaltstart-Fix)', () => {
+	/** Zwei identische Ausgangs-States bauen (gleiche Doc-Struktur, gleicher
+	 *  Construct-Seed) — Voraussetzung für den Äquivalenz-Vergleich. */
+	function buildTwinStates() {
+		const mkDoc = () => {
+			const doc = emptyDoc();
+			doc.teachers.push(teacher('t1', 'L1'));
+			doc.teachers.push(teacher('t2', 'L2'));
+			doc.teachers.push(teacher('t3', 'L3'));
+			doc.subjects.push(subject('M', { isMain: true }));
+			doc.subjects.push(subject('D', { isMain: true }));
+			doc.subjects.push(subject('E'));
+			doc.specs.push(spec('s1', 'M', 't1', [5], 4));
+			doc.specs.push(spec('s2', 'D', 't2', [6], 4));
+			doc.specs.push(spec('s3', 'E', 't3', [7], 3));
+			doc.specs.push(spec('s4', 'M', 't2', [8], 3));
+			return doc;
+		};
+		const w1 = defaultWeights(mkDoc());
+		const stateA = buildState(mkDoc());
+		const stateB = buildState(mkDoc());
+		construct(stateA, { weights: w1, seed: 5 });
+		construct(stateB, { weights: w1, seed: 5 });
+		return { stateA, stateB, w: w1 };
+	}
+
+	it('3 Resume-Chunks à 1000 Iterationen == 1 Lauf à 3000 (Temperatur+Tabu+RNG nahtlos)', () => {
+		const { stateA, stateB, w } = buildTwinStates();
+		expect(Array.from(stateA.placement)).toEqual(Array.from(stateB.placement));
+
+		const initialA = computeScore(stateA, w);
+		const initialB = computeScore(stateB, w);
+		expect(initialA.total).toBe(initialB.total);
+
+		// Referenz: EIN Lauf mit 3000 Iterationen (zeitunabhängig).
+		const single = localSearch(stateA, initialA, {
+			weights: w,
+			maxIterations: 3000,
+			timeBudgetMs: 60_000,
+			seed: 42,
+		});
+
+		// Vergleich: DREI Chunks à 1000 Iterationen mit Resume.
+		let resume;
+		let lastResult;
+		for (let chunk = 0; chunk < 3; chunk++) {
+			lastResult = localSearch(stateB, initialB, {
+				weights: w,
+				maxIterations: 1000,
+				timeBudgetMs: 60_000,
+				seed: 42, // nur Chunk 1 nutzt den Seed; danach via rngState
+				resume,
+				restoreBestOnExit: false,
+			});
+			resume = lastResult.resumeState;
+		}
+		// Am echten Ende: Best restaurieren (wie der Async-Caller es tut).
+		stateB.placement.set(resume!.bestPlacement);
+
+		// Ergebnis muss EXAKT identisch sein — beweist dass Temperatur,
+		// Tabu-Liste und RNG-Zustand nahtlos über Chunk-Grenzen laufen.
+		expect(resume!.bestBreakdown.total).toBe(single.bestBreakdown.total);
+		expect(Array.from(stateB.placement)).toEqual(Array.from(single.bestPlacement));
+		expect(resume!.T).toBeCloseTo(single.resumeState.T, 10);
+		expect(resume!.iterations).toBe(single.resumeState.iterations);
+	});
+
+	it('restoreBestOnExit=false lässt state am Walk-Punkt (score == curBreakdown)', () => {
+		const { stateA, w } = buildTwinStates();
+		const initial = computeScore(stateA, w);
+		const result = localSearch(stateA, initial, {
+			weights: w,
+			maxIterations: 500,
+			timeBudgetMs: 10_000,
+			seed: 99,
+			restoreBestOnExit: false,
+		});
+		// State steht am Walk-Punkt: Full-Scan muss curBreakdown entsprechen.
+		const walkScore = computeScore(stateA, w);
+		expect(walkScore.total).toBe(result.resumeState.curBreakdown.total);
+	});
+
+	it('restoreBestOnExit default (true): state steht auf best (Bestandsverhalten)', () => {
+		const { stateA, w } = buildTwinStates();
+		const initial = computeScore(stateA, w);
+		const result = localSearch(stateA, initial, {
+			weights: w,
+			maxIterations: 500,
+			timeBudgetMs: 10_000,
+			seed: 99,
+		});
+		const finalScore = computeScore(stateA, w);
+		expect(finalScore.total).toBe(result.bestBreakdown.total);
+	});
+
+	it('resumeState akkumuliert Zähler über Chunks', () => {
+		const { stateA, w } = buildTwinStates();
+		const initial = computeScore(stateA, w);
+		const r1 = localSearch(stateA, initial, {
+			weights: w, maxIterations: 400, timeBudgetMs: 10_000, seed: 3,
+			restoreBestOnExit: false,
+		});
+		const r2 = localSearch(stateA, initial, {
+			weights: w, maxIterations: 400, timeBudgetMs: 10_000,
+			resume: r1.resumeState, restoreBestOnExit: false,
+		});
+		expect(r2.resumeState.iterations).toBe(800);
+		// result.iterations bleibt per-Call (Bestandsverhalten für Bookkeeping)
+		expect(r1.iterations).toBe(400);
+		expect(r2.iterations).toBe(400);
+		// Kumulative Zähler wachsen monoton
+		expect(r2.resumeState.acceptedMoves).toBeGreaterThanOrEqual(r1.resumeState.acceptedMoves);
+	});
+});
+
 const realListeDescribe = process.env.CONSTRUCT_REAL_LISTE === '1' ? describe : describe.skip;
 
 realListeDescribe('localSearch on real Liste.csv', () => {
