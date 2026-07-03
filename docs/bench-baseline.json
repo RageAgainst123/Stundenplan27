@@ -99,6 +99,38 @@
 					"Neue Komponenten: teacher_gap_fairness (15, an), teacher_days_present (120, an), teacher_lunch (100, AUS per Default)."
 				]
 			}
+		},
+		{
+			"label": "schritt-4-repair-moves",
+			"commit": "(siehe git log: feat(solver) Repair-Moves)",
+			"date": "2026-07-03",
+			"machine": "Geo-Windows-Dev",
+			"sync": {
+				"median": {
+					"breakdown.no_free": 0,
+					"breakdown.min_daily": 0,
+					"breakdown.compact_teacher": 12,
+					"breakdown.main_run": 2,
+					"breakdown.teacher_gap_fairness": 16,
+					"breakdown.teacher_days_present": 13,
+					"teacher.gapsTotal": 10,
+					"teacher.gapsMaxPerTeacher": 2,
+					"teacher.daysPresentTotal": 35,
+					"teacher.lateStartsTotal": 79,
+					"teacher.miniDays": 3
+				}
+			},
+			"async_produktionspfad": {
+				"perSeed_weightedTotal": [13373, 14871, 11950, 13034, 12573],
+				"noFreeZeroRuns": "5/5",
+				"iterPerSec": "2785-4555",
+				"_befund": [
+					"ALLE 5 Seeds erreichen no_free=0 (Baseline 3/5, nach S2 4/5).",
+					"Der Steck-Seed 7 ist repariert: 22240/no_free=1 → 11950/no_free=0 — jetzt der BESTE Lauf. class-gap-repair wirkt.",
+					"Iterationen/s +50% vs S2 (Repair-Generatoren liefern öfter direkt gültige Moves, weniger Fehlversuche).",
+					"Sync-Medians: gapsMax 3→2, daysPresent 37→35, miniDays 5→3, lateStarts 85→79, main_run-Trade-off halbiert 3→2."
+				]
+			}
 		}
 	]
 }

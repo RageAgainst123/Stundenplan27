@@ -3,7 +3,9 @@ import { emptyDoc, type Day, type LessonSpec, type Period, type Subject, type Te
 import { buildState } from './units';
 import { feasibleSlots, wouldViolate } from './hardCheck';
 import { applyMove, revertMove, genMove, Rng } from './moves';
-import { DAY_INDEX, P, SLOT_UNPLACED, slotFromDP } from './types';
+import { DAY_INDEX, P, SLOT_UNPLACED, slotFromDP, defaultWeights } from './types';
+import { computeScore } from './score';
+import { localSearch } from './localSearch';
 
 function teacher(id: string, name: string, unavailable: { day: Day; period: Period }[] = []): Teacher {
 	return { id, name, shortNumber: 1, color: '#000', subjects: [], unavailable };
@@ -226,6 +228,82 @@ describe('genMove generates only valid moves', () => {
 		const state = buildState(doc);
 		const rng = new Rng(42);
 		expect(genMove(state, rng)).toBeNull();
+	});
+});
+
+describe('genMove — Repair-Generatoren (Solver-Opt Schritt 4)', () => {
+	/** Realistisches Mini-Szenario: 3 Lehrer, mehrere Stufen, mit
+	 *  eingebauten Lehrer-Lücken und einer Klassen-Lücke. */
+	function buildRepairScenario() {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.teachers.push(teacher('t2', 'L2'));
+		doc.teachers.push(teacher('t3', 'L3'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		doc.subjects.push(subject('E'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 4));
+		doc.specs.push(spec('s2', 'D', 't2', [6], 4));
+		doc.specs.push(spec('s3', 'E', 't3', [7], 3));
+		const state = buildState(doc);
+		// t1/Stufe5: Mo P1 + P3 (Lücke bei P2 — Lehrer- UND Klassen-Lücke),
+		// Di P1, Mi P1
+		const u1 = state.unitsBySpec.get('s1')!;
+		state.placement[u1[0].idx] = slotFromDP(0, 1);
+		state.placement[u1[1].idx] = slotFromDP(0, 3);
+		state.placement[u1[2].idx] = slotFromDP(1, 1);
+		state.placement[u1[3].idx] = slotFromDP(2, 1);
+		// t2/Stufe6: Mini-Tag Do (1 Stunde), Anker Mo P1-P3
+		const u2 = state.unitsBySpec.get('s2')!;
+		state.placement[u2[0].idx] = slotFromDP(0, 1);
+		state.placement[u2[1].idx] = slotFromDP(0, 2);
+		state.placement[u2[2].idx] = slotFromDP(0, 3);
+		state.placement[u2[3].idx] = slotFromDP(3, 5);
+		// t3/Stufe7: kompakt Mo P1-P3
+		const u3 = state.unitsBySpec.get('s3')!;
+		state.placement[u3[0].idx] = slotFromDP(0, 1);
+		state.placement[u3[1].idx] = slotFromDP(0, 2);
+		state.placement[u3[2].idx] = slotFromDP(0, 3);
+		return { doc, state };
+	}
+
+	it('Property: 2000 genMove-Aufrufe liefern nur hard-feasible Moves', async () => {
+		const { findHardViolations } = await import('./hardCheck');
+		const { state } = buildRepairScenario();
+		const before = new Int32Array(state.placement);
+		const rng = new Rng(1234);
+		let generated = 0;
+		for (let i = 0; i < 2000; i++) {
+			const m = genMove(state, rng);
+			if (!m) continue;
+			generated++;
+			applyMove(state, m);
+			// Nach apply darf KEINE Hard-Verletzung existieren
+			const offenders = findHardViolations(state);
+			expect(offenders, `Move ${i} (${m.kind}) erzeugte Hard-Violations`).toEqual([]);
+			revertMove(state, m);
+		}
+		// revert stellt byte-identisch wieder her
+		expect(Array.from(state.placement)).toEqual(Array.from(before));
+		expect(generated).toBeGreaterThan(500);
+	});
+
+	it('Repair-Moves treffen die eingebaute Lücken-Situation (Konvergenz-Smoke)', () => {
+		// Mit dem neuen Mix soll LS die eingebaute Lehrer/Klassen-Lücke bei
+		// t1 (Mo P2) schnell schließen — mit rein zufälligen Moves dauerte
+		// das deutlich länger. Wir prüfen nur DASS es konvergiert.
+		const { doc, state } = buildRepairScenario();
+		const w = defaultWeights(doc);
+		const before = computeScore(state, w);
+		expect(before.no_free).toBeGreaterThan(0); // Lücke ist eingebaut
+		const result = localSearch(state, before, {
+			weights: w,
+			maxIterations: 3000,
+			timeBudgetMs: 10_000,
+			seed: 7,
+		});
+		expect(result.bestBreakdown.no_free).toBe(0);
+		expect(result.bestBreakdown.total).toBeLessThan(before.total);
 	});
 });
 

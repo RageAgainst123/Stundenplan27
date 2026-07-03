@@ -1,10 +1,22 @@
 // Solver v2 — move operators for Local Search.
 //
-// Three operators per SOLVER-V2-CONCEPT.md §7.1:
-//   - slot-move (60%): one unit jumps to a different slot
-//   - slot-swap (35%): two units exchange slots
-//   - kempe-chain (5%): block-swap of all lessons of one (day, grade)
-//                       between two days
+// Basis-Operatoren per SOLVER-V2-CONCEPT.md §7.1:
+//   - slot-move: one unit jumps to a different slot
+//   - slot-swap: two units exchange slots
+//   - kempe-chain: block-swap of all lessons of one (day, grade)
+//                  between two days
+//
+// Solver-Opt Schritt 4 — zielgerichtete Repair-Generatoren (emittieren
+// die BESTEHENDEN Move-Kinds slot-move, dadurch bleiben apply/revert,
+// Tabu und Delta-Bewertung unverändert):
+//   - teacher-gap-repair: findet einen Lehrer mit Springstunde und zieht
+//     eine seiner Stunden in die Lücke. Zufällige Moves treffen die eine
+//     spezifische (Unit → Slot)-Kombination praktisch nie.
+//   - day-eliminator: löst Mini-Tage auf (Lehrer-Tag mit 1-2 Stunden) —
+//     verschiebt die Stunde auf einen Tag an dem der Lehrer schon da ist.
+//   - class-gap-repair: analog für KLASSEN-Lücken (no_free, Gewicht 10000
+//     im strict-Modus!) — Bench-Befund: Läufe blieben mit no_free=1
+//     stecken weil Random-Moves die Lücke nicht füllen.
 //
 // All moves come with apply/revert symmetry — applyMove(state, m) followed
 // by revertMove(state, m) restores the state byte-for-byte.
@@ -12,6 +24,7 @@
 import { wouldViolate } from './hardCheck';
 import {
 	D,
+	P,
 	dpFromSlot,
 	type SolverState,
 	type Unit,
@@ -66,19 +79,31 @@ export class Rng {
  * Generate a candidate move. May return null if no valid move can be
  * constructed (e.g. all units pinned).
  *
- * Default mix is slot-move 60% / slot-swap 35% / kempe-chain 5%. The
- * `kempeBoost` arg can shift the mix toward more diversification — the
- * caller (typically `iteratedLocalSearchAsync` after an unproductive
- * plateau) raises this to break out of local optima.
+ * Mix (Solver-Opt Schritt 4): slot-move 45% / slot-swap 30% / kempe 5%
+ * / teacher-gap-repair 10% / day-eliminator 5% / class-gap-repair 5%.
+ * `kempeBoost` verschiebt Richtung Diversifikation — der Caller
+ * (typischerweise ILS nach unproduktivem Plateau) hebt ihn an, um aus
+ * lokalen Optima zu entkommen.
  */
 export function genMove(state: SolverState, rng: Rng, kempeBoost = 0): Move | null {
 	const kempeProb = Math.min(0.4, 0.05 + kempeBoost);
-	const swapProb = 0.35;
-	const moveProb = 1 - swapProb - kempeProb;
-	const r = rng.next();
-	if (r < moveProb) return genSlotMove(state, rng);
-	if (r < moveProb + swapProb) return genSlotSwap(state, rng);
-	return genKempeChain(state, rng);
+	const swapProb = 0.30;
+	const teacherGapProb = 0.10;
+	const dayElimProb = 0.05;
+	const classGapProb = 0.05;
+	const moveProb = Math.max(0.05, 1 - swapProb - kempeProb - teacherGapProb - dayElimProb - classGapProb);
+	const r = rng.next() * (moveProb + swapProb + kempeProb + teacherGapProb + dayElimProb + classGapProb);
+	let acc = moveProb;
+	if (r < acc) return genSlotMove(state, rng);
+	acc += swapProb;
+	if (r < acc) return genSlotSwap(state, rng);
+	acc += kempeProb;
+	if (r < acc) return genKempeChain(state, rng);
+	acc += teacherGapProb;
+	if (r < acc) return genTeacherGapRepair(state, rng);
+	acc += dayElimProb;
+	if (r < acc) return genDayEliminator(state, rng);
+	return genClassGapRepair(state, rng);
 }
 
 /**
@@ -211,6 +236,207 @@ function genKempeChain(state: SolverState, rng: Rng): Move | null {
 			fromSlots,
 			toSlots,
 		};
+	}
+	return null;
+}
+
+/**
+ * teacher-gap-repair (Solver-Opt Schritt 4): wählt einen zufälligen Lehrer,
+ * baut seine Wochen-Occupancy on-the-fly (O(eigene Units) ≈ 5–25), sucht
+ * eine Springstunde und versucht, eine SEINER Stunden (blockSize 1, nicht
+ * gepinnt) in die Lücke zu ziehen. Kandidaten: Stunden anderer Tage (senkt
+ * ggf. Anwesenheitstage) und Randstunden desselben Tages (kompaktet den Tag).
+ */
+function genTeacherGapRepair(state: SolverState, rng: Rng): Move | null {
+	const teachers = state.doc.teachers;
+	if (teachers.length === 0) return null;
+	for (let tries = 0; tries < 4; tries++) {
+		const teacher = teachers[rng.int(0, teachers.length)];
+		const units = state.unitsByTeacher.get(teacher.id);
+		if (!units || units.length === 0) continue;
+
+		// Wochen-Occupancy des Lehrers: occ[d*P + p-1] = true wenn belegt.
+		const occ = new Array<boolean>(D * P).fill(false);
+		for (const u of units) {
+			const slot = state.placement[u.idx];
+			if (slot === SLOT_UNPLACED) continue;
+			const dp = dpFromSlot(slot);
+			for (let pos = 0; pos < u.blockSize; pos++) {
+				const p = dp.period + pos;
+				if (p <= P) occ[dp.dayIndex * P + (p - 1)] = true;
+			}
+		}
+
+		// Alle Lücken (Tag, Periode) sammeln: frei zwischen firstP und lastP.
+		const gaps: number[] = []; // encoded d*P + (p-1)
+		for (let d = 0; d < D; d++) {
+			let firstP = -1;
+			let lastP = -1;
+			for (let p = 0; p < P; p++) {
+				if (occ[d * P + p]) {
+					if (firstP === -1) firstP = p;
+					lastP = p;
+				}
+			}
+			if (firstP === -1) continue;
+			for (let p = firstP + 1; p < lastP; p++) {
+				if (!occ[d * P + p]) gaps.push(d * P + p);
+			}
+		}
+		if (gaps.length === 0) continue;
+		const gapCode = gaps[rng.int(0, gaps.length)];
+		const gapDay = Math.floor(gapCode / P);
+		const gapPeriod = (gapCode % P) + 1;
+		const toSlot = slotFromDP(gapDay, gapPeriod);
+
+		// Kandidaten: bewegliche Einzelstunden dieses Lehrers, die NICHT
+		// bereits auf dem Ziel-Slot liegen. Shuffle light: random start.
+		const start = rng.int(0, units.length);
+		for (let k = 0; k < units.length; k++) {
+			const u = units[(start + k) % units.length];
+			if (u.pinned || u.blockSize !== 1) continue;
+			const fromSlot = state.placement[u.idx];
+			if (fromSlot === SLOT_UNPLACED || fromSlot === toSlot) continue;
+			if (wouldViolate(state, u, toSlot) !== null) continue;
+			return { kind: 'slot-move', unitIdx: u.idx, fromSlot, toSlot };
+		}
+	}
+	return null;
+}
+
+/**
+ * day-eliminator (Solver-Opt Schritt 4): findet einen Lehrer-Tag mit nur
+ * 1–2 Stunden (Mini-Tag, Anfahrt lohnt nicht) und verschiebt eine davon
+ * auf einen Tag, an dem der Lehrer ohnehin präsent ist — bevorzugt
+ * angrenzend an seine bestehenden Stunden (kompakt).
+ */
+function genDayEliminator(state: SolverState, rng: Rng): Move | null {
+	const teachers = state.doc.teachers;
+	if (teachers.length === 0) return null;
+	for (let tries = 0; tries < 4; tries++) {
+		const teacher = teachers[rng.int(0, teachers.length)];
+		const units = state.unitsByTeacher.get(teacher.id);
+		if (!units || units.length === 0) continue;
+
+		// Pro Tag: Anzahl Stunden + Liste der Units.
+		const dayCount = new Array<number>(D).fill(0);
+		const dayFirst = new Array<number>(D).fill(-1);
+		const dayLast = new Array<number>(D).fill(-1);
+		for (const u of units) {
+			const slot = state.placement[u.idx];
+			if (slot === SLOT_UNPLACED) continue;
+			const dp = dpFromSlot(slot);
+			dayCount[dp.dayIndex] += u.blockSize;
+			const pIdx = dp.period - 1;
+			if (dayFirst[dp.dayIndex] === -1 || pIdx < dayFirst[dp.dayIndex]) dayFirst[dp.dayIndex] = pIdx;
+			const endIdx = pIdx + u.blockSize - 1;
+			if (endIdx > dayLast[dp.dayIndex]) dayLast[dp.dayIndex] = endIdx;
+		}
+
+		// Mini-Tage (1-2 Stunden) und "Anker-Tage" (>=3 Stunden) finden.
+		const miniDays: number[] = [];
+		const anchorDays: number[] = [];
+		for (let d = 0; d < D; d++) {
+			if (dayCount[d] >= 1 && dayCount[d] <= 2) miniDays.push(d);
+			else if (dayCount[d] >= 3) anchorDays.push(d);
+		}
+		if (miniDays.length === 0 || anchorDays.length === 0) continue;
+		const miniDay = miniDays[rng.int(0, miniDays.length)];
+
+		// Eine bewegliche Einzelstunde des Mini-Tags wählen.
+		const miniUnits = units.filter(u => {
+			if (u.pinned || u.blockSize !== 1) return false;
+			const slot = state.placement[u.idx];
+			if (slot === SLOT_UNPLACED) return false;
+			return dpFromSlot(slot).dayIndex === miniDay;
+		});
+		if (miniUnits.length === 0) continue;
+		const unit = miniUnits[rng.int(0, miniUnits.length)];
+		const fromSlot = state.placement[unit.idx];
+
+		// Ziel: angrenzend an bestehende Stunden eines Anker-Tags
+		// (firstP-1 oder lastP+1), sonst beliebige Periode des Anker-Tags.
+		const anchorStart = rng.int(0, anchorDays.length);
+		for (let a = 0; a < anchorDays.length; a++) {
+			const d = anchorDays[(anchorStart + a) % anchorDays.length];
+			const candidates: number[] = [];
+			if (dayFirst[d] > 0) candidates.push(dayFirst[d] - 1);
+			if (dayLast[d] < P - 1) candidates.push(dayLast[d] + 1);
+			// Fallback: zufällige Periode des Tags
+			candidates.push(rng.int(0, P));
+			for (const pIdx of candidates) {
+				const toSlot = slotFromDP(d, pIdx + 1);
+				if (toSlot === fromSlot) continue;
+				if (wouldViolate(state, unit, toSlot) !== null) continue;
+				return { kind: 'slot-move', unitIdx: unit.idx, fromSlot, toSlot };
+			}
+		}
+	}
+	return null;
+}
+
+/**
+ * class-gap-repair (Solver-Opt Schritt 4): findet eine KLASSEN-Lücke
+ * (inneres Loch im (Tag, Stufe)-Raster — im strict-Modus die teuerste
+ * Verletzung überhaupt, Gewicht 10000) und zieht eine Stunde derselben
+ * Stufe hinein. Bench-Befund: Random-Moves treffen die eine spezifische
+ * (Unit → Slot)-Kombination praktisch nie; Läufe blieben mit no_free=1
+ * stecken.
+ */
+function genClassGapRepair(state: SolverState, rng: Rng): Move | null {
+	for (let tries = 0; tries < 4; tries++) {
+		const d = rng.int(0, D);
+		const g = (rng.int(0, 4) + 5) as 5 | 6 | 7 | 8;
+
+		// Occupancy der Stufe an Tag d + Kandidaten-Units der Stufe sammeln.
+		const occ = new Array<boolean>(P).fill(false);
+		const gradeUnits: Unit[] = [];
+		for (let i = 0; i < state.nUnits; i++) {
+			const u = state.units[i];
+			if (!u.grades.includes(g)) continue;
+			const slot = state.placement[i];
+			if (slot === SLOT_UNPLACED) continue;
+			gradeUnits.push(u);
+			const dp = dpFromSlot(slot);
+			if (dp.dayIndex !== d) continue;
+			for (let pos = 0; pos < u.blockSize; pos++) {
+				const pIdx = dp.period - 1 + pos;
+				if (pIdx < P) occ[pIdx] = true;
+			}
+		}
+
+		// Innere Lücken + führende Lücken (beide zählen für no_free).
+		let firstP = -1;
+		let lastP = -1;
+		for (let p = 0; p < P; p++) {
+			if (occ[p]) {
+				if (firstP === -1) firstP = p;
+				lastP = p;
+			}
+		}
+		if (firstP === -1) continue;
+		const gaps: number[] = [];
+		for (let p = 0; p < firstP; p++) gaps.push(p); // führende Lücken
+		for (let p = firstP + 1; p < lastP; p++) {
+			if (!occ[p]) gaps.push(p);
+		}
+		if (gaps.length === 0) continue;
+		const gapPIdx = gaps[rng.int(0, gaps.length)];
+		const toSlot = slotFromDP(d, gapPIdx + 1);
+
+		// Eine bewegliche Einzelstunde der Stufe in die Lücke ziehen —
+		// bevorzugt von einem ANDEREN Tag (füllt die Lücke ohne am selben
+		// Tag ein neues Loch zu reißen; Randstunden desselben Tages sind
+		// aber auch ok — der Score entscheidet).
+		const start = rng.int(0, gradeUnits.length);
+		for (let k = 0; k < gradeUnits.length; k++) {
+			const u = gradeUnits[(start + k) % gradeUnits.length];
+			if (u.pinned || u.blockSize !== 1) continue;
+			const fromSlot = state.placement[u.idx];
+			if (fromSlot === toSlot) continue;
+			if (wouldViolate(state, u, toSlot) !== null) continue;
+			return { kind: 'slot-move', unitIdx: u.idx, fromSlot, toSlot };
+		}
 	}
 	return null;
 }
