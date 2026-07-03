@@ -288,6 +288,20 @@
         "RE-TEST Slot-Sampling 12→20 (Runde-1-Experiment B): WIEDER verworfen — gaps 9→11, gapsMax 2→4, main_run 2→5. Der Effekt lag nie an den Check-Kosten, mehr Versuche pro Move verschlechtern die Move-Diversität selbst.",
         "WIEDERVORLAGE Diversify-Strategien (2 neue 3-Arm-Läufe): Lauf 1 pro worst-teacher (4/5 Seeds besser, Median 8 vs 9), Lauf 2 pro random (Summe 41 vs 47) — Lauf-zu-Lauf-Varianz (±5) dominiert die Strategie-Differenz (±3). Systematisch: worst-teacher versagt auf chaotischen Basen (Seed 99999: 15 vs 10). ENTSCHEIDUNG: bleibt random; belastbare Entscheidung bräuchte 10+ Läufe pro Arm — vertagt auf nach dem Web-Worker-Schritt (echte Browser-Performance ändert das Bild ohnehin)."
       ]
+    },
+    {
+      "label": "r2-schritt-4-sa-experimente",
+      "commit": "(kein Code-Change — alle 3 Experimente verworfen)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "_referenz_s3": "Sync-Mediane nach Schritt 3: gaps 9, gapsMax 2, compact 10, main_run 2",
+      "_experimente": [
+        "C) Seitwärts-Akzeptanz (delta==0 mit p=0.1 bei T==tMin): VERWORFEN. gaps 9→11, gapsMax 2→3, compact 10→15. Plateau-Random-Walk stört den Tabu-getriebenen Abstieg.",
+        "A) T0-Kalibrierung (tStart 'auto': Median positiver Deltas / ln2, ~64 Proben): VERWORFEN. gaps 9→12, gapsMax 2→3, main_run 2→3. Kalibriertes T0 liegt über 100 → Anfangsphase zu heiß für die kurzen Inner-Budgets.",
+        "A+B) Kalibrierung + budget-adaptive Kühlung kombiniert: VERWORFEN. gaps 9→12, compact 10→14, miniDays 3→4 — einzig lateStarts 79→68 besser (gleicher Trade-off wie R1-Experiment D: Sekundär-Metrik gut, Ziel-Metrik schlecht).",
+        "B) Budget-adaptive Kühlung allein (cooling = exp(ln(tMin/100)/erwarteteIter), Rate aus vorherigem Inner-Run): VERWORFEN. gaps 9→10, gapsMax 2→3, compact 10→13. Länger lebende Temperatur = mehr akzeptierte Verschlechterungen = schlechtere Konvergenz im Inner-Budget.",
+        "FAZIT: Die mathematische Analyse (T stirbt nach ~14k Iterationen, danach reiner Hill-Climber) ist KORREKT — aber empirisch ist genau dieses Regime (kurze SA-Phase, dann Tabu-Hill-Climbing, Eskalation über ILS-Reheat/Perturbation) für die Ziel-Metrik optimal. Die SA-Temperatur länger am Leben zu halten verschlechtert konsistent. Kein SA-Tuning mehr ohne neue strukturelle Erkenntnis."
+      ]
     }
   ]
 }

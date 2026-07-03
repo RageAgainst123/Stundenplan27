@@ -79,6 +79,15 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 2, Schritt 4 — SA-Experimente (alle verworfen, dokumentiert)
+T₀-Kalibrierung aus der Delta-Verteilung, budget-adaptive Kühlung,
+Seitwärts-Akzeptanz bei toter Temperatur — alle drei (und die Kombination
+A+B) verschlechterten die Springstunden-Metrik konsistent. Befund: das
+bestehende Regime (kurze SA-Phase → Tabu-Hill-Climbing → ILS-Reheat bei
+Stagnation) ist für dieses Problem empirisch optimal; die Temperatur
+länger am Leben zu halten kostet Konvergenz. Zahlen in
+`docs/bench-baseline.json` (r2-schritt-4).
+
 ### Runde 2, Schritt 1 — Reproduzierbarkeit + LNS-Destroy-Hook
 - **`StartSolveOptions.seed`**: kompletter Solver-Lauf (Construction, Pool,
   ILS, Diversify-Reset) läuft über EINEN Session-Rng — mit Seed
