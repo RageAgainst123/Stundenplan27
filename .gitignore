@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Private Notiz-Dateien (nicht Teil der App)
+headset-empfehlung.html
