@@ -260,6 +260,30 @@ export interface ScoreBreakdown {
 	 * Auftreten.
 	 */
 	main_block_split: number;
+	/**
+	 * Solver-Opt Schritt 3: Wochen-Lücken-Fairness zwischen Lehrern.
+	 * Σ pro Lehrer (Wochen-Summe der Springstunden)². compact_teacher
+	 * bestraft Klumpen INNERHALB eines Tages (gaps² pro Tag), aber 1 Lehrer
+	 * mit 1 Lücke an 5 Tagen kostete gleich viel wie 5 Lehrer mit je 1 Lücke.
+	 * Diese Komponente differenziert: 1×5 Lücken = 25 vs 5×1 Lücke = 5 —
+	 * Springstunden sollen nicht bei einem Lehrer klumpen.
+	 */
+	teacher_gap_fairness: number;
+	/**
+	 * Solver-Opt Schritt 3: Anwesenheitstage-Überhang pro Lehrer.
+	 * Σ pro Lehrer max(0, anwesendeT age − ceil(wochenstunden / 6)).
+	 * Ein Teilzeit-Lehrer mit 8 Wochenstunden hat Ideal 2 Anwesenheitstage;
+	 * jeder Tag darüber kostet 1. Vollzeit-Lehrer (≥25h) sind faktisch
+	 * exempt (Ideal 5 Tage).
+	 */
+	teacher_days_present: number;
+	/**
+	 * Solver-Opt Schritt 3: fehlende Mittagspause. Pro (Lehrer, Tag) +1 wenn
+	 * der Lehrer ≥6 Stunden hat, sowohl im Vormittag (P1-P4) als auch im
+	 * Nachmittag (P7-P8) unterrichtet UND P5 und P6 beide belegt sind.
+	 * Default deaktiviert (ConstraintConfig.teacherMiddayBreak.enabled=false).
+	 */
+	teacher_lunch: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -284,6 +308,9 @@ export interface ScoreWeights {
 	afternoon_preferred: number;
 	main_twice: number;
 	main_block_split: number;
+	teacher_gap_fairness: number;
+	teacher_days_present: number;
+	teacher_lunch: number;
 }
 
 /**
@@ -348,6 +375,18 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// dazwischen. Reicht aus um Solver zu Doppelstunde zu drücken wenn er
 	// ohnehin 2× am Tag legt.
 	const mainBlockSplitWeight = 60;
+	// Solver-Opt Schritt 3: drei Lehrer-Qualitäts-Komponenten, konfigurierbar
+	// über ConstraintConfig (RulesPanel-Slider). Defaults konservativ —
+	// gap_fairness ist quadratisch und wächst schnell, days_present adressiert
+	// Teilzeit-Lehrer, lunch ist per Default AUS (User-Priorität niedrig).
+	const gapFair = (c as unknown as { teacherGapFairness?: { enabled?: boolean; weight?: number } }).teacherGapFairness;
+	const gapFairnessWeight = gapFair?.enabled === false ? 0 : (gapFair?.weight ?? 15);
+	const daysPres = (c as unknown as { teacherDaysPresent?: { enabled?: boolean; weight?: number } }).teacherDaysPresent;
+	const daysPresentWeight = daysPres?.enabled === false ? 0 : (daysPres?.weight ?? 120);
+	const midday = (c as unknown as { teacherMiddayBreak?: { enabled?: boolean; weight?: number } }).teacherMiddayBreak;
+	// ACHTUNG: enabled muss EXPLIZIT true sein — Default ist AUS (anders als
+	// die anderen Komponenten, deren Default AN ist).
+	const lunchWeight = midday?.enabled === true ? (midday?.weight ?? 100) : 0;
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -372,6 +411,9 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		afternoon_preferred: afternoonPreferredWeight,
 		main_twice: mainTwiceWeight,
 		main_block_split: mainBlockSplitWeight,
+		teacher_gap_fairness: gapFairnessWeight,
+		teacher_days_present: daysPresentWeight,
+		teacher_lunch: lunchWeight,
 	};
 }
 

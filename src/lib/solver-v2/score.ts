@@ -7,12 +7,13 @@
 //
 // Hot path during Local Search uses scoreDelta.ts (incremental, O(1) per move).
 //
-// Canonical reference for ALL 18 score components (Stand Phase 13.3):
+// Canonical reference for ALL 21 score components (Stand Solver-Opt Schritt 3):
 //   docs/MODEL.md §3 "Score-Komponenten"
 // Komponenten: min_daily, no_p1_start, time_pref, main_aft, any_aft, no_free,
 // uneven_days, main_run, compact_teacher, main_early, subject_twice,
 // spec_spread, teacher_late_start, teacher_under_min, target_daily,
-// afternoon_preferred, main_twice, main_block_split.
+// afternoon_preferred, main_twice, main_block_split, teacher_gap_fairness,
+// teacher_days_present, teacher_lunch.
 // Wenn hier eine Komponente geändert/hinzugefügt wird → MODEL.md §3 nachziehen
 // UND defaultWeights() in types.ts + UI in GenerateButton.svelte (Score-
 // Aufschlüsselung) UND PenaltyBreakdown in index.ts erweitern.
@@ -136,6 +137,9 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		afternoon_preferred: 0,
 		main_twice: 0,
 		main_block_split: 0,
+		teacher_gap_fairness: 0,
+		teacher_days_present: 0,
+		teacher_lunch: 0,
 		total: 0,
 	};
 
@@ -303,6 +307,11 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	const T = state.doc.teachers.length;
 	for (let t = 0; t < T; t++) {
 		const teacher = state.doc.teachers[t];
+		// Solver-Opt Schritt 3: Wochen-Akkumulatoren pro Lehrer — im selben
+		// Loop mitgeführt (KEIN zweiter Scan, computeScore läuft pro Move!).
+		let weekGaps = 0;
+		let weekLessons = 0;
+		let daysPresent = 0;
 		for (let d = 0; d < D; d++) {
 			let firstP = -1;
 			let lastP = -1;
@@ -313,6 +322,10 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 					lastP = p;
 					occupiedPeriods++;
 				}
+			}
+			if (occupiedPeriods > 0) {
+				daysPresent++;
+				weekLessons += occupiedPeriods;
 			}
 			// compact_teacher uses QUADRATIC penalty per (teacher, day):
 			// N gaps cost N² instead of N. Means 0 gaps = 0, 1 gap = 1
@@ -325,6 +338,26 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 					if (tocc[t * D * P + d * P + p] === 0) gapsThisDay++;
 				}
 				breakdown.compact_teacher += gapsThisDay * gapsThisDay;
+				weekGaps += gapsThisDay;
+			}
+			// teacher_lunch: langer Tag (>=6 Stunden) der Vormittag (P1-P4,
+			// idx 0-3) UND Nachmittag (P7-P8, idx 6-7) umfasst, aber P5 UND P6
+			// (idx 4+5) beide belegt hat → keine Mittagspause möglich.
+			// Nur zählen wenn die Komponente aktiviert ist (Gewicht > 0 spart
+			// den Scan nicht, aber die Bedingung ist billig).
+			if (occupiedPeriods >= 6) {
+				const base = t * D * P + d * P;
+				const p5busy = tocc[base + 4] > 0;
+				const p6busy = tocc[base + 5] > 0;
+				if (p5busy && p6busy) {
+					let hasMorning = false;
+					for (let p = 0; p <= 3; p++) if (tocc[base + p] > 0) { hasMorning = true; break; }
+					if (hasMorning) {
+						let hasAfternoon = false;
+						for (let p = 6; p <= 7; p++) if (tocc[base + p] > 0) { hasAfternoon = true; break; }
+						if (hasAfternoon) breakdown.teacher_lunch++;
+					}
+				}
 			}
 			// teacher_late_start: only counts when teacher has lessons that
 			// day AND was actually free in P1 (otherwise the late start was
@@ -352,6 +385,20 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 				occupiedPeriods < minLessonsTarget
 			) {
 				breakdown.teacher_under_min += minLessonsTarget - occupiedPeriods;
+			}
+		}
+
+		// Solver-Opt Schritt 3 — Wochen-Auswertung pro Lehrer:
+		// teacher_gap_fairness: (Wochen-Lücken)² — Springstunden sollen nicht
+		// bei einem Lehrer klumpen. 1 Lehrer × 5 Lücken = 25, 5 Lehrer × 1 = 5.
+		breakdown.teacher_gap_fairness += weekGaps * weekGaps;
+		// teacher_days_present: Anwesenheitstage über dem Ideal
+		// ceil(wochenstunden / 6). Teilzeit mit 8h → Ideal 2 Tage; jeder Tag
+		// darüber +1. Lehrer ohne Stunden sind exempt.
+		if (weekLessons > 0) {
+			const idealDays = Math.ceil(weekLessons / 6);
+			if (daysPresent > idealDays) {
+				breakdown.teacher_days_present += daysPresent - idealDays;
 			}
 		}
 	}
@@ -445,7 +492,10 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.target_daily * breakdown.target_daily +
 		weights.afternoon_preferred * breakdown.afternoon_preferred +
 		weights.main_twice * breakdown.main_twice +
-		weights.main_block_split * breakdown.main_block_split;
+		weights.main_block_split * breakdown.main_block_split +
+		weights.teacher_gap_fairness * breakdown.teacher_gap_fairness +
+		weights.teacher_days_present * breakdown.teacher_days_present +
+		weights.teacher_lunch * breakdown.teacher_lunch;
 
 	return breakdown;
 }

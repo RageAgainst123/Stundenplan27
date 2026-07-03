@@ -314,6 +314,31 @@ export interface ConstraintConfig {
 	 * RulesPanel-Slider hoch- oder runterdrehen.
 	 */
 	afternoonPreferred: { enabled: boolean; weight: number };
+	/**
+	 * Solver-Opt Schritt 3: Springstunden-Fairness zwischen Lehrern.
+	 * Score = Σ pro Lehrer (Wochen-Lücken)². Quadratisch: Lücken sollen
+	 * nicht bei einem Lehrer klumpen. Default-Gewicht 15 (bewusst klein,
+	 * die Quadrierung wächst schnell: 5 Lücken bei einem Lehrer = 25×15=375).
+	 */
+	teacherGapFairness: { enabled: boolean; weight: number };
+	/**
+	 * Solver-Opt Schritt 3: Anwesenheitstage-Minimierung. Score = Σ pro
+	 * Lehrer max(0, Anwesenheitstage − ceil(Wochenstunden/6)). Teilzeit-
+	 * Lehrer mit 8h sollen nicht an 5 Tagen kommen müssen (Ideal: 2 Tage).
+	 */
+	teacherDaysPresent: { enabled: boolean; weight: number };
+	/**
+	 * Solver-Opt Schritt 3: Mittagspause. +1 pro (Lehrer, Tag) mit ≥6
+	 * Stunden, Vormittags- UND Nachmittags-Unterricht, aber P5 und P6 beide
+	 * belegt. Default DEAKTIVIERT (bewusst — User-Priorität liegt auf
+	 * Springstunden; im RulesPanel aktivierbar).
+	 *
+	 * Feldname absichtlich `teacherMiddayBreak` und NICHT `teacherLunchBreak`:
+	 * Letzteres ist ein Phase-12-Legacy-Feld das die Migration in
+	 * persistence.ts LÖSCHT — Namens-Kollision würde das neue Feld beim
+	 * Load wegwerfen.
+	 */
+	teacherMiddayBreak: { enabled: boolean; weight: number };
 }
 
 // Phase 10 weight calibration (after solver-side diagnosis):
@@ -351,7 +376,11 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	targetDailyLessons: { enabled: true, weight: 80, target: 6 },
 	// Phase 18: höheres Default-Gewicht als pre-18-Hardcoded-100, damit
 	// `'preferred'` praktisch spürbar wird (vorher zu schwach gegen min_daily etc).
-	afternoonPreferred: { enabled: true, weight: 250 }
+	afternoonPreferred: { enabled: true, weight: 250 },
+	// Solver-Opt Schritt 3: Lehrer-Qualität (User-Priorität: Springstunden).
+	teacherGapFairness: { enabled: true, weight: 15 },
+	teacherDaysPresent: { enabled: true, weight: 120 },
+	teacherMiddayBreak: { enabled: false, weight: 100 }
 };
 
 export interface ScheduleDoc {

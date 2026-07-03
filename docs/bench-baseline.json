@@ -69,6 +69,36 @@
 					"Äquivalenz bewiesen: 3 Resume-Chunks à 1000 Iter == 1 Lauf à 3000 Iter (Test in localSearch.test.ts)."
 				]
 			}
+		},
+		{
+			"label": "schritt-3-lehrer-score-komponenten",
+			"commit": "(siehe git log: feat(solver) Lehrer-Score)",
+			"date": "2026-07-03",
+			"machine": "Geo-Windows-Dev",
+			"sync": {
+				"median": {
+					"weightedTotal": "14349 (NICHT vergleichbar — 3 neue Komponenten zählen jetzt in den Total)",
+					"breakdown.no_free": 0,
+					"breakdown.min_daily": 0,
+					"breakdown.compact_teacher": 14,
+					"breakdown.main_run": 3,
+					"breakdown.teacher_gap_fairness": 23,
+					"breakdown.teacher_days_present": 14,
+					"breakdown.teacher_lunch": 2,
+					"teacher.gapsTotal": 10,
+					"teacher.gapsMaxPerTeacher": 3,
+					"teacher.daysPresentTotal": 37,
+					"teacher.lateStartsTotal": 85,
+					"teacher.miniDays": 5,
+					"teacher.missedLunchDays": 2
+				},
+				"_befund": [
+					"Lehrer-Metriken vs Baseline: Springstunden 14→10 (−29%), Max-Lücken/Lehrer 5→3 (−40%), compact_teacher 20→14 (−30%), Anwesenheitstage 39→37.",
+					"Klassen-Invarianten halten: no_free=0, min_daily=0 in allen Seeds.",
+					"Kleiner Trade-off: main_run 1→3 (Median) — für Schritt-5-Tuning notiert.",
+					"Neue Komponenten: teacher_gap_fairness (15, an), teacher_days_present (120, an), teacher_lunch (100, AUS per Default)."
+				]
+			}
 		}
 	]
 }

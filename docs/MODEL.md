@@ -127,7 +127,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 16)
+## 3. Score-Komponenten (alle 21)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -136,11 +136,11 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | Komponente         | Was sie zählt                                                              | Default | Quelle in `ConstraintConfig`                       | Wann 0       |
 |--------------------|----------------------------------------------------------------------------|---------|---------------------------------------------------|--------------|
 | `min_daily`        | (day,grade) mit weniger als minDailySlots Stunden — fehlende Slots         | 500     | `minDailyWeight` (Top-Level)                      | minDaily=0   |
-| `no_p1_start`      | (day,grade) aktiv aber P1 leer                                             | 300     | `mustStartFirstPeriod.{enabled, weight}`          | enabled=false|
+| `no_p1_start`      | (day,grade) aktiv aber P1 leer                                             | 300 (×50 strict) | `mustStartFirstPeriod.{enabled, weight}`   | enabled=false|
 | `main_aft`         | Hauptfach-Lesson in P ≥ afternoonStart                                     | 200     | `noMainSubjectAfternoon.{enabled, weight}`        | enabled=false|
 | `any_aft`          | irgendeine Lesson in P ≥ afternoonStart                                    | 50      | `noMainSubjectAfternoon.{applyToAllSubjects, weightAllSubjects}` | applyToAll=false |
-| `no_free`          | Sandwich-Lücken pro (day,grade)                                            | 200×50  | `noFreePeriodsForClass.{enabled, weight, strict}` | enabled=false|
-| `uneven_days`      | (day,grade) unter Tagespensum-Ziel — fehlende Slots                        | 150     | `unevenDaysWeight` (Top-Level)                    | nie 0 (immer aktiv)|
+| `no_free`          | Sandwich-Lücken + führende Lücken pro (day,grade)                          | 200×50  | `noFreePeriodsForClass.{enabled, weight, strict}` | enabled=false|
+| `uneven_days`      | AKTIVE (day,grade) unter Tagespensum-Ziel — fehlende Slots. Leere Tage exempt (Audit-Fix). | 150 | `unevenDaysWeight` (Top-Level)          | enabled via Gewicht 0 |
 | `main_run`         | Hauptfach-Folge länger als `maxConsecutiveMain.max`                        | 40      | `maxConsecutiveMain.{enabled, weight, max}`       | enabled=false|
 | `compact_teacher`  | Sandwich-Lücken pro (teacher,day) — **quadratisch**: N Lücken/Tag = N². 1=1, 2=4, 3=9 | 80 | `compactTeacherDays.{enabled, weight}`            | enabled=false|
 | `main_early`       | Hauptfach: sum(period-1) — Tie-Breaker für früher                          | 2       | `preferMainEarly.{enabled, weight}`               | enabled=false|
@@ -150,15 +150,21 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `teacher_late_start` | sum(firstP-Index) über alle (Lehrer, Tag) — Lehrer in P1 gesperrt sind exempt | 30 | `teacherEarlyStartBalance.{enabled, weight}`     | enabled=false|
 | `teacher_under_min` | sum(min - lessons) für (Lehrer, Tag) wo `0 < lessons < min`. Freie Tage (0 lessons) sind exempt. | 150 | `teacherMinLessonsPerDay.{enabled, weight, min}` | enabled=false oder Lehrer hat ≥min an jedem aktiven Tag |
 | `target_daily`     | (day,grade) `(actual - target)²` — quadratische Abweichung vom Zieltagespensum. Inaktive Tage (0 lessons) exempt. | 80 | `targetDailyLessons.{enabled, weight, target}` | enabled=false |
-| `afternoon_preferred` | Spec mit `afternoonAllowed='preferred'` liegt im Vormittag (P<7) — Penalty pro Vormittag-Slot. Inverse zu any_aft. | 15 (fix) | `LessonSpec.afternoonAllowed` (per Spec) | keine 'preferred'-Specs |
+| `afternoon_preferred` | Spec mit `afternoonAllowed='preferred'` liegt im Vormittag (P<7) — Penalty pro Vormittag-Slot. Inverse zu any_aft. | 250 | `afternoonPreferred.{enabled, weight}` (Phase 18) | enabled=false oder keine 'preferred'-Specs |
+| `main_twice`       | (day,grade,Hauptfach) mit ≥3 Vorkommen — je Vorkommen über 2 hinaus +1     | 800 (fix) | — (hardcoded in defaultWeights)                  | keine 3×-Häufung |
+| `main_block_split` | Hauptfach genau 2× am (day,grade): Anzahl Leerslots zwischen den Blöcken  | 60 (fix)  | — (hardcoded in defaultWeights)                  | konsekutiv oder ≠2 Vorkommen |
+| `teacher_gap_fairness` | Σ pro Lehrer (Wochen-Springstunden)² — Lücken sollen nicht bei einem Lehrer klumpen. 1×5 Lücken = 25 vs 5×1 = 5. | 15 | `teacherGapFairness.{enabled, weight}` (Solver-Opt S3) | enabled=false oder keine Lücken |
+| `teacher_days_present` | Σ pro Lehrer max(0, Anwesenheitstage − ceil(Wochenstunden/6)) — Teilzeit-Konzentration | 120 | `teacherDaysPresent.{enabled, weight}` (Solver-Opt S3) | enabled=false oder alle im Ideal |
+| `teacher_lunch`    | (teacher,day) mit ≥6h, Vormittag+Nachmittag-Unterricht UND P5+P6 beide belegt | 100, **Default AUS** | `teacherMiddayBreak.{enabled, weight}` (Solver-Opt S3) | enabled=false (Default!) |
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
-  (User hat explizit Nachmittag gewünscht — kein Widerspruch).
+  (User hat explizit Nachmittag gewünscht — kein Widerspruch). Gleiches gilt
+  für `afternoonAllowed='preferred'` und `'must'`.
 - `no_free` kennt einen **strict-Modus**: Gewicht wird ×50 multipliziert in
   Phase 1 des 2-Phase-Solve. Phase 3 läuft mit normalem Gewicht falls Lücken
   unvermeidbar (`RelaxationInfo.noFreeRelaxed=true`).
-- `uneven_days` zählt **alle** (day,grade), auch leere Tage — der Solver
-  optimiert auf Tagesausgleich über die ganze Woche.
+- `teacherMiddayBreak` heißt bewusst NICHT `teacherLunchBreak` — Letzteres ist
+  ein Phase-12-Legacy-Feld, das die Migration in persistence.ts LÖSCHT.
 
 ### Wenn du eine neue Score-Komponente hinzufügst
 

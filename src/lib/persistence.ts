@@ -184,6 +184,18 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.afternoonPreferred !== 'object' || c12.afternoonPreferred === null) {
 			c12.afternoonPreferred = { enabled: true, weight: 250 };
 		}
+		// Solver-Opt Schritt 3: drei Lehrer-Qualitäts-Komponenten.
+		// teacherMiddayBreak heißt bewusst NICHT teacherLunchBreak — das
+		// Legacy-Feld wird oben gelöscht (Migration-Kollision).
+		if (typeof c12.teacherGapFairness !== 'object' || c12.teacherGapFairness === null) {
+			c12.teacherGapFairness = { enabled: true, weight: 15 };
+		}
+		if (typeof c12.teacherDaysPresent !== 'object' || c12.teacherDaysPresent === null) {
+			c12.teacherDaysPresent = { enabled: true, weight: 120 };
+		}
+		if (typeof c12.teacherMiddayBreak !== 'object' || c12.teacherMiddayBreak === null) {
+			c12.teacherMiddayBreak = { enabled: false, weight: 100 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.

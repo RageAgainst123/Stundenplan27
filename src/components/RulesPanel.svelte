@@ -237,6 +237,42 @@
 			<input type="number" min="0" step="10" bind:value={c.teacherMinLessonsPerDay.weight} disabled={!c.teacherMinLessonsPerDay.enabled} class="weight" />
 		</div>
 
+		<!-- Solver-Opt Schritt 3: Springstunden-Fairness -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherGapFairness.enabled} />
+				<span>
+					Springstunden fair verteilen
+					<span class="hint" title="Wochen-Springstunden pro Lehrer, QUADRATISCH: 1 Lehrer mit 5 Lücken kostet 25, fünf Lehrer mit je 1 Lücke nur 5. Verhindert dass die Lücken bei einem Lehrer klumpen. Ergänzt 'Lehrer-Tage kompakt' (das pro Tag wirkt) um die Wochen-Sicht.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.teacherGapFairness.weight} disabled={!c.teacherGapFairness.enabled} class="weight" />
+		</div>
+
+		<!-- Solver-Opt Schritt 3: Anwesenheitstage minimieren -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherDaysPresent.enabled} />
+				<span>
+					Anwesenheitstage minimieren (Teilzeit)
+					<span class="hint" title="Ein Lehrer mit 8 Wochenstunden soll idealerweise an 2 Tagen kommen (ceil(Stunden/6)), nicht an 5. Jeder Tag über dem Ideal kostet. Vollzeit-Lehrer sind faktisch nicht betroffen (Ideal 5 Tage).">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="10" bind:value={c.teacherDaysPresent.weight} disabled={!c.teacherDaysPresent.enabled} class="weight" />
+		</div>
+
+		<!-- Solver-Opt Schritt 3: Mittagspause (Default aus) -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherMiddayBreak.enabled} />
+				<span>
+					Mittagspause bei langen Tagen
+					<span class="hint" title="Wenn ein Lehrer ≥6 Stunden hat und sowohl vormittags (P1–P4) als auch nachmittags (P7–P8) unterrichtet, soll P5 oder P6 frei sein. Standardmäßig deaktiviert — bei Bedarf aktivieren.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="10" bind:value={c.teacherMiddayBreak.weight} disabled={!c.teacherMiddayBreak.enabled} class="weight" />
+		</div>
+
 	</div>
 </section>
 

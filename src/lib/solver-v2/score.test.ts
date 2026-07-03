@@ -330,7 +330,10 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.target_daily * b.target_daily +
 			w.afternoon_preferred * b.afternoon_preferred +
 			w.main_twice * b.main_twice +
-			w.main_block_split * b.main_block_split;
+			w.main_block_split * b.main_block_split +
+			w.teacher_gap_fairness * b.teacher_gap_fairness +
+			w.teacher_days_present * b.teacher_days_present +
+			w.teacher_lunch * b.teacher_lunch;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -922,6 +925,163 @@ describe('computeScore — afternoon_preferred (Phase 13)', () => {
 		place(state, 's', 'Mo', 7);
 		const b = computeScore(state, defaultWeights(doc));
 		expect(b.afternoon_preferred).toBe(0);
+	});
+});
+
+// --- Solver-Opt Schritt 3: Lehrer-Qualitäts-Komponenten ---
+
+describe('computeScore — teacher_gap_fairness (Wochen-Lücken pro Lehrer, quadratisch)', () => {
+	it('0 bei lückenlosen Tagen', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2); // konsekutiv, keine Lücke
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_gap_fairness).toBe(0);
+	});
+
+	it('Klumpung kostet quadratisch: 2 Lücken bei EINEM Lehrer = 4', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const state = buildState(doc);
+		// Mo: P1 + P3 (1 Lücke bei P2), Di: P1 + P3 (1 Lücke) → weekGaps=2 → 2²=4
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 3);
+		place(state, 's', 'Di', 1);
+		place(state, 's', 'Di', 3);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_gap_fairness).toBe(4);
+		// compact_teacher sieht nur 1²+1²=2 (pro Tag) — genau die Lücke die
+		// gap_fairness schließt.
+		expect(b.compact_teacher).toBe(2);
+	});
+
+	it('Verteilung auf 2 Lehrer ist billiger als Klumpung bei einem', () => {
+		// Lehrer A mit 2 Lücken (2²=4) vs Lehrer A+B mit je 1 Lücke (1+1=2)
+		const mk = (twoTeachers: boolean) => {
+			const doc = emptyDoc();
+			doc.teachers.push(teacher('t1', 'L1'));
+			doc.teachers.push(teacher('t2', 'L2'));
+			doc.subjects.push(subject('M'));
+			if (twoTeachers) {
+				doc.specs.push(spec('a', 'M', 't1', [5], 2));
+				doc.specs.push(spec('b', 'M', 't2', [6], 2));
+			} else {
+				doc.specs.push(spec('a', 'M', 't1', [5], 2));
+				doc.specs.push(spec('b', 'M', 't1', [6], 2));
+			}
+			const state = buildState(doc);
+			// Spec a: Mo P1+P3 (Lücke), Spec b: Di P1+P3 (Lücke)
+			place(state, 'a', 'Mo', 1);
+			place(state, 'a', 'Mo', 3);
+			place(state, 'b', 'Di', 1);
+			place(state, 'b', 'Di', 3);
+			return computeScore(state, defaultWeights(doc));
+		};
+		const clumped = mk(false);   // beide Lücken bei t1
+		const spread = mk(true);     // je 1 Lücke bei t1 und t2
+		expect(clumped.teacher_gap_fairness).toBe(4);
+		expect(spread.teacher_gap_fairness).toBe(2);
+	});
+});
+
+describe('computeScore — teacher_days_present (Anwesenheitstage über Ideal)', () => {
+	it('0 wenn Stunden auf Ideal-Tage konzentriert (4h an 1 Tag)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		place(state, 's', 'Mo', 3);
+		place(state, 's', 'Mo', 4);
+		const b = computeScore(state, defaultWeights(doc));
+		// 4 Stunden → Ideal ceil(4/6)=1 Tag, präsent 1 Tag → 0
+		expect(b.teacher_days_present).toBe(0);
+	});
+
+	it('bestraft Verstreuung: 4h an 4 Tagen = 3 Tage über Ideal', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 4));
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Di', 1);
+		place(state, 's', 'Mi', 1);
+		place(state, 's', 'Do', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		// Ideal 1 Tag, präsent 4 → Penalty 3
+		expect(b.teacher_days_present).toBe(3);
+	});
+
+	it('Vollzeit-artige Last ist exempt: 12h an 2 Tagen = Ideal', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('s1', 'M', 't', [5], 6));
+		doc.specs.push(spec('s2', 'D', 't', [6], 6));
+		const state = buildState(doc);
+		for (let p = 1; p <= 6; p++) place(state, 's1', 'Mo', p as Period);
+		for (let p = 1; p <= 6; p++) place(state, 's2', 'Di', p as Period);
+		const b = computeScore(state, defaultWeights(doc));
+		// 12 Stunden → Ideal ceil(12/6)=2 Tage, präsent 2 → 0
+		expect(b.teacher_days_present).toBe(0);
+	});
+});
+
+describe('computeScore — teacher_lunch (Mittagspause bei langen Tagen)', () => {
+	function longDayDoc() {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 6));
+		return doc;
+	}
+
+	it('zählt 1 bei >=6h mit Vormittag+Nachmittag und belegtem P5+P6', () => {
+		const doc = longDayDoc();
+		const state = buildState(doc);
+		// P1, P2, P5, P6, P7, P8 → 6h, Vormittag (P1), Nachmittag (P7), P5+P6 belegt
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		place(state, 's', 'Mo', 5);
+		place(state, 's', 'Mo', 6);
+		place(state, 's', 'Mo', 7);
+		place(state, 's', 'Mo', 8);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_lunch).toBe(1);
+	});
+
+	it('0 wenn P5 frei bleibt (Pause vorhanden)', () => {
+		const doc = longDayDoc();
+		const state = buildState(doc);
+		// P1-P4 + P6 + P7 → 6h, P5 frei → Pause möglich
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		place(state, 's', 'Mo', 3);
+		place(state, 's', 'Mo', 4);
+		place(state, 's', 'Mo', 6);
+		place(state, 's', 'Mo', 7);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_lunch).toBe(0);
+	});
+
+	it('Gewicht ist per Default 0 (teacherMiddayBreak.enabled=false) — Zähler zählt trotzdem', () => {
+		const doc = longDayDoc();
+		const w = defaultWeights(doc);
+		expect(w.teacher_lunch).toBe(0);
+		// Aktiviert → Gewicht greift
+		doc.constraints.teacherMiddayBreak.enabled = true;
+		const w2 = defaultWeights(doc);
+		expect(w2.teacher_lunch).toBe(100);
 	});
 });
 

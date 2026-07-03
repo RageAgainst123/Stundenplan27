@@ -45,6 +45,12 @@ export interface PenaltyBreakdown {
 	main_twice: number;
 	/** Phase 13.3: Hauptfach 2× am Tag, nicht konsekutiv — Lücken-Slot-Penalty. */
 	main_block_split: number;
+	/** Solver-Opt Schritt 3: Springstunden-Klumpung pro Lehrer, quadratisch. */
+	teacher_gap_fairness: number;
+	/** Solver-Opt Schritt 3: Anwesenheitstage über dem Teilzeit-Ideal. */
+	teacher_days_present: number;
+	/** Solver-Opt Schritt 3: fehlende Mittagspausen (default deaktiviert). */
+	teacher_lunch: number;
 	total: number;
 }
 
@@ -259,6 +265,9 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		afternoon_preferred: b.afternoon_preferred,
 		main_twice: b.main_twice,
 		main_block_split: b.main_block_split,
+		teacher_gap_fairness: b.teacher_gap_fairness,
+		teacher_days_present: b.teacher_days_present,
+		teacher_lunch: b.teacher_lunch,
 		total: b.total,
 	};
 }

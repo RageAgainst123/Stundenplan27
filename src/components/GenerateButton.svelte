@@ -668,6 +668,15 @@
 							{#if result.penalties.teacher_under_min > 0}
 								<li>Lehrer-Tage unter Mindeststunden: <strong>{result.penalties.teacher_under_min}</strong></li>
 							{/if}
+							{#if result.penalties.teacher_gap_fairness > 0}
+								<li>Springstunden-Klumpung (quadratisch pro Lehrer): <strong>{result.penalties.teacher_gap_fairness}</strong></li>
+							{/if}
+							{#if result.penalties.teacher_days_present > 0}
+								<li>Anwesenheitstage über Teilzeit-Ideal: <strong>{result.penalties.teacher_days_present}</strong></li>
+							{/if}
+							{#if result.penalties.teacher_lunch > 0}
+								<li>Fehlende Mittagspausen: <strong>{result.penalties.teacher_lunch}</strong></li>
+							{/if}
 							<li class="total">Total (gewichtet): <strong>{result.penalties.total}</strong></li>
 						</ul>
 					</details>
