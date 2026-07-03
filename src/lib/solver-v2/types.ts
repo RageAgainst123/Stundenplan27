@@ -153,6 +153,29 @@ export interface SolverState {
 	 * Specs, Units) sind während einer Solver-Session konstant.
 	 */
 	scoreScratch?: ScoreScratch;
+	/**
+	 * Solver-Opt Runde 2, Schritt 3: lazy-gebauter Index für scoped
+	 * Hard-Checks. `wouldViolate` scannte vorher ALLE nUnits pro Prüfung
+	 * (bis 12×/Move) — ein Konflikt erfordert aber gemeinsamen Lehrer ODER
+	 * gemeinsame Stufe (H3/H4/H8) bzw. Coupling-Partnerschaft (H7), die
+	 * Kandidatenmenge ist also die Vereinigung dieser Listen (typ. 10–40
+	 * statt ~130 Units). Von `ensureCheckIndex()` (hardCheck.ts) befüllt;
+	 * statisch, weil Units während einer Session unveränderlich sind.
+	 */
+	checkIndex?: HardCheckIndex;
+}
+
+/** Kandidaten-Index für scoped wouldViolate — siehe SolverState.checkIndex. */
+export interface HardCheckIndex {
+	/** Stufe (5-8) → Units die diese Stufe belegen. */
+	unitsByGrade: Map<GradeLevel, Unit[]>;
+	/** couplingId → Units deren Specs diese Kopplung tragen (für H7). */
+	unitsByCoupling: Map<string, Unit[]>;
+	/** Generation-Marker pro Unit-Idx — dedupliziert die Kandidaten-Union
+	 *  ohne Set-Allokation pro Aufruf. */
+	seenGen: Int32Array;
+	/** Aktuelle Generation (inkrementiert pro wouldViolate-Aufruf). */
+	gen: number;
 }
 
 /** Scratch-Puffer für computeScore — siehe SolverState.scoreScratch. */

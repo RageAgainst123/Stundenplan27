@@ -18,7 +18,7 @@
 // Walk-Punkt (statt Best zu restaurieren), damit der nächste Chunk den Walk
 // fortsetzt; die Best-Restauration übernimmt der Caller am ECHTEN Ende.
 
-import { applyMove, genMove, Rng, type Move } from './moves';
+import { applyMove, genMove, movableUnits, Rng, type Move } from './moves';
 import { evaluateDelta } from './scoreDelta';
 import type { ScoreBreakdown, ScoreWeights, SolverState } from './types';
 
@@ -159,12 +159,18 @@ export function localSearch(
 	let acceptedMoves = 0;
 	let improvementCount = 0;
 
+	// Runde 2, Schritt 3: bewegliche Units EINMAL pro Aufruf berechnen —
+	// während des Laufs statisch (Moves relozieren nur). Identische Liste
+	// (Inhalt + idx-Reihenfolge) wie der frühere Per-Move-Aufbau → der
+	// Move-Strom bleibt bei gleichem Seed byte-identisch.
+	const movable = movableUnits(state);
+
 	while (localIter < maxIter) {
 		if (opts.shouldAbort?.()) break;
 		const elapsed = Date.now() - tStart;
 		if (elapsed > timeBudgetMs) break;
 
-		const move = genMove(state, rng, kempeBoost);
+		const move = genMove(state, rng, kempeBoost, movable);
 		if (!move) {
 			localIter++;
 			globalIter++;

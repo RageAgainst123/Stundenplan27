@@ -158,7 +158,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 	// deshalb (wie im echten Workflow) die Parallel-Gruppen BSP und REL —
 	// nur in DIESEM Testfall; die ILS-Bench-Fälle oben bleiben unverändert
 	// mit der Baseline vergleichbar.
-	it('Diversify-Strategien: random vs worst-teacher', async () => {
+	it('Diversify-Strategien: random vs worst-teacher vs related-day', async () => {
 		// 2 Zyklen à 6s: lang genug, dass der Repair einen komplett zerstörten
 		// Lehrer-Plan wieder aufbauen kann (2.5s-Zyklen underschätzen
 		// zielgerichtetes Destroy systematisch — im echten Autopilot sind
@@ -184,7 +184,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 			const basePlaced = placementToPlacedLessons(state, ils.bestPlacement);
 			const baseGaps = computeTeacherMetrics(state).gapsTotal;
 
-			const runStrategy = async (strategy: 'random' | 'worst-teacher'): Promise<number> => {
+			const runStrategy = async (strategy: 'random' | 'worst-teacher' | 'related-day'): Promise<number> => {
 				// Frische Doc-Kopie pro Arm — beide Arme starten von identischer Basis.
 				const d = JSON.parse(JSON.stringify(doc)) as typeof doc;
 				d.placed = basePlaced.map(p => ({ ...p }));
@@ -207,7 +207,8 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 
 			const gapsRandom = await runStrategy('random');
 			const gapsWorst = await runStrategy('worst-teacher');
-			report.push({ seed, baseGaps, gapsRandom, gapsWorst });
+			const gapsRelated = await runStrategy('related-day');
+			report.push({ seed, baseGaps, gapsRandom, gapsWorst, gapsRelated });
 		}
 
 		// eslint-disable-next-line no-console

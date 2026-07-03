@@ -64,6 +64,21 @@ Tabu-Tenure 100, Slot-Sampling 20, `teacher_late_start` quadratisch —
 alle verschlechterten die Ziel-Metrik Springstunden. Details mit Zahlen
 in `docs/bench-baseline.json`.
 
+### Runde 2, Schritt 2+3 — Solver-Durchsatz +30 %
+- **Schritt 2:** `computeScore` alloziert nichts mehr pro Aufruf
+  (Scratch-Puffer + Integer-Indizes statt Maps mit String-Keys, statische
+  Per-Unit-Caches). Verhaltensidentisch (alle Score-Tests + Property-Test).
+- **Schritt 3:** `wouldViolate` prüft nur noch die Kandidaten-Union
+  (Lehrer ∪ Stufen ∪ Coupling-Partner, 10–40 statt ~130 Units) mit
+  Generation-Marker-Dedup; `movableUnits` wird einmal pro LS-Lauf berechnet
+  statt bei jeder Move-Generierung. Äquivalenz per Referenz-Vergleich auf
+  500 Random-States bewiesen (`hardCheck.test.ts`).
+- **Ergebnis:** Sync 4500 → 5891 iter/s, Async 4200 → 5373 (Median);
+  Springstunden-Median 10 → 9 im selben Zeitbudget, no_free=0 in 10/10.
+- Slot-Sampling 12→20 erneut gemessen und erneut verworfen (verschlechtert
+  Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
+  Varianz dominiert, bleibt random (Details bench-baseline.json).
+
 ### Runde 2, Schritt 1 — Reproduzierbarkeit + LNS-Destroy-Hook
 - **`StartSolveOptions.seed`**: kompletter Solver-Lauf (Construction, Pool,
   ILS, Diversify-Reset) läuft über EINEN Session-Rng — mit Seed

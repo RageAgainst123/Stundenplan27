@@ -8,7 +8,7 @@
 // solution with a list of unplaced unit indices.
 
 import { Rng } from './moves';
-import { feasibleSlots, findHardViolations, wouldViolate } from './hardCheck';
+import { ensureCheckIndex, feasibleSlots, findHardViolations, wouldViolate } from './hardCheck';
 import {
 	type SolverState,
 	type Unit,
@@ -395,30 +395,31 @@ function ejectionChain(
 /** Find which units currently block `unit` from being placed at `slot`. */
 function findBlockers(state: SolverState, unit: Unit, slot: number): Unit[] {
 	const { dayIndex, period } = dpFromSlot(slot);
-	const periodsToOccupy: number[] = [];
-	for (let pos = 0; pos < unit.blockSize; pos++) {
-		periodsToOccupy.push(period + pos);
-	}
+	const uStart = period;
+	const uEnd = period + unit.blockSize - 1;
+
+	// Runde 2, Schritt 3: scoped auf Lehrer ∪ Stufen-Kandidaten statt aller
+	// nUnits — ein Blocker teilt per Definition Lehrer oder Stufe. Dedup
+	// über Generation-Marker; idx-Sortierung am Ende hält die Reihenfolge
+	// byte-identisch zum alten Voll-Scan (Ejection-Chain-Determinismus).
+	const idx = ensureCheckIndex(state);
+	if (idx.gen >= 0x7ffffff0) { idx.seenGen.fill(0); idx.gen = 0; }
+	const gen = ++idx.gen;
+	const seen = idx.seenGen;
 
 	const out: Unit[] = [];
-	for (let i = 0; i < state.nUnits; i++) {
-		const otherSlot = state.placement[i];
-		if (otherSlot === SLOT_UNPLACED) continue;
-		const other = state.units[i];
-		if (other === unit) continue;
-		const otherDp = dpFromSlot(otherSlot);
-		if (otherDp.dayIndex !== dayIndex) continue;
-
-		// Does any other-period overlap with our planned periods?
-		let overlaps = false;
-		for (let oPos = 0; oPos < other.blockSize; oPos++) {
-			const oP = otherDp.period + oPos;
-			if (periodsToOccupy.includes(oP)) {
-				overlaps = true;
-				break;
-			}
-		}
-		if (!overlaps) continue;
+	const checkOther = (other: Unit): void => {
+		if (other === unit) return;
+		if (seen[other.idx] === gen) return;
+		seen[other.idx] = gen;
+		const otherSlot = state.placement[other.idx];
+		if (otherSlot === SLOT_UNPLACED) return;
+		if (((otherSlot / P) | 0) !== dayIndex) return;
+		const otherPeriod = (otherSlot % P) + 1;
+		// Perioden-Intervalle überlappen? Kein P-Clipping nötig: uEnd <= P
+		// (Caller iteriert nur gültige Start-Perioden), Überlappung jenseits
+		// P kann also nicht entstehen — identisch zum alten Perioden-Match.
+		if (otherPeriod > uEnd || otherPeriod + other.blockSize - 1 < uStart) return;
 
 		// Is this overlap a hard violation (teacher / grade clash)?
 		// Coupling-units may carry multiple teachers — any shared teacher
@@ -428,6 +429,17 @@ function findBlockers(state: SolverState, unit: Unit, slot: number): Unit[] {
 		if (sharedTeacher || overlapsGrade) {
 			out.push(other);
 		}
+	};
+	for (const tid of unit.teacherIds) {
+		const list = state.unitsByTeacher.get(tid);
+		if (!list) continue;
+		for (const other of list) checkOther(other);
 	}
+	for (const g of unit.grades) {
+		const list = idx.unitsByGrade.get(g);
+		if (!list) continue;
+		for (const other of list) checkOther(other);
+	}
+	out.sort((a, b) => a.idx - b.idx);
 	return out;
 }

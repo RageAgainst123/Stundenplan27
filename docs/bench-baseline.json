@@ -255,6 +255,39 @@
         "ERKENNTNIS für Schritt 3: der Hot-Path wird von der MOVE-GENERIERUNG dominiert — movableUnits() baut pro genMove ein frisches ~130er-Array (und ist während eines LS-Laufs STATISCH, Moves entplatzieren nie!), wouldViolate scannt O(nUnits) bis 12x pro Move. Beides adressiert Schritt 3.",
         "Änderung bleibt drin: Null-Risiko (identische Semantik), Scratch-Infrastruktur (Integer-Indizes subjectIdxByCode/specIdxById/teacherIdxById, Per-Unit-Caches) wird von Schritt 3 mitgenutzt."
       ]
+    },
+    {
+      "label": "r2-schritt-3-scoped-hard-checks",
+      "commit": "(siehe git log: perf(solver) scoped Hard-Checks)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.compact_teacher": 10,
+          "breakdown.main_run": 2,
+          "teacher.gapsTotal": 9,
+          "teacher.gapsMaxPerTeacher": 2,
+          "teacher.daysPresentTotal": 35,
+          "teacher.lateStartsTotal": 79,
+          "teacher.miniDays": 3
+        },
+        "iterPerSec": "5433-7319",
+        "noFreeZeroRuns": "5/5"
+      },
+      "async_produktionspfad": {
+        "iterPerSec": "4260-7527",
+        "noFreeZeroRuns": "5/5",
+        "median_gapsTotal": 10
+      },
+      "_befund": [
+        "DURCHSATZ +30%: Sync-Median ~4500 → 5891 iter/s, Async ~4200 → 5373. Drei Hebel: (1) wouldViolate scoped auf Lehrer∪Stufen∪Coupling-Kandidaten (10-40 statt ~130 Units) mit Generation-Marker-Dedup, (2) movableUnits einmal pro LS-Lauf statt pro Move, (3) dpFromSlot-Objektallokation im Kandidaten-Scan inlined.",
+        "Äquivalenz bewiesen: neuer Test hardCheck.test.ts vergleicht scoped gegen Voll-Scan-Referenz auf 500 Random-States × 8 Proben (inkl. Kopplungen, Blöcke, G/U, absichtliche Konflikte) — null-Entscheidung identisch. findBlockers sortiert Ergebnis nach idx → Ejection-Chain byte-identisch.",
+        "Ziel-Metrik profitiert: Sync gapsTotal Median 10 → 9, compact_teacher 12 → 10 (mehr Iterationen = bessere Konvergenz im gleichen Budget). no_free=0 in 10/10 Läufen.",
+        "RE-TEST Slot-Sampling 12→20 (Runde-1-Experiment B): WIEDER verworfen — gaps 9→11, gapsMax 2→4, main_run 2→5. Der Effekt lag nie an den Check-Kosten, mehr Versuche pro Move verschlechtern die Move-Diversität selbst.",
+        "WIEDERVORLAGE Diversify-Strategien (2 neue 3-Arm-Läufe): Lauf 1 pro worst-teacher (4/5 Seeds besser, Median 8 vs 9), Lauf 2 pro random (Summe 41 vs 47) — Lauf-zu-Lauf-Varianz (±5) dominiert die Strategie-Differenz (±3). Systematisch: worst-teacher versagt auf chaotischen Basen (Seed 99999: 15 vs 10). ENTSCHEIDUNG: bleibt random; belastbare Entscheidung bräuchte 10+ Läufe pro Arm — vertagt auf nach dem Web-Worker-Schritt (echte Browser-Performance ändert das Bild ohnehin)."
+      ]
     }
   ]
 }

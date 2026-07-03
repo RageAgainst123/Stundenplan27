@@ -85,7 +85,7 @@ export class Rng {
  * (typischerweise ILS nach unproduktivem Plateau) hebt ihn an, um aus
  * lokalen Optima zu entkommen.
  */
-export function genMove(state: SolverState, rng: Rng, kempeBoost = 0): Move | null {
+export function genMove(state: SolverState, rng: Rng, kempeBoost = 0, movable?: Unit[]): Move | null {
 	const kempeProb = Math.min(0.4, 0.05 + kempeBoost);
 	const swapProb = 0.30;
 	const teacherGapProb = 0.10;
@@ -94,9 +94,9 @@ export function genMove(state: SolverState, rng: Rng, kempeBoost = 0): Move | nu
 	const moveProb = Math.max(0.05, 1 - swapProb - kempeProb - teacherGapProb - dayElimProb - classGapProb);
 	const r = rng.next() * (moveProb + swapProb + kempeProb + teacherGapProb + dayElimProb + classGapProb);
 	let acc = moveProb;
-	if (r < acc) return genSlotMove(state, rng);
+	if (r < acc) return genSlotMove(state, rng, movable);
 	acc += swapProb;
-	if (r < acc) return genSlotSwap(state, rng);
+	if (r < acc) return genSlotSwap(state, rng, movable);
 	acc += kempeProb;
 	if (r < acc) return genKempeChain(state, rng);
 	acc += teacherGapProb;
@@ -110,8 +110,8 @@ export function genMove(state: SolverState, rng: Rng, kempeBoost = 0): Move | nu
  * slot-move: pick a non-pinned, placed unit; pick a feasible target slot;
  * if target is occupied by another non-pinned unit, fall back to a swap.
  */
-function genSlotMove(state: SolverState, rng: Rng): Move | null {
-	const candidates = movableUnits(state);
+function genSlotMove(state: SolverState, rng: Rng, movable?: Unit[]): Move | null {
+	const candidates = movable ?? movableUnits(state);
 	if (candidates.length === 0) return null;
 	const unit = rng.pick(candidates);
 	const fromSlot = state.placement[unit.idx];
@@ -154,8 +154,8 @@ function genSlotMove(state: SolverState, rng: Rng): Move | null {
  * slot-swap: pick two distinct non-pinned units, check both ways for hard
  * constraints, return swap.
  */
-function genSlotSwap(state: SolverState, rng: Rng): Move | null {
-	const candidates = movableUnits(state);
+function genSlotSwap(state: SolverState, rng: Rng, movable?: Unit[]): Move | null {
+	const candidates = movable ?? movableUnits(state);
 	if (candidates.length < 2) return null;
 	for (let tries = 0; tries < 8; tries++) {
 		const a = rng.pick(candidates);
@@ -441,8 +441,15 @@ function genClassGapRepair(state: SolverState, rng: Rng): Move | null {
 	return null;
 }
 
-/** Return all unit references that are currently non-pinned and placed. */
-function movableUnits(state: SolverState): Unit[] {
+/**
+ * Return all unit references that are currently non-pinned and placed.
+ *
+ * Runde 2, Schritt 3: exportiert, damit localSearch die Liste EINMAL pro
+ * Lauf berechnet und via genMove-Param durchreicht — sie ist während eines
+ * LS-Laufs statisch (Moves relozieren nur, sie (ent)platzieren nie) und
+ * wurde vorher bei JEDER Move-Generierung neu gebaut (O(n) + Array-Alloc).
+ */
+export function movableUnits(state: SolverState): Unit[] {
 	const out: Unit[] = [];
 	for (let i = 0; i < state.nUnits; i++) {
 		const u = state.units[i];
