@@ -11,6 +11,10 @@ import { computeScore } from './score';
 import { construct } from './construct';
 import { findHardViolations } from './hardCheck';
 import { iteratedLocalSearchAsync } from './iteratedLS';
+import { Rng } from './moves';
+import { pickDiversifyResetUnits, type DiversifyStrategy } from './lnsDestroy';
+
+export type { DiversifyStrategy } from './lnsDestroy';
 import {
 	DAYS_BY_INDEX,
 	defaultWeights,
@@ -168,7 +172,23 @@ export interface StartSolveOptions {
 		fraction: number;
 		/** Local-Search-Budget nach Reset in ms (5000 - 120000). */
 		durationMs: number;
+		/**
+		 * Solver-Opt Runde 2, Schritt 1 — Destroy-Strategie (LNS):
+		 *  - 'random' (Default): zufällige Auswahl wie bisher.
+		 *  - 'worst-teacher': Units des Lehrers mit den meisten Wochen-
+		 *    Springstunden zuerst — der Repair kann seinen Plan neu legen.
+		 *  - 'related-day': alle Units eines (Tag, Stufe)-Streifens mit
+		 *    Klassen-Lücke oder größter Tagespensum-Abweichung.
+		 */
+		strategy?: DiversifyStrategy;
 	};
+	/**
+	 * Solver-Opt Runde 2, Schritt 1: deterministischer Seed für den ganzen
+	 * Lauf (Construction, Pool, ILS, Diversify-Reset). Ohne Seed wird wie
+	 * bisher `Date.now()` verwendet — Produktion bleibt zufällig, Bench
+	 * und Bug-Reproduktionen werden reproduzierbar.
+	 */
+	seed?: number;
 }
 
 // ----- Tiny event emitter ---------------------------------------------------
@@ -197,7 +217,7 @@ class Emitter {
  * Each Unit may produce multiple PlacedLesson entries (one per (occurrence,
  * grade) instance).
  */
-function placementToPlacedLessons(state: SolverState, placement: Int32Array): PlacedLesson[] {
+export function placementToPlacedLessons(state: SolverState, placement: Int32Array): PlacedLesson[] {
 	// Last-mile defensive sweep: never hand a hard-violating placement to
 	// the UI. We swap the state's placement buffer for the duration of the
 	// scan, find offending unit indices, and skip them during decode. This
@@ -440,6 +460,10 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 
 	let aborted = false;
 	let stateForDump: SolverState | null = null;
+	// Runde 2, Schritt 1: EIN Session-Rng speist alle Zufalls-Seeds
+	// (Construction, Pool, ILS, Diversify-Reset). Mit opts.seed ist der
+	// ganze Lauf reproduzierbar; ohne bleibt es Date.now()-Zufall wie bisher.
+	const sessionRng = new Rng(opts.seed ?? (Date.now() & 0x7fffffff));
 	// Phase 18: zuletzt-bekannter Score + Relaxation-Info für DZN-Export.
 	// Werden vom done-Pfad gesetzt; bleiben null wenn vor Solver-Lauf getDzn()
 	// gerufen wird.
@@ -556,29 +580,14 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				diversifyPreSnapshot = new Int32Array(state.placement);
 				diversifyPreScore = computeScore(state, weights).total;
 				const fraction = Math.max(0.05, Math.min(0.5, diversifyOpts!.fraction));
-				// Sammle alle nicht-pinned, aktuell platzierten Units
-				const candidates: number[] = [];
-				for (let i = 0; i < state.nUnits; i++) {
-					if (!state.units[i].pinned && state.placement[i] !== SLOT_UNPLACED) {
-						candidates.push(i);
-					}
-				}
-				const resetCount = Math.max(1, Math.floor(candidates.length * fraction));
-				// Fisher-Yates Partial Shuffle für resetCount zufällige Indices
-				const seedR = ((Date.now()) & 0x7fffffff) || 1;
-				let rngState = seedR;
-				const rand = () => {
-					rngState = (rngState * 1103515245 + 12345) & 0x7fffffff;
-					return rngState / 0x7fffffff;
-				};
-				for (let i = 0; i < resetCount && i < candidates.length; i++) {
-					const j = i + Math.floor(rand() * (candidates.length - i));
-					[candidates[i], candidates[j]] = [candidates[j], candidates[i]];
-				}
-				const toReset = candidates.slice(0, resetCount);
+				// Runde 2, Schritt 1: Destroy-Strategie (LNS). 'random' ist das
+				// bisherige Verhalten; 'worst-teacher'/'related-day' setzen
+				// zielgerichtet zusammengehörige Units zurück (lnsDestroy.ts).
+				const strategy = diversifyOpts!.strategy ?? 'random';
+				const toReset = pickDiversifyResetUnits(state, fraction, strategy, sessionRng);
 				for (const idx of toReset) state.placement[idx] = SLOT_UNPLACED;
 				diversifyResetCount = toReset.length;
-				emitLog('phase', `Diversify: ${diversifyResetCount} von ${candidates.length} nicht-pinned Units zurückgesetzt (${Math.round(fraction * 100)}%)`);
+				emitLog('phase', `Diversify (${strategy}): ${diversifyResetCount} nicht-pinned Units zurückgesetzt (Ziel ${Math.round(fraction * 100)}%)`);
 			}
 
 			// --- Phase 1: Construction (Pool, Single, oder Hot-Start) ---
@@ -617,7 +626,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 					// Nutze normale construct() — die respektiert bereits
 					// platzierte Units (sie überspringt Units mit
 					// placement[idx] !== SLOT_UNPLACED).
-					constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+					constructResult = construct(state, { weights, seed: sessionRng.int(1, 2147483647) });
 				} else {
 					constructResult = { unplacedUnitIdxs: [], complete: true };
 				}
@@ -649,8 +658,9 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 						state.placement[i] = pinnedSnapshot[i];
 					}
 
-					// Construction mit neuem Seed pro Versuch.
-					const seed = ((Date.now() ^ (poolAttempts * 0x9E3779B1)) & 0x7fffffff) || 1;
+					// Construction mit neuem Seed pro Versuch (aus dem Session-Rng —
+					// mit opts.seed deterministisch, sonst Date.now()-gespeist).
+					const seed = sessionRng.int(1, 2147483647);
 					const r = construct(state, { weights, seed });
 					poolAttempts++;
 					const breakdown = computeScore(state, weights);
@@ -697,13 +707,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 					// (z.B. abort kurz nach Start).
 					emitLog('warn', `Pool ohne valide Lösung — Fallback auf Einzel-Construction`);
 					for (let i = 0; i < state.nUnits; i++) state.placement[i] = pinnedSnapshot[i];
-					constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+					constructResult = construct(state, { weights, seed: sessionRng.int(1, 2147483647) });
 				}
 			} else {
 				// Heutiges Verhalten: 1 Construction
 				emitLog('phase', 'Phase 1: Construction (greedy + ejection chain)');
 				const tConstructStart = Date.now();
-				constructResult = construct(state, { weights, seed: Date.now() & 0x7fffffff });
+				constructResult = construct(state, { weights, seed: sessionRng.int(1, 2147483647) });
 				const tConstruct = Date.now() - tConstructStart;
 				emitLog('stat', `Construction abgeschlossen in ${tConstruct} ms`, {
 					unplaced: constructResult.unplacedUnitIdxs.length,
@@ -753,7 +763,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				weights,
 				totalBudgetMs: Math.max(1_000, phase2Remaining),
 				innerBudgetMs: innerBudget,
-				seed: Date.now() & 0x7fffffff,
+				seed: sessionRng.int(1, 2147483647),
 				shouldAbort: () => aborted,
 				onImprovement: (info) => {
 					emit('solution', {
@@ -799,7 +809,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 					weights: relaxedWeights,
 					totalBudgetMs: Math.max(2_000, totalBudget - (Date.now() - tStart)),
 					innerBudgetMs: innerBudget,
-					seed: (Date.now() & 0x7fffffff) ^ 0x55aa55aa,
+					seed: sessionRng.int(1, 2147483647),
 					shouldAbort: () => aborted,
 					onImprovement: (info) => {
 						emit('solution', {

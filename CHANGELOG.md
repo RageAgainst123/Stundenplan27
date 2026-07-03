@@ -64,6 +64,20 @@ Tabu-Tenure 100, Slot-Sampling 20, `teacher_late_start` quadratisch —
 alle verschlechterten die Ziel-Metrik Springstunden. Details mit Zahlen
 in `docs/bench-baseline.json`.
 
+### Runde 2, Schritt 1 — Reproduzierbarkeit + LNS-Destroy-Hook
+- **`StartSolveOptions.seed`**: kompletter Solver-Lauf (Construction, Pool,
+  ILS, Diversify-Reset) läuft über EINEN Session-Rng — mit Seed
+  reproduzierbar (Bench, Bug-Reports), ohne Seed wie bisher zufällig.
+  Vorher: 6 unabhängige `Date.now()`-Seed-Stellen.
+- **`diversify.strategy`** (`'random' | 'worst-teacher' | 'related-day'`,
+  neues Modul `lnsDestroy.ts`): zielgerichtete Destroy-Auswahl nach
+  LNS-Literatur (Shaw). **Bench-Befund: kein belastbarer Vorteil** von
+  worst-teacher auf der Ziel-Metrik (3 Messrunden, Details in
+  bench-baseline.json) → Autopilot bleibt auf `random`; die Strategien
+  bleiben als getesteter Hook mit Wiedervorlage nach den
+  Durchsatz-Schritten. Neuer Bench-Fall „Diversify-Strategien" für
+  künftige Re-Evaluierung.
+
 ### Tests
 - 315 Tests grün (vorher 289): Bench-Metriken, Resume-Äquivalenz,
   Tabu-Expiry über Chunk-Grenzen, Repair-Move-Properties (500 Random-

@@ -1,149 +1,226 @@
 {
-	"_readme": [
-		"Solver-Qualitäts-Baseline auf der echten Liste.csv (52 Specs).",
-		"Erzeugt mit `npm run bench` — 5 feste Seeds [42,1337,7,2024,99999],",
-		"10s ILS pro Lauf (innerBudget 4s, plateau 2s), Median über Seeds.",
-		"Rohzähler vergleichen, NICHT weightedTotal (wird bei Gewichts-",
-		"Änderungen unvergleichbar). Immer auf derselben Maschine messen.",
-		"Nach jeder Optimierungs-Phase neuen Eintrag mit Commit-Hash anhängen."
-	],
-	"entries": [
-		{
-			"label": "baseline-pre-optimization",
-			"commit": "793a569",
-			"date": "2026-07-03",
-			"machine": "Geo-Windows-Dev",
-			"sync": {
-				"median": {
-					"weightedTotal": 12734,
-					"breakdown.no_free": 0,
-					"breakdown.min_daily": 0,
-					"breakdown.compact_teacher": 20,
-					"breakdown.teacher_late_start": 89,
-					"breakdown.teacher_under_min": 4,
-					"breakdown.any_aft": 30,
-					"breakdown.main_early": 132,
-					"breakdown.subject_twice": 19,
-					"breakdown.spec_spread": 8,
-					"breakdown.target_daily": 57,
-					"breakdown.main_run": 1,
-					"teacher.gapsTotal": 14,
-					"teacher.gapsMaxPerTeacher": 5,
-					"teacher.daysPresentTotal": 39,
-					"teacher.lateStartsTotal": 89,
-					"teacher.miniDays": 4,
-					"teacher.missedLunchDays": 1
-				},
-				"range": { "weightedTotal": [11280, 13604], "teacher.gapsTotal": [9, 19] },
-				"iterPerSec": "3400-5300",
-				"noFreeZeroRuns": "5/5"
-			},
-			"async_produktionspfad": {
-				"median": {
-					"weightedTotal": 12698,
-					"breakdown.no_free": 0,
-					"teacher.gapsTotal": 12
-				},
-				"range": { "weightedTotal": [11354, 22650] },
-				"iterPerSec": "2100-3100",
-				"noFreeZeroRuns": "3/5",
-				"_befund": "SA-Kaltstart alle 250ms (KRITISCH-1): 2 von 5 Läufen bleiben mit Klassen-Lücke stecken (Score >21000). Hohe Varianz, ~35% weniger Iterationen als Sync."
-			}
-		},
-		{
-			"label": "schritt-2-resumable-ls",
-			"commit": "(siehe git log: feat(solver) resumable LS)",
-			"date": "2026-07-03",
-			"machine": "Geo-Windows-Dev",
-			"async_produktionspfad": {
-				"median": {
-					"weightedTotal": 12480,
-					"breakdown.no_free": 0
-				},
-				"range": { "weightedTotal": [11702, 22240] },
-				"noFreeZeroRuns": "4/5",
-				"_befund": [
-					"Resume-Fix wirkt: Seed 99999 von 21320/no_free=1 auf 12454/no_free=0 repariert.",
-					"Seed 7 bleibt stecken — Random-Moves treffen die eine spezifische Klassen-Lücke nicht (→ Schritt 4: class-gap-repair-Move).",
-					"Async-Iterations-Rückstand vs Sync ist großteils jsdom-Yield-Artefakt (~120ms/setTimeout in vitest; Browser ~2ms). CHUNK_MS bleibt 250 für UI-Liveness.",
-					"Äquivalenz bewiesen: 3 Resume-Chunks à 1000 Iter == 1 Lauf à 3000 Iter (Test in localSearch.test.ts)."
-				]
-			}
-		},
-		{
-			"label": "schritt-3-lehrer-score-komponenten",
-			"commit": "(siehe git log: feat(solver) Lehrer-Score)",
-			"date": "2026-07-03",
-			"machine": "Geo-Windows-Dev",
-			"sync": {
-				"median": {
-					"weightedTotal": "14349 (NICHT vergleichbar — 3 neue Komponenten zählen jetzt in den Total)",
-					"breakdown.no_free": 0,
-					"breakdown.min_daily": 0,
-					"breakdown.compact_teacher": 14,
-					"breakdown.main_run": 3,
-					"breakdown.teacher_gap_fairness": 23,
-					"breakdown.teacher_days_present": 14,
-					"breakdown.teacher_lunch": 2,
-					"teacher.gapsTotal": 10,
-					"teacher.gapsMaxPerTeacher": 3,
-					"teacher.daysPresentTotal": 37,
-					"teacher.lateStartsTotal": 85,
-					"teacher.miniDays": 5,
-					"teacher.missedLunchDays": 2
-				},
-				"_befund": [
-					"Lehrer-Metriken vs Baseline: Springstunden 14→10 (−29%), Max-Lücken/Lehrer 5→3 (−40%), compact_teacher 20→14 (−30%), Anwesenheitstage 39→37.",
-					"Klassen-Invarianten halten: no_free=0, min_daily=0 in allen Seeds.",
-					"Kleiner Trade-off: main_run 1→3 (Median) — für Schritt-5-Tuning notiert.",
-					"Neue Komponenten: teacher_gap_fairness (15, an), teacher_days_present (120, an), teacher_lunch (100, AUS per Default)."
-				]
-			}
-		},
-		{
-			"label": "schritt-4-repair-moves",
-			"commit": "(siehe git log: feat(solver) Repair-Moves)",
-			"date": "2026-07-03",
-			"machine": "Geo-Windows-Dev",
-			"sync": {
-				"median": {
-					"breakdown.no_free": 0,
-					"breakdown.min_daily": 0,
-					"breakdown.compact_teacher": 12,
-					"breakdown.main_run": 2,
-					"breakdown.teacher_gap_fairness": 16,
-					"breakdown.teacher_days_present": 13,
-					"teacher.gapsTotal": 10,
-					"teacher.gapsMaxPerTeacher": 2,
-					"teacher.daysPresentTotal": 35,
-					"teacher.lateStartsTotal": 79,
-					"teacher.miniDays": 3
-				}
-			},
-			"async_produktionspfad": {
-				"perSeed_weightedTotal": [13373, 14871, 11950, 13034, 12573],
-				"noFreeZeroRuns": "5/5",
-				"iterPerSec": "2785-4555",
-				"_befund": [
-					"ALLE 5 Seeds erreichen no_free=0 (Baseline 3/5, nach S2 4/5).",
-					"Der Steck-Seed 7 ist repariert: 22240/no_free=1 → 11950/no_free=0 — jetzt der BESTE Lauf. class-gap-repair wirkt.",
-					"Iterationen/s +50% vs S2 (Repair-Generatoren liefern öfter direkt gültige Moves, weniger Fehlversuche).",
-					"Sync-Medians: gapsMax 3→2, daysPresent 37→35, miniDays 5→3, lateStarts 85→79, main_run-Trade-off halbiert 3→2."
-				]
-			}
-		},
-		{
-			"label": "schritt-5-tuning-experimente",
-			"commit": "(kein Code-Change — alle Experimente verworfen)",
-			"date": "2026-07-03",
-			"machine": "Geo-Windows-Dev",
-			"_experimente": [
-				"A) Tabu-Tenure 50→100: VERWORFEN. Gaps 10→13, GapsMax 2→3, compact 12→18, Total 12856→14113. Längere Tabu blockiert zu viele Repair-Pfade.",
-				"B) Slot-Sampling 12→20 Versuche: VERWORFEN. Gaps 10→12, GapsMax 2→4, main_run 2→5. Mehr Versuche pro Move = weniger Moves/Sekunde, netto schlechter.",
-				"C) Kempe-Reheat aggressiver: NICHT MESSBAR im 10s-Bench (Reheat braucht consecutiveUnproductive>=2, tritt bei 1-2 Restarts kaum ein). Nicht angefasst.",
-				"D) teacher_late_start linear→quadratisch: VERWORFEN. lateStarts 79→62 und daysPresent 35→32 besser, ABER Gaps 10→18 und GapsMax 2→5 — der P1-Druck stiehlt die Flexibilität zur Lückenvermeidung. Gegen User-Priorität Springstunden.",
-				"FAZIT: Der Stand nach Schritt 4 ist für die Ziel-Metrik (Springstunden) bereits gut ausbalanciert. Keine Änderung übernommen."
-			]
-		}
-	]
+  "_readme": [
+    "Solver-Qualitäts-Baseline auf der echten Liste.csv (52 Specs).",
+    "Erzeugt mit `npm run bench` — 5 feste Seeds [42,1337,7,2024,99999],",
+    "10s ILS pro Lauf (innerBudget 4s, plateau 2s), Median über Seeds.",
+    "Rohzähler vergleichen, NICHT weightedTotal (wird bei Gewichts-",
+    "Änderungen unvergleichbar). Immer auf derselben Maschine messen.",
+    "Nach jeder Optimierungs-Phase neuen Eintrag mit Commit-Hash anhängen."
+  ],
+  "entries": [
+    {
+      "label": "baseline-pre-optimization",
+      "commit": "793a569",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "weightedTotal": 12734,
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.compact_teacher": 20,
+          "breakdown.teacher_late_start": 89,
+          "breakdown.teacher_under_min": 4,
+          "breakdown.any_aft": 30,
+          "breakdown.main_early": 132,
+          "breakdown.subject_twice": 19,
+          "breakdown.spec_spread": 8,
+          "breakdown.target_daily": 57,
+          "breakdown.main_run": 1,
+          "teacher.gapsTotal": 14,
+          "teacher.gapsMaxPerTeacher": 5,
+          "teacher.daysPresentTotal": 39,
+          "teacher.lateStartsTotal": 89,
+          "teacher.miniDays": 4,
+          "teacher.missedLunchDays": 1
+        },
+        "range": {
+          "weightedTotal": [
+            11280,
+            13604
+          ],
+          "teacher.gapsTotal": [
+            9,
+            19
+          ]
+        },
+        "iterPerSec": "3400-5300",
+        "noFreeZeroRuns": "5/5"
+      },
+      "async_produktionspfad": {
+        "median": {
+          "weightedTotal": 12698,
+          "breakdown.no_free": 0,
+          "teacher.gapsTotal": 12
+        },
+        "range": {
+          "weightedTotal": [
+            11354,
+            22650
+          ]
+        },
+        "iterPerSec": "2100-3100",
+        "noFreeZeroRuns": "3/5",
+        "_befund": "SA-Kaltstart alle 250ms (KRITISCH-1): 2 von 5 Läufen bleiben mit Klassen-Lücke stecken (Score >21000). Hohe Varianz, ~35% weniger Iterationen als Sync."
+      }
+    },
+    {
+      "label": "schritt-2-resumable-ls",
+      "commit": "(siehe git log: feat(solver) resumable LS)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "async_produktionspfad": {
+        "median": {
+          "weightedTotal": 12480,
+          "breakdown.no_free": 0
+        },
+        "range": {
+          "weightedTotal": [
+            11702,
+            22240
+          ]
+        },
+        "noFreeZeroRuns": "4/5",
+        "_befund": [
+          "Resume-Fix wirkt: Seed 99999 von 21320/no_free=1 auf 12454/no_free=0 repariert.",
+          "Seed 7 bleibt stecken — Random-Moves treffen die eine spezifische Klassen-Lücke nicht (→ Schritt 4: class-gap-repair-Move).",
+          "Async-Iterations-Rückstand vs Sync ist großteils jsdom-Yield-Artefakt (~120ms/setTimeout in vitest; Browser ~2ms). CHUNK_MS bleibt 250 für UI-Liveness.",
+          "Äquivalenz bewiesen: 3 Resume-Chunks à 1000 Iter == 1 Lauf à 3000 Iter (Test in localSearch.test.ts)."
+        ]
+      }
+    },
+    {
+      "label": "schritt-3-lehrer-score-komponenten",
+      "commit": "(siehe git log: feat(solver) Lehrer-Score)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "weightedTotal": "14349 (NICHT vergleichbar — 3 neue Komponenten zählen jetzt in den Total)",
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.compact_teacher": 14,
+          "breakdown.main_run": 3,
+          "breakdown.teacher_gap_fairness": 23,
+          "breakdown.teacher_days_present": 14,
+          "breakdown.teacher_lunch": 2,
+          "teacher.gapsTotal": 10,
+          "teacher.gapsMaxPerTeacher": 3,
+          "teacher.daysPresentTotal": 37,
+          "teacher.lateStartsTotal": 85,
+          "teacher.miniDays": 5,
+          "teacher.missedLunchDays": 2
+        },
+        "_befund": [
+          "Lehrer-Metriken vs Baseline: Springstunden 14→10 (−29%), Max-Lücken/Lehrer 5→3 (−40%), compact_teacher 20→14 (−30%), Anwesenheitstage 39→37.",
+          "Klassen-Invarianten halten: no_free=0, min_daily=0 in allen Seeds.",
+          "Kleiner Trade-off: main_run 1→3 (Median) — für Schritt-5-Tuning notiert.",
+          "Neue Komponenten: teacher_gap_fairness (15, an), teacher_days_present (120, an), teacher_lunch (100, AUS per Default)."
+        ]
+      }
+    },
+    {
+      "label": "schritt-4-repair-moves",
+      "commit": "(siehe git log: feat(solver) Repair-Moves)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.compact_teacher": 12,
+          "breakdown.main_run": 2,
+          "breakdown.teacher_gap_fairness": 16,
+          "breakdown.teacher_days_present": 13,
+          "teacher.gapsTotal": 10,
+          "teacher.gapsMaxPerTeacher": 2,
+          "teacher.daysPresentTotal": 35,
+          "teacher.lateStartsTotal": 79,
+          "teacher.miniDays": 3
+        }
+      },
+      "async_produktionspfad": {
+        "perSeed_weightedTotal": [
+          13373,
+          14871,
+          11950,
+          13034,
+          12573
+        ],
+        "noFreeZeroRuns": "5/5",
+        "iterPerSec": "2785-4555",
+        "_befund": [
+          "ALLE 5 Seeds erreichen no_free=0 (Baseline 3/5, nach S2 4/5).",
+          "Der Steck-Seed 7 ist repariert: 22240/no_free=1 → 11950/no_free=0 — jetzt der BESTE Lauf. class-gap-repair wirkt.",
+          "Iterationen/s +50% vs S2 (Repair-Generatoren liefern öfter direkt gültige Moves, weniger Fehlversuche).",
+          "Sync-Medians: gapsMax 3→2, daysPresent 37→35, miniDays 5→3, lateStarts 85→79, main_run-Trade-off halbiert 3→2."
+        ]
+      }
+    },
+    {
+      "label": "schritt-5-tuning-experimente",
+      "commit": "(kein Code-Change — alle Experimente verworfen)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "_experimente": [
+        "A) Tabu-Tenure 50→100: VERWORFEN. Gaps 10→13, GapsMax 2→3, compact 12→18, Total 12856→14113. Längere Tabu blockiert zu viele Repair-Pfade.",
+        "B) Slot-Sampling 12→20 Versuche: VERWORFEN. Gaps 10→12, GapsMax 2→4, main_run 2→5. Mehr Versuche pro Move = weniger Moves/Sekunde, netto schlechter.",
+        "C) Kempe-Reheat aggressiver: NICHT MESSBAR im 10s-Bench (Reheat braucht consecutiveUnproductive>=2, tritt bei 1-2 Restarts kaum ein). Nicht angefasst.",
+        "D) teacher_late_start linear→quadratisch: VERWORFEN. lateStarts 79→62 und daysPresent 35→32 besser, ABER Gaps 10→18 und GapsMax 2→5 — der P1-Druck stiehlt die Flexibilität zur Lückenvermeidung. Gegen User-Priorität Springstunden.",
+        "FAZIT: Der Stand nach Schritt 4 ist für die Ziel-Metrik (Springstunden) bereits gut ausbalanciert. Keine Änderung übernommen."
+      ]
+    },
+    {
+      "label": "r2-schritt-1-lns-destroy",
+      "commit": "(siehe git log: feat(solver) LNS-Destroy)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "_experiment_diversify_strategien": {
+        "setup": "Pro Seed: construct + 8s Sync-ILS als Basis, dann von identischer Basis N Diversify-Zyklen via startSolve (seed-Option) — Arm 'random' vs Arm 'worst-teacher'. Vergleich teacher.gapsTotal.",
+        "runde_B_3x2500ms": {
+          "perSeed_random": [
+            12,
+            7,
+            6,
+            12,
+            9
+          ],
+          "perSeed_worst": [
+            7,
+            8,
+            7,
+            12,
+            14
+          ],
+          "sum": "random 46 / worst 48",
+          "median": "random 9 / worst 8"
+        },
+        "runde_C_2x6000ms": {
+          "perSeed_random": [
+            9,
+            9,
+            8,
+            8,
+            8
+          ],
+          "perSeed_worst": [
+            9,
+            8,
+            8,
+            8,
+            12
+          ],
+          "sum": "random 42 / worst 45",
+          "median": "random 8 / worst 8"
+        },
+        "_befund": [
+          "KEIN belastbarer Vorteil für worst-teacher: Median-Gleichstand bzw. +1, Summen in 2 von 3 Runden schlechter. Ausgerechnet beim schlechtesten Basis-Plan (Seed 99999) repariert random konsistent besser — zielgerichtetes Destroy fixiert EINEN Lehrer, während die Lücken über mehrere Lehrer verteilt sind.",
+          "ENTSCHEIDUNG: Autopilot bleibt auf 'random'. Strategie-API + lnsDestroy.ts bleiben als getesteter, dokumentierter Hook (Default random = Produktionsverhalten unverändert).",
+          "WIEDERVORLAGE nach R2-Schritt 2+3: höherer Repair-Durchsatz pro Zyklus könnte zielgerichtetes Destroy rentabel machen — Diversify-Bench-Fall existiert dafür weiter.",
+          "KEEPER aus diesem Schritt: StartSolveOptions.seed macht komplette Sessions reproduzierbar (Construction, Pool, ILS, Diversify-Reset über EINEN Session-Rng); vorher 6 unabhängige Date.now()-Seeds.",
+          "METHODIK-WARNUNG: Hintergrund-Prozesse laufen unter Windows mit reduzierter Priorität — Zeitbudget-Benches NUR im Vordergrund laufen lassen (2 Läufe mit 6-10x Wall-Clock-Verzerrung verworfen)."
+        ]
+      }
+    }
+  ]
 }

@@ -16,9 +16,11 @@
 // den Store schreiben) lebt in GenerateButton.svelte, wo Store-Zugriff
 // und Event-Verdrahtung bereits existieren.
 
+import type { DiversifyStrategy } from './solver-v2/index';
+
 export type AutopilotPhase =
 	| { kind: 'generate'; poolBudgetMs: number; totalBudgetMs: number }
-	| { kind: 'diversify'; fraction: number; durationMs: number };
+	| { kind: 'diversify'; fraction: number; durationMs: number; strategy: DiversifyStrategy };
 
 export interface AutopilotPlan {
 	phases: AutopilotPhase[];
@@ -27,6 +29,20 @@ export interface AutopilotPlan {
 
 /** Fallende Diversify-Fractions — größere Sprünge zuerst, Feinschliff am Ende. */
 const DIVERSIFY_FRACTIONS = [0.3, 0.2, 0.15, 0.1] as const;
+
+/**
+ * Solver-Opt Runde 2, Schritt 1: Destroy-Strategie pro Zyklus.
+ *
+ * BENCH-BEFUND (bench-baseline.json, Eintrag r2-schritt-1): 'worst-teacher'
+ * zeigte in 3 Messrunden KEINEN belastbaren Vorteil gegenüber 'random'
+ * (Median-Gleichstand, Summen leicht schlechter) — daher bleibt der
+ * Autopilot auf 'random'. Die Strategien sind als getesteter Hook in
+ * lnsDestroy.ts verfügbar; Wiedervorlage nach Runde-2-Schritt 2+3
+ * (mehr Repair-Durchsatz pro Zyklus könnte zielgerichtetes Destroy
+ * rentabel machen).
+ */
+const DIVERSIFY_STRATEGIES: readonly DiversifyStrategy[] =
+	['random', 'random', 'random', 'random'] as const;
 
 /** Ein Diversify-Zyklus unter dieser Dauer lohnt nicht (Construction-Anteil frisst ihn auf). */
 const MIN_CYCLE_MS = 8_000;
@@ -61,6 +77,7 @@ export function planAutopilot(totalBudgetMs: number): AutopilotPlan {
 				kind: 'diversify',
 				fraction: DIVERSIFY_FRACTIONS[i],
 				durationMs: perCycle,
+				strategy: DIVERSIFY_STRATEGIES[i],
 			});
 		}
 	}

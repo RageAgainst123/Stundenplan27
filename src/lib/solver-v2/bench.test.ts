@@ -28,7 +28,8 @@ import { computeScore } from './score';
 import { construct } from './construct';
 import { iteratedLocalSearch, iteratedLocalSearchAsync } from './iteratedLS';
 import { defaultWeights } from './types';
-import { aggregateBench, computeBenchMetrics, type BenchMetrics } from './bench-metrics';
+import { aggregateBench, computeBenchMetrics, computeTeacherMetrics, type BenchMetrics } from './bench-metrics';
+import { placementToPlacedLessons, startSolve, type SolverOutput } from './index';
 
 const benchDescribe = process.env.BENCH === '1' ? describe : describe.skip;
 
@@ -145,4 +146,74 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 
 		expect(agg.median['breakdown.no_free'], 'median(no_free) muss 0 sein').toBe(0);
 	}, 120_000);
+
+	// Runde 2, Schritt 1: Diversify-Destroy-Strategien im Vergleich.
+	// Pro Seed: Basis-Plan (construct + 8s Sync-ILS), dann von IDENTISCHER
+	// Basis 3 Diversify-Zyklen à 2.5s — einmal 'random', einmal
+	// 'worst-teacher' (startSolve mit seed-Option). Vergleich der
+	// Lehrer-Springstunden (gapsTotal) nach den Zyklen.
+	//
+	// ACHTUNG: startSolve macht Pre-Flight-Diagnose. Die rohe Liste.csv hat
+	// ohne Kopplungen 42 Wochenstunden auf Stufe 7 → fatal. Wir koppeln
+	// deshalb (wie im echten Workflow) die Parallel-Gruppen BSP und REL —
+	// nur in DIESEM Testfall; die ILS-Bench-Fälle oben bleiben unverändert
+	// mit der Baseline vergleichbar.
+	it('Diversify-Strategien: random vs worst-teacher', async () => {
+		// 2 Zyklen à 6s: lang genug, dass der Repair einen komplett zerstörten
+		// Lehrer-Plan wieder aufbauen kann (2.5s-Zyklen underschätzen
+		// zielgerichtetes Destroy systematisch — im echten Autopilot sind
+		// Zyklen 60-90s lang).
+		const CYCLES = 2;
+		const CYCLE_MS = 6_000;
+		const report: Record<string, unknown>[] = [];
+
+		for (const seed of SEEDS) {
+			const doc = loadRealDoc();
+			for (const s of doc.specs.filter(s => s.subject === 'BSP' && s.count === 3)) s.couplingId = 'bench-bsp';
+			for (const s of doc.specs.filter(s => s.subject === 'REL' && s.count === 2)) s.couplingId = 'bench-rel';
+			const state = buildState(doc);
+			const w = defaultWeights(doc);
+			construct(state, { weights: w, seed });
+			const ils = iteratedLocalSearch(state, computeScore(state, w), {
+				weights: w,
+				totalBudgetMs: 8_000,
+				innerBudgetMs: INNER_MS,
+				plateauMs: PLATEAU_MS,
+				seed,
+			});
+			const basePlaced = placementToPlacedLessons(state, ils.bestPlacement);
+			const baseGaps = computeTeacherMetrics(state).gapsTotal;
+
+			const runStrategy = async (strategy: 'random' | 'worst-teacher'): Promise<number> => {
+				// Frische Doc-Kopie pro Arm — beide Arme starten von identischer Basis.
+				const d = JSON.parse(JSON.stringify(doc)) as typeof doc;
+				d.placed = basePlaced.map(p => ({ ...p }));
+				for (let i = 0; i < CYCLES; i++) {
+					const out = await new Promise<SolverOutput>(resolve => {
+						const session = startSolve(d, {
+							hotStart: true,
+							seed: seed + i * 7919,
+							diversify: { fraction: 0.25, durationMs: CYCLE_MS, strategy },
+						});
+						session.on('done', ev => resolve(ev.final));
+					});
+					if (out.status === 'SAT' || out.status === 'TIMEOUT') {
+						d.placed = out.placed.map(p => ({ ...p }));
+					}
+				}
+				const st = buildState(d, { hotStart: true });
+				return computeTeacherMetrics(st).gapsTotal;
+			};
+
+			const gapsRandom = await runStrategy('random');
+			const gapsWorst = await runStrategy('worst-teacher');
+			report.push({ seed, baseGaps, gapsRandom, gapsWorst });
+		}
+
+		// eslint-disable-next-line no-console
+		console.log('BENCH-DIVERSIFY:', JSON.stringify(report, null, 2));
+		// Kein harter Besser-Assert (stochastisch) — der Report ist das Ergebnis;
+		// Übernahme-Entscheidung fällt manuell anhand der Median-Zahlen.
+		expect(report).toHaveLength(SEEDS.length);
+	}, 300_000);
 });

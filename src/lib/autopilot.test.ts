@@ -8,6 +8,11 @@ describe('planAutopilot', () => {
 		const divs = plan.phases.slice(1);
 		expect(divs).toHaveLength(4);
 		expect(divs.map(d => d.kind === 'diversify' ? d.fraction : 0)).toEqual([0.3, 0.2, 0.15, 0.1]);
+		// Runde 2 Schritt 1: Strategie pro Zyklus gesetzt — nach Bench-Befund
+		// vorerst überall 'random' (siehe DIVERSIFY_STRATEGIES-Kommentar).
+		expect(divs.map(d => d.kind === 'diversify' ? d.strategy : '')).toEqual(
+			['random', 'random', 'random', 'random']
+		);
 		// Rest 360s / 4 = 90s pro Zyklus
 		for (const d of divs) {
 			expect(d.kind).toBe('diversify');

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
-	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput } from '../lib/solver-v2/index';
+	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput, type DiversifyStrategy } from '../lib/solver-v2/index';
 	import type { PlacedLesson } from '../lib/types';
 	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
@@ -252,11 +252,11 @@
 				} else {
 					// Ohne Plan (Generate-Phase fehlgeschlagen) ist Diversify sinnlos.
 					if (store.doc.placed.length === 0) break;
-					autopilotPhaseLabel = `Diversify ${Math.round(ph.fraction * 100)}%`;
+					autopilotPhaseLabel = `Diversify ${Math.round(ph.fraction * 100)}% (${ph.strategy})`;
 					await runSolver({
 						poolBudgetMs: 0,
 						hotStart: true,
-						diversify: { fraction: ph.fraction, durationMs: ph.durationMs }
+						diversify: { fraction: ph.fraction, durationMs: ph.durationMs, strategy: ph.strategy }
 					});
 				}
 			}
@@ -268,7 +268,7 @@
 		}
 	}
 
-	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean; diversify?: { fraction: number; durationMs: number }; totalBudgetMs?: number }): Promise<SolverOutput> {
+	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean; diversify?: { fraction: number; durationMs: number; strategy?: DiversifyStrategy }; totalBudgetMs?: number }): Promise<SolverOutput> {
 		// Phase 15: Pre-Run Score merken für Auto-Snapshot-Trigger und
 		// Diversify-UI-Anzeige — VOR reset(), das bestScore nullt.
 		const scoreBeforeRun = bestScore;

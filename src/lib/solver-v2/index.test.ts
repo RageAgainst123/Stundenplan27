@@ -285,8 +285,8 @@ describe('Phase 15: Diversify (LNS-Mode)', () => {
 			(resolve) => session.on('done', e => resolve(e as any))
 		);
 		expect(['SAT', 'TIMEOUT']).toContain(done.final.status);
-		// Mind. 1 Diversify-Log muss da sein
-		const divLog = phaseLogs.find(m => m.includes('Diversify:'));
+		// Mind. 1 Diversify-Log muss da sein (Default-Strategie: random)
+		const divLog = phaseLogs.find(m => m.includes('Diversify (random):'));
 		expect(divLog).toBeTruthy();
 	});
 
