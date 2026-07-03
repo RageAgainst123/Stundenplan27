@@ -3,6 +3,8 @@
 	import { startSolve, type SolveSession, type SolvePhase, type SolveLogEvent, type RelaxationInfo, type SolverOutput } from '../lib/solver-v2/index';
 	import type { PlacedLesson } from '../lib/types';
 	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
+	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
+	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
 	const store = useStore();
 
 	// Phase 14: Pool-Phase Dauer (Sekunden). 0 = aus (heutiges Verhalten:
@@ -19,6 +21,17 @@
 	let diversifyDurationSec = $state<number>(30);   // 10-120
 	let diversifyActive = $state<boolean>(false);
 	let preDiversifyScore = $state<number | null>(null);
+
+	// Solver-Opt Schritt 6: Autopilot — sequentielle Generate+Diversify-
+	// Phasen innerhalb eines Gesamt-Budgets. Default 10 Minuten.
+	let autopilotBudgetMin = $state<number>(10);     // 1-15
+	let autopilotActive = $state<boolean>(false);
+	let autopilotPhaseIdx = $state<number>(0);
+	let autopilotPhaseTotal = $state<number>(0);
+	let autopilotPhaseLabel = $state<string>('');
+	// Nicht-reaktives Abbruch-Flag: abort() stoppt die Phasen-Schleife,
+	// session.abort() beendet nur die LAUFENDE Session.
+	let autopilotStop = false;
 
 	// Phase 15: Auto-Snapshot Schwelle (5% Improvement).
 	const AUTO_SNAPSHOT_THRESHOLD = 0.05;
@@ -59,7 +72,9 @@
 	// Last DZN snapshot (kept after session ends, for debug download)
 	let lastDzn = $state<string>('');
 
-	const busy = $derived(session !== null);
+	// Autopilot zählt als busy — zwischen zwei Phasen ist session kurz null,
+	// die Buttons dürfen dabei nicht aufflackern.
+	const busy = $derived(session !== null || autopilotActive);
 	// Phase 14: Hot-Start-Button nur enabled wenn ein Plan existiert
 	// (mind. 1 Placement, egal ob pinned oder nicht).
 	const hasExistingPlan = $derived(store.doc.placed.length > 0);
@@ -189,21 +204,21 @@
 	}
 
 	function generate(): void {
-		runSolver({ poolBudgetMs: poolDurationSec * 1000, hotStart: false });
+		void runSolver({ poolBudgetMs: poolDurationSec * 1000, hotStart: false });
 	}
 
 	function continueOptimize(): void {
 		// Phase 14: Hot-Start. Aktueller Plan-Stand wird als Startlösung
 		// verwendet. Pool-Phase wird übersprungen — User will GENAU diesen
 		// Plan weiteroptimieren, nicht eine neue Variante.
-		runSolver({ poolBudgetMs: 0, hotStart: true });
+		void runSolver({ poolBudgetMs: 0, hotStart: true });
 	}
 
 	function diversify(): void {
 		// Phase 15: Diversify-Lauf. Solver wirft 25% (oder Slider-Wert) der
 		// nicht-pinned Units raus, baut neu, optimiert. Best-Tracking →
 		// Plan kann nie schlechter werden.
-		runSolver({
+		void runSolver({
 			poolBudgetMs: 0,
 			hotStart: true,
 			diversify: {
@@ -213,35 +228,76 @@
 		});
 	}
 
-	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean; diversify?: { fraction: number; durationMs: number } }): void {
+	// Solver-Opt Schritt 6: Autopilot — plant Generate + Diversify-Zyklen
+	// im Gesamt-Budget und wartet jede Session sequentiell ab. Diversify
+	// hat absolutes Best-Tracking (Revert bei Verschlechterung) — der Plan
+	// kann über die Zyklen hinweg nie schlechter werden.
+	async function runAutopilot(): Promise<void> {
+		const plan = planAutopilot(autopilotBudgetMin * 60_000);
+		autopilotActive = true;
+		autopilotStop = false;
+		autopilotPhaseTotal = plan.phases.length;
+		try {
+			for (let i = 0; i < plan.phases.length; i++) {
+				if (autopilotStop) break;
+				const ph = plan.phases[i];
+				autopilotPhaseIdx = i + 1;
+				if (ph.kind === 'generate') {
+					autopilotPhaseLabel = 'Generieren';
+					await runSolver({
+						poolBudgetMs: ph.poolBudgetMs,
+						hotStart: false,
+						totalBudgetMs: ph.totalBudgetMs
+					});
+				} else {
+					// Ohne Plan (Generate-Phase fehlgeschlagen) ist Diversify sinnlos.
+					if (store.doc.placed.length === 0) break;
+					autopilotPhaseLabel = `Diversify ${Math.round(ph.fraction * 100)}%`;
+					await runSolver({
+						poolBudgetMs: 0,
+						hotStart: true,
+						diversify: { fraction: ph.fraction, durationMs: ph.durationMs }
+					});
+				}
+			}
+		} finally {
+			autopilotActive = false;
+			autopilotPhaseIdx = 0;
+			autopilotPhaseTotal = 0;
+			autopilotPhaseLabel = '';
+		}
+	}
+
+	function runSolver(extra: { poolBudgetMs: number; hotStart: boolean; diversify?: { fraction: number; durationMs: number }; totalBudgetMs?: number }): Promise<SolverOutput> {
+		// Phase 15: Pre-Run Score merken für Auto-Snapshot-Trigger und
+		// Diversify-UI-Anzeige — VOR reset(), das bestScore nullt.
+		const scoreBeforeRun = bestScore;
 		reset();
 		poolAttempts = 0;
 		poolBestScore = null;
 		poolPhaseActive = !extra.hotStart && extra.poolBudgetMs > 0;
 		diversifyActive = !!extra.diversify;
-		// Phase 15: Pre-Run Score merken für Auto-Snapshot-Trigger und
-		// Diversify-UI-Anzeige.
-		const currentBreakdown = store.doc.placed.length > 0
-			? null  // Score ist nicht direkt im Doc — Trigger über bestScore nach Lauf
-			: null;
-		void currentBreakdown;
-		// Wenn vorhandener Plan: bisheriger best-known Score (aus letztem
-		// Done) als Pre-Run-Score. Im Doc selbst nicht gespeichert, also
-		// nehmen wir bestScore aus dem letzten Lauf wenn verfügbar.
-		preRunScore = bestScore;
-		preDiversifyScore = extra.diversify ? bestScore : null;
+		preRunScore = scoreBeforeRun;
+		preDiversifyScore = extra.diversify ? scoreBeforeRun : null;
 		startTicker();
 		const s = startSolve($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
 			// gerne mehrere Minuten laufen — Anytime-Modus heißt der User
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
-			totalBudgetMs: 1_800_000, // 30 min Gesamtbudget (Construct + ILS)
+			// Der Autopilot übergibt pro Phase ein eigenes Budget, damit die
+			// Session von selbst endet und die nächste Phase starten kann.
+			totalBudgetMs: extra.totalBudgetMs ?? 1_800_000,
 			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
 			poolBudgetMs: extra.poolBudgetMs,
 			hotStart: extra.hotStart,
 			diversify: extra.diversify
 		});
 		session = s;
+
+		// Autopilot wartet auf das Session-Ende. Jeder Pfad in index.ts
+		// (SAT, TIMEOUT, ERROR, Abort) emittiert 'done' → resolved immer.
+		let resolveDone!: (r: SolverOutput) => void;
+		const donePromise = new Promise<SolverOutput>(res => { resolveDone = res; });
 
 		s.on('phase', p => { phase = p; });
 		s.on('progress', p => {
@@ -314,13 +370,19 @@
 			lastDzn = s.getDzn();
 			session = null;
 			stopTicker();
+			resolveDone(d.final);
 		});
 		s.on('error', err => {
 			console.error('Solver error', err);
 		});
+
+		return donePromise;
 	}
 
 	function abort(): void {
+		// Autopilot: Schleife stoppen, DANN laufende Session beenden —
+		// sonst startet nach dem Session-done sofort die nächste Phase.
+		autopilotStop = true;
 		session?.abort();
 	}
 
@@ -472,6 +534,9 @@
 		}).join(' ');
 	}
 	const sparkPath = $derived(buildPath(scoreHistory, 200, 30));
+
+	// Autopilot-Plan-Vorschau für den Hint unter dem Slider.
+	const autopilotPlanText = $derived(describeAutopilotPlan(planAutopilot(autopilotBudgetMin * 60_000)));
 </script>
 
 <div class="gen">
@@ -507,6 +572,27 @@
 		: 'Erst einen Plan erzeugen — dann kann der Solver darauf weiter optimieren.'}>
 		Weiter optimieren
 	</button>
+
+	<div class="autopilot-config" class:disabled={busy}>
+		<label class="ap-label">
+			<span>Budget:</span>
+			<input
+				type="range"
+				min="1"
+				max="15"
+				step="1"
+				bind:value={autopilotBudgetMin}
+				disabled={busy}
+				class="ap-slider"
+				title="Gesamtzeit für den Autopilot. Er verteilt sie automatisch auf Generieren + mehrere Diversify-Zyklen."
+			/>
+			<span class="ap-value">{autopilotBudgetMin} min</span>
+		</label>
+		<div class="ap-hint muted small">{autopilotPlanText}</div>
+		<button class="btn primary" onclick={() => void runAutopilot()} disabled={busy} title="Ein Klick, bestes Ergebnis: Plan generieren und danach automatisch mehrere Diversify-Zyklen fahren. Der Plan kann dabei nie schlechter werden (Best-Tracking). Jederzeit abbrechbar — beste bisherige Lösung bleibt erhalten.">
+			🎯 Gründlich optimieren
+		</button>
+	</div>
 
 	<div class="diversify-config" class:disabled={busy}>
 		<div class="diversify-row">
@@ -548,6 +634,12 @@
 
 	{#if busy}
 		<div class="progress-block" role="status" aria-live="polite">
+			{#if autopilotActive}
+				<div class="ap-live">
+					<span class="ap-badge">🎯 Autopilot</span>
+					<span class="muted small">Phase {autopilotPhaseIdx}/{autopilotPhaseTotal}: <strong>{autopilotPhaseLabel}</strong></span>
+				</div>
+			{/if}
 			<div class="phase-line">
 				<strong>{phaseLabel || 'Initialisierung…'}</strong>
 				<span class="muted small">— {fmtDuration(tElapsed)} / {fmtDuration(tLimit)} • Rest ~{fmtDuration(tLimit - tElapsed)}</span>
@@ -585,7 +677,7 @@
 				💡 Lass den Solver gerne lange laufen — er liefert kontinuierlich bessere Lösungen.
 				Sobald du zufrieden bist, klick auf Abbrechen.
 			</div>
-			<button class="btn small abort" onclick={abort}>⏹ Abbrechen — beste bisherige Lösung übernehmen</button>
+			<button class="btn small abort" onclick={abort}>⏹ {autopilotActive ? 'Autopilot abbrechen' : 'Abbrechen'} — beste bisherige Lösung übernehmen</button>
 		</div>
 	{/if}
 
@@ -758,6 +850,9 @@
 			</ul>
 		{/if}
 	</div>
+
+	<!-- Solver-Opt Schritt 6: Lehrer-Qualitäts-Report -->
+	<TeacherQualityPanel />
 </div>
 
 <style>
@@ -1012,6 +1107,61 @@
 	.log-line.log-phase {
 		color: #b9f8a0;
 		font-weight: 600;
+	}
+
+	/* Solver-Opt Schritt 6: Autopilot */
+	.autopilot-config {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		min-width: 240px;
+		padding: 8px 10px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-left: 3px solid var(--accent);
+		border-radius: 6px;
+	}
+	.autopilot-config.disabled {
+		opacity: 0.6;
+	}
+	.ap-label {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+	.ap-label > span:first-child {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 60px;
+	}
+	.ap-slider {
+		flex: 1;
+		min-width: 80px;
+	}
+	.ap-value {
+		font-size: 12px;
+		font-weight: 600;
+		min-width: 46px;
+		text-align: right;
+		color: var(--accent);
+	}
+	.ap-hint {
+		font-size: 11px;
+		line-height: 1.3;
+	}
+	.ap-live {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		background: rgba(59, 130, 246, 0.08);
+		border-left: 3px solid var(--accent);
+		border-radius: 4px;
+		font-size: 12px;
+	}
+	.ap-badge {
+		font-weight: 600;
+		color: var(--accent);
 	}
 
 	/* Phase 15: Diversify-Config + Snapshot-Galerie */

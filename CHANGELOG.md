@@ -5,6 +5,71 @@ Alle erwähnenswerten Änderungen an diesem Projekt werden hier dokumentiert.
 Format orientiert sich an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 Versionierung folgt [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unreleased] — Solver-Optimierung: bessere Pläne für Lehrer
+
+User-Anlass: Komplettes Generator-Audit mit dem Ziel messbar besserer
+Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
+(no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
+Bench-Läufen erhalten.
+
+### Ergebnis (Bench Liste.csv, Sync-Mediane Baseline → Schritt 4)
+- Springstunden gesamt: **14 → 10 (−29%)**
+- Max. Lücken pro Lehrer: **5 → 2 (−60%)**
+- Anwesenheitstage gesamt: 39 → 35
+- Mini-Tage (1 Stunde): 4 → 3 · Späteinstiege: 89 → 79
+- Async-Produktionspfad: **5/5 Läufe erreichen no_free=0** (vorher 3/5)
+
+### Fixed
+- **KRITISCH: SA-Kaltstart im Produktionspfad** — `iteratedLocalSearchAsync`
+  zerhackte die innere LS in 250ms-Chunks und startete Simulated Annealing
+  jedes Mal bei T=100 mit leerer Tabu-Liste (120 Kaltstarts pro 30s-Zyklus).
+  Fix: Resumable Local Search (`LsResumeState`) — Temperatur, Tabu-Map,
+  Iterationszähler, RNG-Zustand und Best-Tracking überleben Chunk-Grenzen.
+  Äquivalenz bewiesen: 3 Resume-Chunks à 1000 Iterationen == 1 Lauf à 3000.
+- **Auto-Snapshot-Trigger war tot** — `preRunScore` wurde nach `reset()`
+  gelesen (immer null), Auto-Snapshots bei ≥5% Improvement feuerten nie.
+
+### Added
+- **Bench-Harness** (`npm run bench`): 5 feste Seeds × 10s ILS auf der
+  echten Liste.csv, Median-Report über gewichtsunabhängige Rohzähler,
+  harte Invarianten-Assertions. Baseline in `docs/bench-baseline.json`.
+- **3 neue Lehrer-Score-Komponenten** (jetzt 21 gesamt):
+  - `teacher_gap_fairness` (Gewicht 15, an): Wochen-Lücken pro Lehrer
+    QUADRIERT — 1 Lehrer mit 5 Lücken kostet 25, 5 Lehrer mit je 1 nur 5.
+  - `teacher_days_present` (Gewicht 120, an): Anwesenheitstage über dem
+    Teilzeit-Ideal (`ceil(Wochenstunden/6)`).
+  - `teacher_lunch` (Gewicht 100, **aus** per Default): lange Tage ohne
+    freie 5./6. Stunde. Config-Feld `teacherMiddayBreak`.
+  - RulesPanel-Slider für alle drei, additive Config-Migration.
+- **3 zielgerichtete Repair-Move-Generatoren** in `moves.ts` (30% des
+  Move-Mixes): `teacher-gap-repair` (Lücke mit eigener Randstunde füllen),
+  `day-eliminator` (Mini-Tag auf Anker-Tag verschieben), `class-gap-repair`
+  (Klassen-Lücke schließen — reparierte den letzten Steck-Seed).
+  +50% Iterationen/s im Async-Pfad.
+- **🎯 Autopilot „Gründlich optimieren"** (`autopilot.ts` +
+  GenerateButton): Ein Klick, Budget-Slider 1–15 min (Default 10).
+  Plant Generieren (40% Budget) + bis zu 4 Diversify-Zyklen mit fallender
+  Fraction (30/20/15/10%), wartet Sessions sequentiell ab, Phasen-Anzeige,
+  Abbruch stoppt die ganze Kette. Best-Tracking → Plan wird nie schlechter.
+- **👩‍🏫 Lehrer-Qualitäts-Report** (`teacher-quality.ts` +
+  `TeacherQualityPanel.svelte`): aufklappbares Panel unter dem Generator.
+  Pro Lehrer: Wochenstunden, Anwesenheitstage vs. Ideal, Springstunden
+  (Ampel-Chip), schlechtester Tag, Späteinstiege, Mini-Tage, Mittagspause.
+  Sortiert schlechtester zuerst, Zeile aufklappbar für Tagesdetails.
+  Team-Teaching-aware, rein aus `doc.placed` — funktioniert auch für
+  manuelle Pläne.
+
+### Tuning-Experimente (alle verworfen, dokumentiert)
+Tabu-Tenure 100, Slot-Sampling 20, `teacher_late_start` quadratisch —
+alle verschlechterten die Ziel-Metrik Springstunden. Details mit Zahlen
+in `docs/bench-baseline.json`.
+
+### Tests
+- 315 Tests grün (vorher 289): Bench-Metriken, Resume-Äquivalenz,
+  Tabu-Expiry über Chunk-Grenzen, Repair-Move-Properties (500 Random-
+  States ohne Hard-Violations), 3×Score-Komponenten, `computeTeacherQuality`
+  (Multi-Grade-Dedup, Team-Teaching, Mittagspause), `planAutopilot`.
+
 ## [Unreleased] — Phase 17: Team-Teaching mit Segmenten
 
 User-Anlass: Eine andere Schule liefert CSV-Exporte mit Team-Teaching —
