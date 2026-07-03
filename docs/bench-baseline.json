@@ -131,6 +131,19 @@
 					"Sync-Medians: gapsMax 3→2, daysPresent 37→35, miniDays 5→3, lateStarts 85→79, main_run-Trade-off halbiert 3→2."
 				]
 			}
+		},
+		{
+			"label": "schritt-5-tuning-experimente",
+			"commit": "(kein Code-Change — alle Experimente verworfen)",
+			"date": "2026-07-03",
+			"machine": "Geo-Windows-Dev",
+			"_experimente": [
+				"A) Tabu-Tenure 50→100: VERWORFEN. Gaps 10→13, GapsMax 2→3, compact 12→18, Total 12856→14113. Längere Tabu blockiert zu viele Repair-Pfade.",
+				"B) Slot-Sampling 12→20 Versuche: VERWORFEN. Gaps 10→12, GapsMax 2→4, main_run 2→5. Mehr Versuche pro Move = weniger Moves/Sekunde, netto schlechter.",
+				"C) Kempe-Reheat aggressiver: NICHT MESSBAR im 10s-Bench (Reheat braucht consecutiveUnproductive>=2, tritt bei 1-2 Restarts kaum ein). Nicht angefasst.",
+				"D) teacher_late_start linear→quadratisch: VERWORFEN. lateStarts 79→62 und daysPresent 35→32 besser, ABER Gaps 10→18 und GapsMax 2→5 — der P1-Druck stiehlt die Flexibilität zur Lückenvermeidung. Gegen User-Priorität Springstunden.",
+				"FAZIT: Der Stand nach Schritt 4 ist für die Ziel-Metrik (Springstunden) bereits gut ausbalanciert. Keine Änderung übernommen."
+			]
 		}
 	]
 }
