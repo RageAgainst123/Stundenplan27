@@ -7,13 +7,13 @@
 //
 // Hot path during Local Search uses scoreDelta.ts (incremental, O(1) per move).
 //
-// Canonical reference for ALL 21 score components (Stand Solver-Opt Schritt 3):
+// Canonical reference for ALL 22 score components (Stand Solver-Opt R2):
 //   docs/MODEL.md §3 "Score-Komponenten"
 // Komponenten: min_daily, no_p1_start, time_pref, main_aft, any_aft, no_free,
 // uneven_days, main_run, compact_teacher, main_early, subject_twice,
 // spec_spread, teacher_late_start, teacher_under_min, target_daily,
 // afternoon_preferred, main_twice, main_block_split, teacher_gap_fairness,
-// teacher_days_present, teacher_lunch.
+// teacher_days_present, teacher_lunch, unplaced.
 // Wenn hier eine Komponente geändert/hinzugefügt wird → MODEL.md §3 nachziehen
 // UND defaultWeights() in types.ts + UI in GenerateButton.svelte (Score-
 // Aufschlüsselung) UND PenaltyBreakdown in index.ts erweitern.
@@ -253,8 +253,16 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		teacher_gap_fairness: 0,
 		teacher_days_present: 0,
 		teacher_lunch: 0,
+		unplaced: 0,
 		total: 0,
 	};
+
+	// --- unplaced: ungeplante Units zählen (Solver-Opt R2). Dominant
+	// gewichtet — verhindert, dass Best-Tracking/Diversify Stunden
+	// „wegoptimieren" (weggelassene Stunden sparten vorher Penalties).
+	for (let i = 0; i < state.nUnits; i++) {
+		if (state.placement[i] === SLOT_UNPLACED) breakdown.unplaced++;
+	}
 
 	// Phase 13: Zieltagespensum aus ConstraintConfig.
 	const targetCfg = (state.doc.constraints as unknown as Record<string, unknown>).targetDailyLessons as
@@ -598,7 +606,8 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		weights.main_block_split * breakdown.main_block_split +
 		weights.teacher_gap_fairness * breakdown.teacher_gap_fairness +
 		weights.teacher_days_present * breakdown.teacher_days_present +
-		weights.teacher_lunch * breakdown.teacher_lunch;
+		weights.teacher_lunch * breakdown.teacher_lunch +
+		weights.unplaced * breakdown.unplaced;
 
 	return breakdown;
 }

@@ -132,7 +132,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 21)
+## 3. Score-Komponenten (alle 22)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -161,6 +161,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `teacher_gap_fairness` | Σ pro Lehrer (Wochen-Springstunden)² — Lücken sollen nicht bei einem Lehrer klumpen. 1×5 Lücken = 25 vs 5×1 = 5. | 15 | `teacherGapFairness.{enabled, weight}` (Solver-Opt S3) | enabled=false oder keine Lücken |
 | `teacher_days_present` | Σ pro Lehrer max(0, Anwesenheitstage − ceil(Wochenstunden/6)) — Teilzeit-Konzentration | 120 | `teacherDaysPresent.{enabled, weight}` (Solver-Opt S3) | enabled=false oder alle im Ideal |
 | `teacher_lunch`    | (teacher,day) mit ≥6h, Vormittag+Nachmittag-Unterricht UND P5+P6 beide belegt | 100, **Default AUS** | `teacherMiddayBreak.{enabled, weight}` (Solver-Opt S3) | enabled=false (Default!) |
+| `unplaced`         | NICHT platzierte Units (placement == -1). **DOMINANT** — vorher kostete eine weggelassene Stunde nichts (sparte sogar Penalties), Best-Tracking/Diversify konnten unvollständige Pläne bevorzugen. Zusammen mit dem unplaced-insert-Move in `moves.ts`. | 100000 | `unplacedPenalty.{enabled, weight}` (Solver-Opt R2) | enabled=false oder alles platziert |
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
   (User hat explizit Nachmittag gewünscht — kein Widerspruch). Gleiches gilt
@@ -199,7 +200,7 @@ gibt `null` zurück wenn ok, sonst Reason-String.
 | H5  | Coupling-Cohesion (Specs same couplingId teilen Slot) | **implizit** in `units.ts` `buildState` (eine Coupling-Unit für alle gekoppelten Specs) | `moves.test.ts > coupling team teachers` |
 | H6  | Multi-Grade-Cohesion (selbe occurrence, verschiedene grades, gleicher Slot) | **implizit** in `units.ts` (eine Multigrade-Unit pro Occurrence) | `score.test.ts` Multi-Grade-Tests |
 | H7  | Wochenpattern-Kompatibilität (even ↔ odd nur in Coupling) | `wouldViolate` ZL ~106-113 | (indirekt in coupling-Tests)                       |
-| H8  | Distinct-Occurrences (gleiche Spec, verschiedene Occurrences ≠ gleicher Slot) | `wouldViolate` ZL ~118-136 | `moves.test.ts > same-spec collision`         |
+| H8  | Distinct-Occurrences (gleiche Spec, verschiedene Occurrences ≠ gleicher Slot). **R2-Fix:** die frühere sharesCoupling-Ausnahme entfernt — sie erlaubte zwei WOCHENSTUNDEN einer Kopplungsgruppe auf demselben Slot (Doppellage im Grid, „ungeplant" in der Sidebar). | `wouldViolate` (H8-Block) | `moves.test.ts > same-spec collision`, `coupled-decode.test.ts > Doppellage` |
 | H9  | Block-Pattern (blockSize > 1 = konsekutive Periods) | **implizit** in `units.ts` (Block-Unit hat blockSize, `wouldViolate` prüft dass period+blockSize-1 ≤ P) | (implizit in vielen Tests)               |
 | H10 | Hauptfach Nachmittag verboten: `unit.afternoonAllowed='never'` darf nicht in P7-P8 (auch Block-Reichweite) | `wouldViolate` ZL ~55-62 | `moves.test.ts > H10 afternoonAllowed=never` |
 

@@ -196,6 +196,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.teacherMiddayBreak !== 'object' || c12.teacherMiddayBreak === null) {
 			c12.teacherMiddayBreak = { enabled: false, weight: 100 };
 		}
+		// Solver-Opt R2: Strafe pro ungeplanter Stunde (dominant — vorher
+		// kosteten weggelassene Stunden im Score nichts, siehe types.ts).
+		if (typeof c12.unplacedPenalty !== 'object' || c12.unplacedPenalty === null) {
+			c12.unplacedPenalty = { enabled: true, weight: 100000 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.

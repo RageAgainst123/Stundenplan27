@@ -241,10 +241,20 @@ export function wouldViolate(
 			// bug — only one Unit per occurrence is generated).
 			// Easier rule: spec-mate units cannot share (day, period) at all,
 			// because each occurrence is a distinct Unit.
+			//
+			// R2-Fix (Doppellage-Bug): hier gab es früher eine sharesCoupling-
+			// Ausnahme — die war ein Denkfehler. In DIESEN Loop kommen nur
+			// Units, die mindestens eine Spec teilen (unitsBySpec), also
+			// zwangsläufig verschiedene Occurrences bzw. Team-Teaching-
+			// Segmente derselben Lehreinheit — eigenständige Unterrichts-
+			// stunden, die nie gleichzeitig liegen dürfen. Die Ausnahme
+			// erlaubte, dass zwei WOCHENSTUNDEN einer Kopplungsgruppe auf
+			// demselben (Tag, Periode) landen: im Grid als Doppellage
+			// sichtbar, in der Sidebar als „ungeplant" gezählt, im Score
+			// unsichtbar (H3/H4 exempten sameCoupling korrekterweise —
+			// H8 ist das designierte Netz für genau diesen Fall).
 			const otherPeriod = (otherSlot % P) + 1;
 			if (((otherSlot / P) | 0) === dayIndex && otherPeriod >= uStart && otherPeriod <= uEnd) {
-				// Allow couplings (different specs, same coupling unit)
-				if (sharesCoupling(unit, other, state)) continue;
 				return `same-spec collision at ${day} P${otherPeriod}`;
 			}
 		}

@@ -118,7 +118,8 @@ function wouldViolateRef(
 		if (otherSlot === SLOT_UNPLACED) continue;
 		const otherDp = dpFromSlot(otherSlot);
 		if (otherDp.dayIndex === dayIndex && periodsToOccupy.includes(otherDp.period)) {
-			if (sharesCoupling(unit, other)) continue;
+			// R2-Doppellage-Fix: KEINE sharesCoupling-Ausnahme mehr —
+			// spec-mates sind immer verschiedene Unterrichtsstunden.
 			return 'same-spec collision';
 		}
 	}

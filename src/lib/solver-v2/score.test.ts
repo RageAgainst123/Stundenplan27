@@ -38,6 +38,58 @@ function place(state: SolverState, specId: string, day: Day, period: Period, gra
 
 // ---- tests ----------------------------------------------------------------
 
+describe('unplaced (Solver-Opt R2)', () => {
+	it('zählt ungeplante Units und gewichtet sie dominant', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 3));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		// Nur 1 von 3 platzieren.
+		place(state, 's', 'Mo', 1);
+		const b = computeScore(state, w);
+		expect(b.unplaced).toBe(2);
+		expect(w.unplaced).toBe(100000);
+		expect(b.total).toBeGreaterThanOrEqual(2 * 100000);
+	});
+
+	it('vollständiger Plan → unplaced 0; eine weggelassene Stunde verschlechtert den Total IMMER', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		// Nachmittags-Stunde: das Weglassen SPART any_aft — genau der Fall,
+		// in dem der Solver vorher „lieber nicht platzieren" gelernt hat.
+		doc.subjects.push(subject('PH'));
+		doc.specs.push(spec('s', 'PH', 't', [5], 2));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		place(state, 's', 'Mo', 7);
+		place(state, 's', 'Di', 7);
+		const full = computeScore(state, w);
+		expect(full.unplaced).toBe(0);
+		// Eine Stunde entfernen → trotz gesparter Nachmittags-Penalty muss
+		// der Total steigen (Dominanz der unplaced-Strafe).
+		state.placement[state.units[1].idx] = -1;
+		const partial = computeScore(state, w);
+		expect(partial.unplaced).toBe(1);
+		expect(partial.total).toBeGreaterThan(full.total);
+	});
+
+	it('unplacedPenalty.enabled=false schaltet die Strafe ab (RulesPanel-Toggle)', () => {
+		const doc = emptyDoc();
+		doc.constraints.unplacedPenalty = { enabled: false, weight: 100000 };
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 2));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		expect(w.unplaced).toBe(0);
+		const b = computeScore(state, w); // nichts platziert
+		expect(b.unplaced).toBe(2); // Zähler läuft weiter (Anzeige)
+		expect(b.total).toBe(0);    // aber gewichtet 0
+	});
+});
+
 describe('buildState', () => {
 	it('expands a single-grade spec into one solo Unit per occurrence', () => {
 		const doc = emptyDoc();

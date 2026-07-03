@@ -20,7 +20,7 @@
 
 import { applyMove, genMove, movableUnits, Rng, type Move } from './moves';
 import { evaluateDelta } from './scoreDelta';
-import type { ScoreBreakdown, ScoreWeights, SolverState } from './types';
+import { SLOT_UNPLACED, type ScoreBreakdown, type ScoreWeights, type SolverState } from './types';
 
 /**
  * Vollständiger Fortsetzungs-Zustand einer Local-Search-Session.
@@ -195,6 +195,12 @@ export function localSearch(
 			acceptedMoves++;
 			curBreakdown = nextBreakdown;
 			pushTabu(move, tabu, globalIter + tabuTenure);
+			// R2 unplaced-Fix: eine per Insertion platzierte Unit (slot-move
+			// mit fromSlot=UNPLACED) wird ab sofort normal beweglich — sonst
+			// wäre sie für slot-move/swap bis zum nächsten Chunk unsichtbar.
+			if (move.kind === 'slot-move' && move.fromSlot === SLOT_UNPLACED) {
+				movable.push(state.units[move.unitIdx]);
+			}
 			if (delta < 0) {
 				improvementCount++;
 				if (curBreakdown.total < bestBreakdown.total) {

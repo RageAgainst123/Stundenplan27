@@ -339,6 +339,16 @@ export interface ConstraintConfig {
 	 * Load wegwerfen.
 	 */
 	teacherMiddayBreak: { enabled: boolean; weight: number };
+	/**
+	 * Solver-Opt R2: Strafe pro NICHT platzierter Stunde. Vorher kosteten
+	 * ungeplante Stunden im Score NICHTS — eine weggelassene Stunde konnte
+	 * den Score sogar verbessern (gesparte Nachmittags-/Pensum-Penalties),
+	 * und das Best-Tracking konnte eine unvollständige Lösung gegenüber
+	 * einer vollständigeren bevorzugen. Das Gewicht ist bewusst DOMINANT
+	 * (Default 100000): jede platzierte Stunde ist besser als jede
+	 * Kombination weicher Verletzungen, die sie verursacht.
+	 */
+	unplacedPenalty: { enabled: boolean; weight: number };
 }
 
 // Phase 10 weight calibration (after solver-side diagnosis):
@@ -377,6 +387,11 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	// Phase 18: höheres Default-Gewicht als pre-18-Hardcoded-100, damit
 	// `'preferred'` praktisch spürbar wird (vorher zu schwach gegen min_daily etc).
 	afternoonPreferred: { enabled: true, weight: 250 },
+	// Solver-Opt R2: dominant — jede ungeplante Stunde ist schlimmer als jede
+	// weiche Verletzung, die ihre Platzierung verursachen könnte (selbst eine
+	// strikte Klassen-Lücke à 10000 wird von 100000 überboten → lieber
+	// platzieren und die Lücke danach wegoptimieren).
+	unplacedPenalty: { enabled: true, weight: 100000 },
 	// Solver-Opt Schritt 3: Lehrer-Qualität (User-Priorität: Springstunden).
 	teacherGapFairness: { enabled: true, weight: 15 },
 	teacherDaysPresent: { enabled: true, weight: 120 },

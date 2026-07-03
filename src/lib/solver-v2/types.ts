@@ -354,6 +354,15 @@ export interface ScoreBreakdown {
 	 * Default deaktiviert (ConstraintConfig.teacherMiddayBreak.enabled=false).
 	 */
 	teacher_lunch: number;
+	/**
+	 * Solver-Opt R2: Anzahl NICHT platzierter Units (placement == -1).
+	 * Vorher unsichtbar für den Score — eine weggelassene Stunde sparte
+	 * sogar Penalties (Nachmittag, Pensum), sodass Best-Tracking und
+	 * Diversify unvollständige Pläne bevorzugen konnten. Dominant
+	 * gewichtet (Default 100000/Stunde): Vollständigkeit schlägt jede
+	 * weiche Verletzung.
+	 */
+	unplaced: number;
 	/** Total weighted sum. Solver minimizes this. */
 	total: number;
 }
@@ -381,6 +390,7 @@ export interface ScoreWeights {
 	teacher_gap_fairness: number;
 	teacher_days_present: number;
 	teacher_lunch: number;
+	unplaced: number;
 }
 
 /**
@@ -457,6 +467,10 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// ACHTUNG: enabled muss EXPLIZIT true sein — Default ist AUS (anders als
 	// die anderen Komponenten, deren Default AN ist).
 	const lunchWeight = midday?.enabled === true ? (midday?.weight ?? 100) : 0;
+	// Solver-Opt R2: Strafe pro ungeplanter Stunde — dominant, damit
+	// Best-Tracking/Diversify nie eine unvollständigere Lösung bevorzugen.
+	const unplacedCfg = (c as unknown as { unplacedPenalty?: { enabled?: boolean; weight?: number } }).unplacedPenalty;
+	const unplacedWeight = unplacedCfg?.enabled === false ? 0 : (unplacedCfg?.weight ?? 100000);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -484,6 +498,7 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		teacher_gap_fairness: gapFairnessWeight,
 		teacher_days_present: daysPresentWeight,
 		teacher_lunch: lunchWeight,
+		unplaced: unplacedWeight,
 	};
 }
 

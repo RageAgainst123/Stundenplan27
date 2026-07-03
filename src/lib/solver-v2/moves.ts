@@ -91,8 +91,9 @@ export function genMove(state: SolverState, rng: Rng, kempeBoost = 0, movable?: 
 	const teacherGapProb = 0.10;
 	const dayElimProb = 0.05;
 	const classGapProb = 0.05;
-	const moveProb = Math.max(0.05, 1 - swapProb - kempeProb - teacherGapProb - dayElimProb - classGapProb);
-	const r = rng.next() * (moveProb + swapProb + kempeProb + teacherGapProb + dayElimProb + classGapProb);
+	const insertProb = 0.10;
+	const moveProb = Math.max(0.05, 1 - swapProb - kempeProb - teacherGapProb - dayElimProb - classGapProb - insertProb);
+	const r = rng.next() * (moveProb + swapProb + kempeProb + teacherGapProb + dayElimProb + classGapProb + insertProb);
 	let acc = moveProb;
 	if (r < acc) return genSlotMove(state, rng, movable);
 	acc += swapProb;
@@ -103,7 +104,12 @@ export function genMove(state: SolverState, rng: Rng, kempeBoost = 0, movable?: 
 	if (r < acc) return genTeacherGapRepair(state, rng);
 	acc += dayElimProb;
 	if (r < acc) return genDayEliminator(state, rng);
-	return genClassGapRepair(state, rng);
+	acc += classGapProb;
+	if (r < acc) return genClassGapRepair(state, rng);
+	// R2 unplaced-Fix: Insertion-Versuch für ungeplante Units. Meist gibt
+	// es keine (Generator liefert null) → Fallback auf slot-move, damit die
+	// Iteration nicht verpufft.
+	return genUnplacedInsert(state, rng) ?? genSlotMove(state, rng, movable);
 }
 
 /**
@@ -437,6 +443,44 @@ function genClassGapRepair(state: SolverState, rng: Rng): Move | null {
 			if (wouldViolate(state, u, toSlot) !== null) continue;
 			return { kind: 'slot-move', unitIdx: u.idx, fromSlot, toSlot };
 		}
+	}
+	return null;
+}
+
+/**
+ * unplaced-insert (Solver-Opt R2): versucht, eine UNGEPLANTE Unit in einen
+ * freien, gültigen Slot einzusetzen. Vorher hatte die Local Search keinerlei
+ * Operator dafür — ungeplante Units bekamen nur bei Construction/Restarts
+ * eine Chance, obwohl während der Optimierung ständig Slots frei werden.
+ *
+ * Emittiert einen slot-move mit fromSlot = SLOT_UNPLACED: applyMove platziert,
+ * revertMove entplatziert — Symmetrie und Tabu-Mechanik bleiben unverändert.
+ * Zusammen mit der dominanten `unplaced`-Score-Komponente ist so ein Move
+ * praktisch immer eine große Verbesserung und wird sofort akzeptiert.
+ *
+ * Scannt ALLE Slots in zufälliger Startreihenfolge (kein Sampling): wenn nur
+ * noch 1-2 Plätze passen, muss der Generator sie auch finden.
+ */
+function genUnplacedInsert(state: SolverState, rng: Rng): Move | null {
+	const unplacedIdxs: number[] = [];
+	for (let i = 0; i < state.nUnits; i++) {
+		if (state.placement[i] === SLOT_UNPLACED && !state.units[i].pinned) {
+			unplacedIdxs.push(i);
+		}
+	}
+	if (unplacedIdxs.length === 0) return null;
+	const unit = state.units[unplacedIdxs[rng.int(0, unplacedIdxs.length)]];
+	const maxStartP = P - unit.blockSize + 1;
+	if (maxStartP < 1) return null;
+	const total = D * maxStartP;
+	const start = rng.int(0, total);
+	for (let k = 0; k < total; k++) {
+		const s = (start + k) % total;
+		const d = Math.floor(s / maxStartP);
+		const p = (s % maxStartP) + 1;
+		const toSlot = slotFromDP(d, p);
+		if (wouldViolate(state, unit, toSlot) !== null) continue;
+		return { kind: 'slot-move', unitIdx: unit.idx, fromSlot: SLOT_UNPLACED, toSlot };
 	}
 	return null;
 }

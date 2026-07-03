@@ -716,6 +716,9 @@
 					<details class="score-breakdown">
 						<summary>Score-Aufschlüsselung anzeigen</summary>
 						<ul>
+							{#if result.penalties.unplaced > 0}
+								<li>⚠ Nicht platzierte Stunden: <strong>{result.penalties.unplaced}</strong></li>
+							{/if}
 							{#if result.penalties.no_free > 0}
 								<li>Freistunden für Klassen: <strong>{result.penalties.no_free}</strong></li>
 							{/if}

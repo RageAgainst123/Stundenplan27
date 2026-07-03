@@ -28,6 +28,38 @@ function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: n
 	};
 }
 
+describe('localSearch — unplaced-Insertion (Solver-Opt R2)', () => {
+	it('platziert eine ungeplante Unit während der LS (Insertion-Move + dominante unplaced-Penalty)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 3));
+		doc.specs.push(spec('s2', 'D', 't1', [5], 1));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		construct(state, { weights: w, seed: 1 });
+		// Eine Unit künstlich entplatzieren — simuliert eine gescheiterte
+		// Construction. Vorher hätte die LS sie NIE wieder platziert.
+		const victim = state.units.findIndex(u => !u.pinned && state.placement[u.idx] !== -1);
+		state.placement[victim] = -1;
+		const before = computeScore(state, w);
+		expect(before.unplaced).toBe(1);
+		expect(before.total).toBeGreaterThanOrEqual(w.unplaced); // Penalty wirkt
+
+		const result = localSearch(state, before, {
+			weights: w,
+			maxIterations: 2000,
+			timeBudgetMs: 5000,
+			seed: 42,
+		});
+		expect(result.bestBreakdown.unplaced).toBe(0);
+		for (let i = 0; i < state.nUnits; i++) {
+			expect(state.placement[i]).not.toBe(-1);
+		}
+	});
+});
+
 describe('localSearch', () => {
 	it('does not increase the score (best-tracking is correct)', () => {
 		const doc = emptyDoc();

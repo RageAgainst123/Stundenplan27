@@ -55,6 +55,8 @@ export interface PenaltyBreakdown {
 	teacher_days_present: number;
 	/** Solver-Opt Schritt 3: fehlende Mittagspausen (default deaktiviert). */
 	teacher_lunch: number;
+	/** Solver-Opt R2: ungeplante Units — dominant bestraft (siehe score.ts). */
+	unplaced: number;
 	total: number;
 }
 
@@ -288,6 +290,7 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		teacher_gap_fairness: b.teacher_gap_fairness,
 		teacher_days_present: b.teacher_days_present,
 		teacher_lunch: b.teacher_lunch,
+		unplaced: b.unplaced,
 		total: b.total,
 	};
 }
@@ -866,7 +869,7 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 		state: SolverState,
 		_weights: ReturnType<typeof defaultWeights>,
 		breakdown: ScoreBreakdown,
-		unplacedIdxs: number[] | null,
+		_unplacedIdxs: number[] | null,
 		_complete: boolean,
 		relaxation: RelaxationInfo = emptyRelaxation()
 	): void {
@@ -874,12 +877,13 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 		lastBreakdownForDump = breakdown;
 		lastRelaxationForDump = relaxation;
 		const placed = placementToPlacedLessons(state, state.placement);
+		// Solver-Opt R2: unplaced aus dem FINALEN placement ableiten — die
+		// frühere Liste stammte aus der Initial-Construction und konnte nach
+		// ILS-Restarts veraltet sein (Restarts können den Bestand ändern).
 		const unplacedSpecIds = new Set<string>();
-		if (unplacedIdxs) {
-			for (const idx of unplacedIdxs) {
-				const u = state.units[idx];
-				for (const sid of u.specIds) unplacedSpecIds.add(sid);
-			}
+		for (let i = 0; i < state.nUnits; i++) {
+			if (state.placement[i] !== SLOT_UNPLACED) continue;
+			for (const sid of state.units[i].specIds) unplacedSpecIds.add(sid);
 		}
 		const status: SolverOutput['status'] = aborted
 			? 'TIMEOUT'

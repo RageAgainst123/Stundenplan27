@@ -27,6 +27,18 @@
 <section>
 	<h3>Klassen & Schulstufen</h3>
 	<div class="rules">
+		<!-- Solver-Opt R2: Vollständigkeit — dominante Strafe pro ungeplanter Stunde -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.unplacedPenalty.enabled} />
+				<span>
+					Alle Stunden müssen platziert werden
+					<span class="hint" title="Dominante Strafe pro NICHT platzierter Stunde. Ohne diese Regel 'spart' der Solver unbequeme Stunden einfach ein (eine weggelassene Stunde erzeugt sonst keine Penalty und kann den Score sogar verbessern). Das Gewicht sollte deutlich über allen anderen liegen — Default 100000. Nur abschalten, wenn du bewusst Teilpläne vergleichen willst.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="1000" bind:value={c.unplacedPenalty.weight} disabled={!c.unplacedPenalty.enabled} class="weight" />
+		</div>
+
 		<!-- Keine Freistunden -->
 		<div class="rule">
 			<label class="lbl">
@@ -282,8 +294,7 @@
 <p class="muted footer">
 	<strong>Pro Lerneinheit:</strong> Tageszeit-Präferenz (Früh/Spät), Block-Pattern, Wochenrhythmus
 	und Kopplungen werden im Reiter <em>Lerneinheiten</em> gesetzt. <br />
-	<strong>Pro Lehrer:</strong> Verfügbarkeit (Sperrstunden) und maximale Tageslast werden im Reiter
-	<em>Lehrer</em> gesetzt.
+	<strong>Pro Lehrer:</strong> Verfügbarkeit (Sperrstunden) wird im Reiter <em>Lehrer</em> gesetzt.
 </p>
 
 <style>

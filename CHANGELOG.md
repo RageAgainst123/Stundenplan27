@@ -79,6 +79,40 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 2 — „Ungeplante Stunden": drei Fixes + Regeln-Audit
+User-Befund: Der Solver meldete Lösungen, obwohl Stunden ungeplant blieben.
+Analyse ergab drei zusammenhängende Defekte:
+- **Neue Score-Komponente `unplaced`** (22. Komponente, RulesPanel „Alle
+  Stunden müssen platziert werden", Default-Gewicht 100000 = dominant):
+  Vorher kostete eine weggelassene Stunde im Score NICHTS — sie konnte ihn
+  sogar verbessern (gesparte Nachmittags-/Pensum-Penalties), wodurch
+  Best-Tracking und Diversify unvollständige Pläne bevorzugen konnten.
+  100000 statt intuitiver 20000, weil eine einzelne Platzierung im
+  strict-Modus bis ~85000 an weichen Strafen auslösen kann (führende
+  Klassen-Lücken à 10000) — die Dominanz muss auch das überbieten.
+- **Neuer `unplaced-insert`-Move**: Die Local Search hatte keinerlei
+  Operator, um ungeplante Stunden einzusetzen (nur Construction/Restarts
+  versuchten es). Jetzt scannt ein Insertion-Generator (10 % des Move-Mix,
+  mit Fallback) alle Slots für eine ungeplante Unit.
+- **H8-Doppellage-Bug (die eigentliche Wurzel):** Der Same-Spec-Hard-Check
+  hatte eine zu breite Kopplungs-Ausnahme — zwei *verschiedene
+  Wochenstunden* derselben Kopplungsgruppe durften auf demselben
+  (Tag, Periode) landen. Im Grid als übereinanderliegende Zellen sichtbar,
+  in der Sidebar als „ungeplant" gezählt, im Score unsichtbar. Ausnahme
+  entfernt (in diesen Check kommen nur Units, die eine Spec teilen — immer
+  verschiedene Unterrichtsstunden).
+- `done.final.unplaced` wird jetzt aus dem finalen Placement berechnet
+  (vorher: veraltete Liste aus der Initial-Construction).
+- **Regeln-Audit:** alle 18 bisherigen Regler greifen (geprüft gegen
+  defaultWeights/score/hardCheck). Footer-Text korrigiert („maximale
+  Tageslast" existiert seit Phase 12 nicht mehr). Bekannt & offen:
+  `Subject.maxConsecutive` aus der Fächer-Tabelle wird vom Solver v2
+  ignoriert (nur das globale Regeln-Limit wirkt).
+- E2E (gekoppelte Fixture): vorher konstant 3-4 „ungeplante" Stunden,
+  jetzt 0 (nur die absichtlich kaputte VS-NaSt-Fixture-Spec bleibt),
+  0 Doppellagen. 7 neue Tests (Score-Dominanz, LS-Insertion, Doppellage,
+  Hot-Start-Roundtrip, Decode-Konsistenz).
+
 ### Runde 2, Schritt 6 — Parallel-Pool über N Worker
 - Die Pool-Phase läuft jetzt über `k = min(4, Kerne − 2)` Worker
   **gleichzeitig** (Orchestrierung in `worker-bridge.ts`, neue
