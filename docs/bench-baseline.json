@@ -302,6 +302,18 @@
         "B) Budget-adaptive Kühlung allein (cooling = exp(ln(tMin/100)/erwarteteIter), Rate aus vorherigem Inner-Run): VERWORFEN. gaps 9→10, gapsMax 2→3, compact 10→13. Länger lebende Temperatur = mehr akzeptierte Verschlechterungen = schlechtere Konvergenz im Inner-Budget.",
         "FAZIT: Die mathematische Analyse (T stirbt nach ~14k Iterationen, danach reiner Hill-Climber) ist KORREKT — aber empirisch ist genau dieses Regime (kurze SA-Phase, dann Tabu-Hill-Climbing, Eskalation über ILS-Reheat/Perturbation) für die Ziel-Metrik optimal. Die SA-Temperatur länger am Leben zu halten verschlechtert konsistent. Kein SA-Tuning mehr ohne neue strukturelle Erkenntnis."
       ]
+    },
+    {
+      "label": "r2-schritt-5+6-worker-und-parallel-pool",
+      "commit": "(siehe git log: feat(solver) Web Worker / Parallel-Pool)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev (Browser-E2E, 8 Kerne)",
+      "_hinweis": "Kein jsdom-Bench-Eintrag — die Worker-Pfade laufen nur im Browser. Der jsdom-Bench misst weiter die Kern-Algorithmen (unverändert seit r2-schritt-3). Zahlen hier aus dem Preview-E2E:",
+      "_befund": [
+        "Schritt 5 (Solver im Web Worker): UI-Thread bleibt während des gesamten Laufs frei (Tab-Roundtrip ~70ms bei rechnendem Solver). Abort via Message greift in ~260ms. Kein Qualitäts-Effekt erwartet oder gemessen — gleicher Algorithmus, anderer Thread.",
+        "Schritt 6 (Parallel-Pool, 4 Worker auf 8 Kernen): ~44 Pool-Versuche/s statt ~10-20 (~4x). Qualitäts-Effekt real: Score 8836 nach 5s Pool + 3s ILS — die Single-Worker-Messung davor stand bei ~10230 nach 20s. Bessere Startlösungen tragen durch die ganze Optimierung.",
+        "OFFEN für Runde 3: Diversify-Strategien-Wiedervorlage im Browser-Bench (Varianz-Problem braucht 10+ Läufe/Arm — mit 4x Pool-Durchsatz und freiem UI-Thread jetzt praktikabler); Island-ILS über mehrere Worker mit Best-Austausch."
+      ]
     }
   ]
 }

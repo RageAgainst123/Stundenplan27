@@ -79,6 +79,21 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 2, Schritt 6 — Parallel-Pool über N Worker
+- Die Pool-Phase läuft jetzt über `k = min(4, Kerne − 2)` Worker
+  **gleichzeitig** (Orchestrierung in `worker-bridge.ts`, neue
+  `pool`-Betriebsart in `solve.worker.ts`). Die Bridge sammelt das global
+  beste Ergebnis (Kriterium wie bisher: weniger unplatziert, dann Score)
+  und startet damit die Haupt-Session als Hot-Start.
+- E2E auf 8 Kernen: 4 Worker, ~44 Pool-Versuche/s statt ~10–20 (~4×);
+  Score nach 5 s Pool + 3 s Optimieren: 8836 — vorher ~10230 nach 20 s.
+- Pool-Zeit zählt weiter gegen das Gesamtbudget (Autopilot-kompatibel);
+  Abort während des Pools übernimmt die beste Pool-Lösung; fatale
+  Diagnose überspringt den Pool (saubere Fehlermeldung); mit <3 nutzbaren
+  Kernen bleibt der Pool wie bisher in der Session.
+- 4 neue Bridge-Tests (Seed-Verteilung, Best-Aggregation, Pool→Haupt-
+  Session-Übergang, Pool-Abort, Fatal-Bypass, 1-Kern-Fallback).
+
 ### Runde 2, Schritt 5 — Solver läuft im Web Worker
 - **`startSolveSession`** (`worker-bridge.ts`) ersetzt `startSolve` als
   UI-Einstieg: gleiche Session-API, aber der Solver rechnet in einem

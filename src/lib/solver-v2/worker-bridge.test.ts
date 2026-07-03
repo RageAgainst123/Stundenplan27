@@ -145,4 +145,103 @@ describe('startSolveSession — Worker-Protokoll (Fake-Worker)', () => {
 		vi.advanceTimersByTime(10_000);
 		expect(dones).toHaveLength(1);
 	});
+
+	// ----- Schritt 6: Parallel-Pool ------------------------------------------
+
+	function withCores(n: number): void {
+		Object.defineProperty(navigator, 'hardwareConcurrency', { value: n, configurable: true });
+	}
+
+	const poolPlaced = [{ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: false }];
+	const poolBest = (score: number, attempts: number) => ({
+		kind: 'poolBest' as const,
+		payload: { placed: poolPlaced, score, unplacedCount: 0, attempts },
+	});
+
+	it('Parallel-Pool: k Worker mit distinkten Seeds, Best-Aggregation, Übergang zur Haupt-Session', async () => {
+		withFakeWorker();
+		withCores(8); // → k = min(4, 8-2) = 4
+		const session = startSolveSession(tinyDoc(), { poolBudgetMs: 5_000, totalBudgetMs: 60_000, seed: 7 });
+		const solutions: Array<{ score: number | null }> = [];
+		const logs: string[] = [];
+		session.on('solution', s => solutions.push(s as never));
+		session.on('log', l => logs.push((l as { message: string }).message));
+		await Promise.resolve(); // queueMicrotask der Pool-Startevents
+
+		expect(FakeWorker.instances).toHaveLength(4);
+		const seeds = FakeWorker.instances.map(w => (w.sent[0] as { type: 'pool'; seed: number }).seed);
+		expect(FakeWorker.instances.every(w => w.sent[0].type === 'pool')).toBe(true);
+		expect(new Set(seeds).size).toBe(4); // distinkte Seeds
+
+		// Worker 0 meldet Best 5000, Worker 1 toppt mit 4000, Worker 2 schlechter (ignoriert).
+		FakeWorker.instances[0].receive(poolBest(5000, 3));
+		FakeWorker.instances[1].receive(poolBest(4000, 2));
+		FakeWorker.instances[2].receive(poolBest(4500, 1));
+		expect(solutions.map(s => s.score)).toEqual([5000, 4000]);
+		expect(logs.some(m => /Pool: neuer Best #\d+.*Score 4000/.test(m))).toBe(true);
+
+		// Alle 4 melden poolDone → Haupt-Session startet mit Best als Hot-Start.
+		for (const w of FakeWorker.instances.slice(0, 4)) {
+			w.receive({ kind: 'poolDone', payload: { attempts: 5, best: null } });
+		}
+		expect(FakeWorker.instances).toHaveLength(5);
+		const main = FakeWorker.instances[4];
+		const startMsg = main.sent[0] as { type: 'start'; doc: { placed: unknown[] }; opts: Record<string, unknown> };
+		expect(startMsg.type).toBe('start');
+		expect(startMsg.opts.hotStart).toBe(true);
+		expect(startMsg.opts.poolBudgetMs).toBe(0);
+		expect(startMsg.doc.placed).toEqual(poolPlaced);
+		expect(startMsg.opts.totalBudgetMs as number).toBeLessThanOrEqual(60_000);
+		expect(logs.some(m => /Pool abgeschlossen: 20 Versuche/.test(m))).toBe(true);
+		// Pool-Worker sind terminiert.
+		expect(FakeWorker.instances.slice(0, 4).every(w => w.terminated)).toBe(true);
+
+		// done der Haupt-Session wird durchgereicht.
+		const dones: unknown[] = [];
+		session.on('done', d => dones.push(d));
+		main.receive({
+			kind: 'done',
+			payload: { final: { status: 'SAT', placed: [], unplaced: [] }, totalElapsedMs: 1 },
+			dzn: 'x',
+		});
+		expect(dones).toHaveLength(1);
+		expect(session.getDzn()).toBe('x');
+	});
+
+	it('Abort während der Pool-Phase: Worker terminiert, beste Pool-Lösung übernommen', async () => {
+		withFakeWorker();
+		withCores(8);
+		const session = startSolveSession(tinyDoc(), { poolBudgetMs: 5_000 });
+		const dones: Array<{ final: { status: string; placed: unknown[] } }> = [];
+		session.on('done', d => dones.push(d as never));
+		await Promise.resolve();
+		FakeWorker.instances[0].receive(poolBest(3000, 1));
+		session.abort();
+		expect(dones).toHaveLength(1);
+		expect(dones[0].final.status).toBe('TIMEOUT');
+		expect(dones[0].final.placed).toEqual(poolPlaced);
+		expect(FakeWorker.instances.every(w => w.terminated)).toBe(true);
+	});
+
+	it('fatale Diagnose überspringt den Pool (Single-Worker meldet den Fehler sauber)', () => {
+		withFakeWorker();
+		withCores(8);
+		const doc = tinyDoc();
+		// Stufe 5 mit 41 Wochenstunden > 40 Slots → diagnose-Fatal.
+		doc.specs[0].count = 41;
+		const session = startSolveSession(doc, { poolBudgetMs: 5_000 });
+		expect(FakeWorker.instances).toHaveLength(1);
+		expect(FakeWorker.instances[0].sent[0].type).toBe('start');
+		void session;
+	});
+
+	it('nur 1 nutzbarer Kern: Pool bleibt in der Session (Single-Worker)', () => {
+		withFakeWorker();
+		withCores(2); // → k = 1 → kein Parallel-Pool
+		startSolveSession(tinyDoc(), { poolBudgetMs: 5_000 });
+		expect(FakeWorker.instances).toHaveLength(1);
+		const msg = FakeWorker.instances[0].sent[0] as { type: string; opts?: { poolBudgetMs?: number } };
+		expect(msg.type).toBe('start');
+		expect(msg.opts?.poolBudgetMs).toBe(5_000); // Session-interner Pool
+	});
 });
