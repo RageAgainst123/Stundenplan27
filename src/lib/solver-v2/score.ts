@@ -25,20 +25,125 @@ import {
 	P,
 	dpFromSlot,
 	type ScoreBreakdown,
+	type ScoreScratch,
 	type ScoreWeights,
 	type SolverState,
 	SLOT_UNPLACED,
 } from './types';
 
 /**
- * Build a 3D occupancy bitmap for fast counting.
+ * Solver-Opt Runde 2, Schritt 2: Scratch-Puffer + statische Per-Unit-Caches.
+ *
+ * computeScore läuft pro Move (Full-Scan-Delta, scoreDelta.ts) — vorher
+ * allozierte jeder Aufruf 3 Int32Arrays, 3 Maps mit String-Keys
+ * (`${d}|${g}|${code}`), Occurrence-Arrays + Sort und pro Unit ein
+ * map/filter/Set-Trio für timePref. Alles davon ist entweder pro Aufruf
+ * resetbar (Puffer) oder über die Session statisch (Unit-Eigenschaften).
+ *
+ * Lazy: beim ersten computeScore-Aufruf gebaut und am State gecacht.
+ * Voraussetzung (gilt im ganzen Solver): doc/units sind während einer
+ * Session unveränderlich, nur state.placement mutiert.
+ */
+function ensureScratch(state: SolverState): ScoreScratch {
+	if (state.scoreScratch) return state.scoreScratch;
+	const G = 4;
+	const T = Math.max(1, state.doc.teachers.length);
+	const n = state.nUnits;
+
+	// Fach-Index: doc.subjects zuerst, danach defensiv Unit-Codes die dort
+	// fehlen (Verhalten muss identisch zum alten String-Key bleiben — auch
+	// unbekannte Codes zählten für subject_twice).
+	const subjectIdxByCode = new Map<string, number>();
+	for (const s of state.doc.subjects) {
+		if (!subjectIdxByCode.has(s.code)) subjectIdxByCode.set(s.code, subjectIdxByCode.size);
+	}
+	for (let i = 0; i < n; i++) {
+		const code = state.units[i].subjectCode;
+		if (!subjectIdxByCode.has(code)) subjectIdxByCode.set(code, subjectIdxByCode.size);
+	}
+	const S = Math.max(1, subjectIdxByCode.size);
+
+	const specIdxById = new Map<string, number>();
+	for (const sp of state.doc.specs) {
+		if (!specIdxById.has(sp.id)) specIdxById.set(sp.id, specIdxById.size);
+	}
+	for (let i = 0; i < n; i++) {
+		for (const sid of state.units[i].specIds) {
+			if (!specIdxById.has(sid)) specIdxById.set(sid, specIdxById.size);
+		}
+	}
+	const NS = Math.max(1, specIdxById.size);
+
+	const teacherIdxById = new Map<string, number>();
+	state.doc.teachers.forEach((t, i) => teacherIdxById.set(t.id, i));
+
+	const subjIsMain = new Uint8Array(S);
+	for (const [code, idx] of subjectIdxByCode) {
+		subjIsMain[idx] = state.subjectsByCode.get(code)?.isMain ? 1 : 0;
+	}
+
+	const unitTimePref = new Int8Array(n);
+	const unitAfternoonExempt = new Uint8Array(n);
+	const unitIsMain = new Uint8Array(n);
+	const unitSubjIdx = new Int32Array(n);
+	const unitFirstGrade = new Int32Array(n);
+	for (let i = 0; i < n; i++) {
+		const unit = state.units[i];
+		// timePref-Logik unverändert aus dem alten Per-Call-Code: Preference
+		// gilt nur wenn alle gesetzten Prefs der gekoppelten Specs übereinstimmen.
+		const prefs = unit.specIds
+			.map(sid => state.specsById.get(sid)?.timePref)
+			.filter((v): v is 'early' | 'late' => v === 'early' || v === 'late');
+		const uniquePrefs = new Set(prefs);
+		const timePref: 'early' | 'late' | undefined =
+			uniquePrefs.size === 1 ? prefs[0] : undefined;
+		unitTimePref[i] = timePref === 'early' ? 1 : timePref === 'late' ? 2 : 0;
+		unitAfternoonExempt[i] =
+			timePref === 'late'
+			|| unit.afternoonAllowed === 'preferred'
+			|| unit.afternoonAllowed === 'must'
+				? 1 : 0;
+		unitIsMain[i] = state.subjectsByCode.get(unit.subjectCode)?.isMain ? 1 : 0;
+		unitSubjIdx[i] = subjectIdxByCode.get(unit.subjectCode)!;
+		const firstSpec = state.specsById.get(unit.specIds[0]);
+		unitFirstGrade[i] = firstSpec ? firstSpec.grades[0] : -1;
+	}
+
+	const scratch: ScoreScratch = {
+		S,
+		NS,
+		subjectIdxByCode,
+		specIdxById,
+		teacherIdxById,
+		subjIsMain,
+		occ: new Int32Array(D * G * P),
+		tocc: new Int32Array(T * D * P),
+		mainMask: new Int32Array(D * G * P),
+		subjCount: new Int32Array(D * G * S),
+		occAStart: new Int32Array(D * G * S),
+		occASize: new Int32Array(D * G * S),
+		occBStart: new Int32Array(D * G * S),
+		occBSize: new Int32Array(D * G * S),
+		specDay: new Int32Array(NS * D),
+		unitTimePref,
+		unitAfternoonExempt,
+		unitIsMain,
+		unitSubjIdx,
+		unitFirstGrade,
+	};
+	state.scoreScratch = scratch;
+	return scratch;
+}
+
+/**
+ * Fill the 3D occupancy bitmap for fast counting.
  *   occ[d * G * P + g * P + p] = number of lesson INSTANCES at (d, g, p)
  *
  * (We index by g 0..3 = grade 5..8.)
  */
-function buildOccupancy(state: SolverState): Int32Array {
+function fillOccupancy(state: SolverState, occ: Int32Array): void {
 	const G = 4;
-	const occ = new Int32Array(D * G * P);
+	occ.fill(0);
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
@@ -52,7 +157,6 @@ function buildOccupancy(state: SolverState): Int32Array {
 			occ[dayIndex * G * P + g * P + p]++;
 		}
 	}
-	return occ;
 }
 
 /**
@@ -67,8 +171,15 @@ function buildOccupancy(state: SolverState): Int32Array {
 export function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; teacherIdx: Map<string, number> } {
 	const teacherIdx = new Map<string, number>();
 	state.doc.teachers.forEach((t, i) => teacherIdx.set(t.id, i));
-	const T = state.doc.teachers.length;
+	const T = Math.max(1, state.doc.teachers.length);
 	const tocc = new Int32Array(T * D * P);
+	fillTeacherOccupancy(state, tocc, teacherIdx);
+	return { tocc, teacherIdx };
+}
+
+/** In-place-Variante für den Hot-Path (computeScore mit Scratch-Puffer). */
+function fillTeacherOccupancy(state: SolverState, tocc: Int32Array, teacherIdx: Map<string, number>): void {
+	tocc.fill(0);
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
@@ -101,7 +212,6 @@ export function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; t
 			}
 		}
 	}
-	return { tocc, teacherIdx };
 }
 
 /**
@@ -109,8 +219,11 @@ export function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; t
  * O(nUnits + D*G*P + T*D*P) — used at start of LS and in tests.
  */
 export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBreakdown {
-	const occ = buildOccupancy(state);
-	const { tocc } = buildTeacherOccupancy(state);
+	const scratch = ensureScratch(state);
+	const occ = scratch.occ;
+	const tocc = scratch.tocc;
+	fillOccupancy(state, occ);
+	fillTeacherOccupancy(state, tocc, scratch.teacherIdxById);
 	const G = 4;
 	const c = state.doc.constraints;
 	const minDaily = Math.max(0, Math.min(P, Math.round(c.minDailySlotsPerGrade ?? 0)));
@@ -210,40 +323,22 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	// --- Per Unit walk: main_aft, any_aft, main_run-precursor, main_early
 	// main_run: count 3-runs of main subjects in the same (day, grade).
 	// We compute that per (day, grade) from the occupancy + a "main mask".
-	const mainMask = new Int32Array(D * G * P);
+	//
+	// timePref/isMain/afternoonExempt sind statisch pro Unit — vorberechnet
+	// in ensureScratch (unitTimePref/unitIsMain/unitAfternoonExempt). Die
+	// Original-Semantik (Kopplungs-Konfliktregel, 'late'/'preferred'/'must'-
+	// Exemption) ist dort dokumentiert und identisch übernommen.
+	const mainMask = scratch.mainMask;
+	mainMask.fill(0);
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
 		const unit = state.units[i];
-		const subj = state.subjectsByCode.get(unit.subjectCode);
-		const isMain = subj?.isMain ?? false;
+		const isMain = scratch.unitIsMain[i] === 1;
+		const timePref = scratch.unitTimePref[i]; // 0 none, 1 early, 2 late
+		const afternoonExempt = scratch.unitAfternoonExempt[i] === 1;
+		const firstGrade = scratch.unitFirstGrade[i];
 		const { dayIndex, period } = dpFromSlot(slot);
-		// timePref applies per Unit (not per instance). For coupling-units we
-		// honour the preference if ANY of the coupled specs has set one —
-		// otherwise a "BSP late + BSP-Mädchen unflagged" coupling would only
-		// pick up the pref when the late-flagged spec happened to be first
-		// in `specIds`. Conflict ('early' on one, 'late' on the other) →
-		// neutral / no penalty.
-		const prefs = unit.specIds
-			.map(sid => state.specsById.get(sid)?.timePref)
-			.filter((v): v is 'early' | 'late' => v === 'early' || v === 'late');
-		const uniquePrefs = new Set(prefs);
-		const timePref: 'early' | 'late' | undefined =
-			uniquePrefs.size === 1 ? prefs[0] : undefined;
-		// A 'late'-pref spec opts out of the afternoon penalties — the user
-		// has explicitly chosen this time band, so charging any_aft/main_aft
-		// would cancel the time_pref signal.
-		// Phase 13.2: Specs mit afternoonAllowed='preferred' sind aus dem
-		// gleichen Grund exempt — User hat „bevorzugt nachmittags" gewählt,
-		// any_aft hier zu kassieren würde dem Signal entgegenwirken.
-		// Phase 18: 'must' ist ebenfalls exempt von any_aft/main_aft — Hard-
-		// Constraint H11 stellt sicher dass die Spec nachmittags ist, eine
-		// zusätzliche Soft-Penalty wäre redundant und würde Score-Vergleiche
-		// verzerren.
-		const afternoonExempt =
-			timePref === 'late'
-			|| unit.afternoonAllowed === 'preferred'
-			|| unit.afternoonAllowed === 'must';
 		for (const inst of unit.instances) {
 			const p = period - 1 + inst.blockPos;
 			if (p >= P) continue;
@@ -267,14 +362,11 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			// Deduplicate via (specId === unit.specIds[0]) AND (grade is the
 			// first grade of that spec) so multi-grade tuples and couplings
 			// don't multiply the penalty.
-			if (timePref && inst.specId === unit.specIds[0]) {
-				const firstSpec = state.specsById.get(unit.specIds[0]);
-				if (firstSpec && inst.grade === firstSpec.grades[0]) {
-					if (timePref === 'early') {
-						breakdown.time_pref += p; // distance from P1 (idx 0)
-					} else {
-						breakdown.time_pref += P - 1 - p; // distance from P8 (idx 7)
-					}
+			if (timePref !== 0 && inst.specId === unit.specIds[0] && inst.grade === firstGrade) {
+				if (timePref === 1) {
+					breakdown.time_pref += p; // distance from P1 (idx 0)
+				} else {
+					breakdown.time_pref += P - 1 - p; // distance from P8 (idx 7)
 				}
 			}
 		}
@@ -404,38 +496,40 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	}
 
 	// --- subject_twice: same subject more than once per (day, grade).
-	// We use a Map<key, count> on (day, grade, subjectCode) populated by
-	// scanning placed units once. Allowed bonus: same coupling/multi-grade
-	// instances at the same slot don't trigger (they're inherently one
-	// teaching event).
+	// Integer-Zähler subjCount[(d*G+g)*S + subjIdx] statt Map mit String-
+	// Keys. Allowed bonus: same coupling/multi-grade instances at the same
+	// slot don't trigger (one Unit = one teaching event, Zählung pro Unit).
 	//
 	// Phase 13.3: zusätzlich main_twice (Hauptfach 3+ am Tag) und
-	// main_block_split (zwei Hauptfach-Vorkommen, nicht konsekutiv).
-	// Wir tracken pro key auch die Liste der belegten Periods für das
-	// block-split-Maß.
-	const seenSubjAtDayGrade = new Map<string, number>();
-	// Pro key: Liste von [startPeriod, blockSize] der Vorkommen.
-	const occurrencesAtKey = new Map<string, Array<[number, number]>>();
-	const isMainAtKey = new Map<string, boolean>();
+	// main_block_split (zwei Hauptfach-Vorkommen, nicht konsekutiv). Für
+	// block_split merken wir die ersten ZWEI Vorkommen (Start, Größe) pro
+	// Zelle — mehr braucht die Formel nicht (sie gilt nur bei exakt 2).
+	const S = scratch.S;
+	const subjCount = scratch.subjCount;
+	subjCount.fill(0);
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
 		const unit = state.units[i];
 		const { dayIndex, period } = dpFromSlot(slot);
-		const subj = state.subjectsByCode.get(unit.subjectCode);
-		const isMain = subj?.isMain ?? false;
+		const subjIdx = scratch.unitSubjIdx[i];
 		for (const grade of unit.grades) {
-			const key = `${dayIndex}|${grade}|${unit.subjectCode}`;
-			seenSubjAtDayGrade.set(key, (seenSubjAtDayGrade.get(key) ?? 0) + 1);
-			isMainAtKey.set(key, isMain);
-			const arr = occurrencesAtKey.get(key) ?? [];
-			arr.push([period, unit.blockSize]); // period ist 1-basiert
-			occurrencesAtKey.set(key, arr);
+			const k = (dayIndex * G + (grade - 5)) * S + subjIdx;
+			const c = ++subjCount[k];
+			if (c === 1) {
+				scratch.occAStart[k] = period; // period ist 1-basiert
+				scratch.occASize[k] = unit.blockSize;
+			} else if (c === 2) {
+				scratch.occBStart[k] = period;
+				scratch.occBSize[k] = unit.blockSize;
+			}
 		}
 	}
-	for (const [key, v] of seenSubjAtDayGrade) {
+	for (let k = 0; k < D * G * S; k++) {
+		const v = subjCount[k];
+		if (v === 0) continue;
 		if (v > 1) breakdown.subject_twice += v - 1;
-		const isMain = isMainAtKey.get(key) === true;
+		const isMain = scratch.subjIsMain[k % S] === 1;
 		// Phase 13.3 main_twice: 3+ Vorkommen Hauptfach am gleichen Tag/Stufe.
 		if (isMain && v > 2) {
 			breakdown.main_twice += v - 2;
@@ -446,10 +540,17 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		// Mathe Einzel P1 + Einzel P3 = Ende=P1, Anfang=P3 → 1 (P2 dazwischen)
 		// Mathe Doppel P1-P2 + Einzel P5 = Ende=P2, Anfang=P5 → 2 (P3,P4 frei)
 		if (isMain && v === 2) {
-			const occs = occurrencesAtKey.get(key)!;
-			const sorted = [...occs].sort((a, b) => a[0] - b[0]);
-			const firstEnd = sorted[0][0] + sorted[0][1] - 1; // letzte belegte Periode des ersten Blocks
-			const secondStart = sorted[1][0];
+			// Die zwei Vorkommen nach Start-Periode ordnen (Einfüge-Reihenfolge
+			// ist nicht sortiert — wie vorher der Sort über die Occurrence-Liste).
+			let firstStart = scratch.occAStart[k];
+			let firstSize = scratch.occASize[k];
+			let secondStart = scratch.occBStart[k];
+			if (secondStart < firstStart) {
+				secondStart = firstStart;
+				firstStart = scratch.occBStart[k];
+				firstSize = scratch.occBSize[k];
+			}
+			const firstEnd = firstStart + firstSize - 1; // letzte belegte Periode des ersten Blocks
 			const gap = Math.max(0, secondStart - firstEnd - 1);
 			breakdown.main_block_split += gap;
 		}
@@ -458,18 +559,20 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 	// --- spec_spread: occurrences of the SAME spec on the SAME weekday count
 	// as a violation (we want them spread across the week). One penalty per
 	// extra same-day occurrence beyond the first.
-	const specDayCount = new Map<string, number>();
+	const specDay = scratch.specDay;
+	specDay.fill(0);
 	for (let i = 0; i < state.nUnits; i++) {
 		const slot = state.placement[i];
 		if (slot === SLOT_UNPLACED) continue;
 		const unit = state.units[i];
 		const { dayIndex } = dpFromSlot(slot);
 		for (const sid of unit.specIds) {
-			const key = `${sid}|${dayIndex}`;
-			specDayCount.set(key, (specDayCount.get(key) ?? 0) + 1);
+			const spIdx = scratch.specIdxById.get(sid);
+			if (spIdx !== undefined) specDay[spIdx * D + dayIndex]++;
 		}
 	}
-	for (const v of specDayCount.values()) {
+	for (let k = 0; k < scratch.NS * D; k++) {
+		const v = specDay[k];
 		if (v > 1) breakdown.spec_spread += v - 1;
 	}
 

@@ -106,7 +106,12 @@ SolverState                            ← built fresh per solve, not persisted
 ├── unitsByTeacher: Map<teacherId, Unit[]>   (für H3, compact_teacher)
 ├── specsById:      Map<specId,    LessonSpec>
 ├── subjectsByCode: Map<code,      Subject>
-└── teachersById:   Map<teacherId, Teacher>
+├── teachersById:   Map<teacherId, Teacher>
+└── scoreScratch?:  ScoreScratch   (lazy, R2-Schritt 2: wiederverwendete
+                                    Score-Puffer + statische Per-Unit-Caches;
+                                    von ensureScratch() in score.ts befüllt —
+                                    computeScore alloziert seitdem nichts mehr
+                                    außer dem Breakdown-Objekt)
 
 Slot-Encoding: slot = dayIndex * 8 + (period - 1).      Range 0..39.
 slotFromDP(d, p), dpFromSlot(s) in solver-v2/types.ts.

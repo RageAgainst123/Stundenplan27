@@ -144,6 +144,53 @@ export interface SolverState {
 	 * das melden. Optional weil interne Hilfs-States das Feld nicht brauchen.
 	 */
 	droppedPins?: Array<{ specId: string; subjectCode: string; day: Day; period: Period; reason: string }>;
+	/**
+	 * Solver-Opt Runde 2, Schritt 2: lazy-allozierte Scratch-Puffer +
+	 * statische Per-Unit-Caches für computeScore. Wird beim ersten
+	 * computeScore-Aufruf von `ensureScratch()` (score.ts) befüllt —
+	 * computeScore läuft pro Move (Full-Scan-Delta), frische Maps/Arrays
+	 * pro Aufruf waren der GC-Flaschenhals. Stammdaten (Fächer, Lehrer,
+	 * Specs, Units) sind während einer Solver-Session konstant.
+	 */
+	scoreScratch?: ScoreScratch;
+}
+
+/** Scratch-Puffer für computeScore — siehe SolverState.scoreScratch. */
+export interface ScoreScratch {
+	/** Anzahl distinkter Fach-Codes (Index-Raum von subjCount/occ*-Arrays). */
+	S: number;
+	/** Anzahl distinkter Spec-Ids (Index-Raum von specDay). */
+	NS: number;
+	subjectIdxByCode: Map<string, number>;
+	specIdxById: Map<string, number>;
+	teacherIdxById: Map<string, number>;
+	/** isMain pro Fach-Index (statisch). */
+	subjIsMain: Uint8Array;
+	/** Klassen-Occupancy: occ[d*G*P + g*P + p] — pro Aufruf resettet. */
+	occ: Int32Array;
+	/** Lehrer-Occupancy: tocc[t*D*P + d*P + p] — pro Aufruf resettet. */
+	tocc: Int32Array;
+	/** Hauptfach-Maske analog occ — pro Aufruf resettet. */
+	mainMask: Int32Array;
+	/** Vorkommen pro (Tag, Stufe, Fach): subjCount[(d*G+g)*S + s]. */
+	subjCount: Int32Array;
+	/** Erste zwei Vorkommen pro (Tag, Stufe, Fach) für main_block_split. */
+	occAStart: Int32Array;
+	occASize: Int32Array;
+	occBStart: Int32Array;
+	occBSize: Int32Array;
+	/** Vorkommen pro (Spec, Tag): specDay[sp*D + d]. */
+	specDay: Int32Array;
+	/** Statisch pro Unit: 0=kein timePref, 1=early, 2=late. */
+	unitTimePref: Int8Array;
+	/** Statisch pro Unit: 1 = exempt von any_aft/main_aft/main_early. */
+	unitAfternoonExempt: Uint8Array;
+	/** Statisch pro Unit: 1 = Hauptfach. */
+	unitIsMain: Uint8Array;
+	/** Statisch pro Unit: Fach-Index (in subjectIdxByCode). */
+	unitSubjIdx: Int32Array;
+	/** Statisch pro Unit: grades[0] der ersten Spec (time_pref-Dedup), -1 wenn Spec fehlt. */
+	unitFirstGrade: Int32Array;
 }
 
 /** Placement constant for "not placed yet". */

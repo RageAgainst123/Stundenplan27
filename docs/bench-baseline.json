@@ -221,6 +221,40 @@
           "METHODIK-WARNUNG: Hintergrund-Prozesse laufen unter Windows mit reduzierter Priorität — Zeitbudget-Benches NUR im Vordergrund laufen lassen (2 Läufe mit 6-10x Wall-Clock-Verzerrung verworfen)."
         ]
       }
+    },
+    {
+      "label": "r2-schritt-2-score-allokations-sanierung",
+      "commit": "(siehe git log: perf(solver) computeScore Scratch)",
+      "date": "2026-07-03",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.compact_teacher": 13,
+          "breakdown.main_run": 2,
+          "breakdown.teacher_gap_fairness": 25,
+          "breakdown.teacher_days_present": 12,
+          "teacher.gapsTotal": 10,
+          "teacher.gapsMaxPerTeacher": 3,
+          "teacher.daysPresentTotal": 35,
+          "teacher.lateStartsTotal": 79,
+          "teacher.miniDays": 2
+        },
+        "iterPerSec": "4056-4853",
+        "noFreeZeroRuns": "5/5"
+      },
+      "async_produktionspfad": {
+        "iterPerSec": "3115-4625",
+        "noFreeZeroRuns": "5/5",
+        "median_gapsTotal": 10
+      },
+      "_befund": [
+        "Verhaltens-Äquivalenz bewiesen: alle 321 Tests grün (Score-Komponenten-Tests + Property-Test), Ziel-Metriken unverändert (gapsTotal 10, no_free 0 in 10/10 Läufen sync+async).",
+        "EHRLICH: erwarteter Durchsatz-Sprung (+30-50%) im jsdom-Bench NICHT bestätigt — Sync ~4500/s liegt in der Baseline-Range 3400-5300. V8 verkraftet kurzlebige Allokationen offenbar gut; GC-Jitter-Reduktion nutzt eher dem Browser (im jsdom-Median unsichtbar).",
+        "ERKENNTNIS für Schritt 3: der Hot-Path wird von der MOVE-GENERIERUNG dominiert — movableUnits() baut pro genMove ein frisches ~130er-Array (und ist während eines LS-Laufs STATISCH, Moves entplatzieren nie!), wouldViolate scannt O(nUnits) bis 12x pro Move. Beides adressiert Schritt 3.",
+        "Änderung bleibt drin: Null-Risiko (identische Semantik), Scratch-Infrastruktur (Integer-Indizes subjectIdxByCode/specIdxById/teacherIdxById, Per-Unit-Caches) wird von Schritt 3 mitgenutzt."
+      ]
     }
   ]
 }
