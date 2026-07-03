@@ -19,6 +19,24 @@
 	let selectedSubject = $state<string>('');
 	let showAll = $derived(selectedTeachers.size === 0 && selectedGrades.size === 0 && !selectedSubject);
 
+	// ---- Planungswerkzeuge ein-/ausklappbar (Fach-Filter, KW, Generator,
+	// Snapshots, Export) — Zustand überlebt Reloads via localStorage.
+	// WICHTIG: Der Inhalt wird per CSS versteckt (display:none), NICHT per
+	// {#if} unmountet — sonst würde eine laufende Solver-Session beim
+	// Zuklappen verwaisen (GenerateButton hält den Session-State lokal).
+	const TOOLS_OPEN_KEY = 'stundenplan27.ui.toolsOpen';
+	let toolsOpen = $state<boolean>(
+		typeof localStorage === 'undefined' || localStorage.getItem(TOOLS_OPEN_KEY) !== '0'
+	);
+	function toggleTools() {
+		toolsOpen = !toolsOpen;
+		try {
+			localStorage.setItem(TOOLS_OPEN_KEY, toolsOpen ? '1' : '0');
+		} catch {
+			// localStorage voll/gesperrt — Toggle funktioniert trotzdem, nur ohne Persistenz.
+		}
+	}
+
 	function toggleTeacher(id: string) {
 		if (selectedTeachers.has(id)) selectedTeachers.delete(id);
 		else selectedTeachers.add(id);
@@ -218,45 +236,61 @@
 			</button>
 		{/each}
 	</div>
-	<select bind:value={selectedSubject} class="subject-select">
-		<option value="">Alle Fächer</option>
-		{#each store.doc.subjects as s}<option value={s.code}>{s.code} – {s.name}</option>{/each}
-	</select>
-	<span class="sep"></span>
-	<span class="week-info" class:even={weekInfo.parity === 'even'}>
-		KW {weekInfo.week} · <strong>{weekInfo.parity === 'even' ? 'G' : 'U'}</strong>
-	</span>
-	<span class="sep"></span>
-	<GenerateButton />
-	{#if store.doc.placed.length > 0}
-		{@const pinnedCount = store.doc.placed.filter(p => p.pinned).length}
-		<button
-			class="btn small"
-			onclick={exportSchedule}
-			title="Stundenplan als JSON exportieren — Tag, Stunde, Stufe, Lehrer mit Farben, Team-Teaching, Subject-Namen"
-		>
-			📤 Plan exportieren
-		</button>
-		<button
-			class="btn danger small"
-			onclick={resetUnpinned}
-			title="Nur die nicht-gepinnten Stunden löschen — gepinnte Stunden 🔒 bleiben"
-		>
-			🗑 Planung verwerfen
-			{#if pinnedCount > 0}
-				<span class="muted-inline">(🔒 {pinnedCount} bleiben)</span>
-			{/if}
-		</button>
-		{#if pinnedCount > 0}
-			<button
-				class="btn danger small ghost"
-				onclick={resetAll}
-				title="ALLES inklusive der gepinnten Stunden löschen"
-			>
-				🗑 Alles inkl. Pins
-			</button>
+</section>
+
+<!-- Planungswerkzeuge: ein-/ausklappbar wie das Lehrer-Qualität-Panel.
+     Inhalt bleibt gemountet (nur CSS-hidden), damit laufende Solver-
+     Sessions und deren Fortschrittsanzeige den Toggle überleben. -->
+<section class="tools-panel">
+	<button class="tools-toggle" onclick={toggleTools} aria-expanded={toolsOpen}>
+		{toolsOpen ? '▼' : '▶'} 🛠 Planungswerkzeuge
+		{#if !toolsOpen}
+			<span class="tools-hint muted-inline">
+				Generieren · Snapshots · Export{selectedSubject ? ` · Fach-Filter: ${selectedSubject}` : ''}
+			</span>
 		{/if}
-	{/if}
+	</button>
+	<div class="tools-body" class:hidden={!toolsOpen}>
+		<select bind:value={selectedSubject} class="subject-select">
+			<option value="">Alle Fächer</option>
+			{#each store.doc.subjects as s}<option value={s.code}>{s.code} – {s.name}</option>{/each}
+		</select>
+		<span class="sep"></span>
+		<span class="week-info" class:even={weekInfo.parity === 'even'}>
+			KW {weekInfo.week} · <strong>{weekInfo.parity === 'even' ? 'G' : 'U'}</strong>
+		</span>
+		<span class="sep"></span>
+		<GenerateButton />
+		{#if store.doc.placed.length > 0}
+			{@const pinnedCount = store.doc.placed.filter(p => p.pinned).length}
+			<button
+				class="btn small"
+				onclick={exportSchedule}
+				title="Stundenplan als JSON exportieren — Tag, Stunde, Stufe, Lehrer mit Farben, Team-Teaching, Subject-Namen"
+			>
+				📤 Plan exportieren
+			</button>
+			<button
+				class="btn danger small"
+				onclick={resetUnpinned}
+				title="Nur die nicht-gepinnten Stunden löschen — gepinnte Stunden 🔒 bleiben"
+			>
+				🗑 Planung verwerfen
+				{#if pinnedCount > 0}
+					<span class="muted-inline">(🔒 {pinnedCount} bleiben)</span>
+				{/if}
+			</button>
+			{#if pinnedCount > 0}
+				<button
+					class="btn danger small ghost"
+					onclick={resetAll}
+					title="ALLES inklusive der gepinnten Stunden löschen"
+				>
+					🗑 Alles inkl. Pins
+				</button>
+			{/if}
+		{/if}
+	</div>
 </section>
 
 <div class="layout">
@@ -357,7 +391,47 @@
 		background: var(--bg-panel);
 		border: 1px solid var(--border);
 		border-radius: 8px;
+		margin-bottom: 8px;
+	}
+	/* Planungswerkzeuge-Panel — Look analog TeacherQualityPanel (.tq-panel) */
+	.tools-panel {
+		padding: 8px 12px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 8px;
 		margin-bottom: 14px;
+	}
+	.tools-toggle {
+		background: none;
+		border: 0;
+		font: inherit;
+		font-size: 14px;
+		font-weight: 600;
+		cursor: pointer;
+		padding: 2px 4px;
+		color: var(--text);
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		flex-wrap: wrap;
+	}
+	.tools-toggle:hover {
+		color: var(--accent);
+	}
+	.tools-hint {
+		font-weight: 400;
+		font-size: 12px;
+		color: var(--text-muted);
+	}
+	.tools-body {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+		padding-top: 10px;
+	}
+	.tools-body.hidden {
+		display: none;
 	}
 	.sep {
 		width: 1px;
