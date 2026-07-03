@@ -1,0 +1,54 @@
+{
+	"_readme": [
+		"Solver-Qualitäts-Baseline auf der echten Liste.csv (52 Specs).",
+		"Erzeugt mit `npm run bench` — 5 feste Seeds [42,1337,7,2024,99999],",
+		"10s ILS pro Lauf (innerBudget 4s, plateau 2s), Median über Seeds.",
+		"Rohzähler vergleichen, NICHT weightedTotal (wird bei Gewichts-",
+		"Änderungen unvergleichbar). Immer auf derselben Maschine messen.",
+		"Nach jeder Optimierungs-Phase neuen Eintrag mit Commit-Hash anhängen."
+	],
+	"entries": [
+		{
+			"label": "baseline-pre-optimization",
+			"commit": "793a569",
+			"date": "2026-07-03",
+			"machine": "Geo-Windows-Dev",
+			"sync": {
+				"median": {
+					"weightedTotal": 12734,
+					"breakdown.no_free": 0,
+					"breakdown.min_daily": 0,
+					"breakdown.compact_teacher": 20,
+					"breakdown.teacher_late_start": 89,
+					"breakdown.teacher_under_min": 4,
+					"breakdown.any_aft": 30,
+					"breakdown.main_early": 132,
+					"breakdown.subject_twice": 19,
+					"breakdown.spec_spread": 8,
+					"breakdown.target_daily": 57,
+					"breakdown.main_run": 1,
+					"teacher.gapsTotal": 14,
+					"teacher.gapsMaxPerTeacher": 5,
+					"teacher.daysPresentTotal": 39,
+					"teacher.lateStartsTotal": 89,
+					"teacher.miniDays": 4,
+					"teacher.missedLunchDays": 1
+				},
+				"range": { "weightedTotal": [11280, 13604], "teacher.gapsTotal": [9, 19] },
+				"iterPerSec": "3400-5300",
+				"noFreeZeroRuns": "5/5"
+			},
+			"async_produktionspfad": {
+				"median": {
+					"weightedTotal": 12698,
+					"breakdown.no_free": 0,
+					"teacher.gapsTotal": 12
+				},
+				"range": { "weightedTotal": [11354, 22650] },
+				"iterPerSec": "2100-3100",
+				"noFreeZeroRuns": "3/5",
+				"_befund": "SA-Kaltstart alle 250ms (KRITISCH-1): 2 von 5 Läufen bleiben mit Klassen-Lücke stecken (Score >21000). Hohe Varianz, ~35% weniger Iterationen als Sync."
+			}
+		}
+	]
+}

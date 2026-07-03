@@ -59,8 +59,11 @@ function buildOccupancy(state: SolverState): Int32Array {
  *   tocc[t * D * P + d * P + p] = number of lessons by teacher t at (d, p)
  *
  * Teachers indexed 0..T-1 by document order (we use a Map for the lookup).
+ *
+ * Exported for bench-metrics.ts (Lehrer-Qualitäts-Metriken nutzen dieselbe
+ * Occupancy-Logik — keine Duplikation, keine Drift).
  */
-function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; teacherIdx: Map<string, number> } {
+export function buildTeacherOccupancy(state: SolverState): { tocc: Int32Array; teacherIdx: Map<string, number> } {
 	const teacherIdx = new Map<string, number>();
 	state.doc.teachers.forEach((t, i) => teacherIdx.set(t.id, i));
 	const T = state.doc.teachers.length;
