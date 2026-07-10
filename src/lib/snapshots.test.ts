@@ -6,7 +6,8 @@ import {
 	clearSnapshots,
 	snapshotCount,
 	MAX_SNAPSHOTS,
-	STORAGE_KEY
+	STORAGE_KEY,
+	CORRUPT_BACKUP_KEY
 } from './snapshots';
 import type { PlacedLesson } from './types';
 
@@ -32,6 +33,24 @@ describe('snapshots — Storage roundtrip', () => {
 	it('loadSnapshots returns empty array when nothing stored', () => {
 		expect(loadSnapshots()).toEqual([]);
 		expect(snapshotCount()).toBe(0);
+	});
+
+	it('Absturz-Härtung: korrupter Eintrag wird in den Rettungs-Key kopiert statt überschrieben', () => {
+		localStorage.setItem(STORAGE_KEY, '[{"id": "abgeschnitten-mitten-im-wr');
+		expect(loadSnapshots()).toEqual([]);
+		// Roh-Inhalt gerettet …
+		expect(localStorage.getItem(CORRUPT_BACKUP_KEY)).toBe('[{"id": "abgeschnitten-mitten-im-wr');
+		// … und ein folgender Save zerstört das Rettungs-Backup nicht.
+		saveSnapshot(makeSnap(1000));
+		expect(loadSnapshots()).toHaveLength(1);
+		expect(localStorage.getItem(CORRUPT_BACKUP_KEY)).toBe('[{"id": "abgeschnitten-mitten-im-wr');
+	});
+
+	it('Absturz-Härtung: bestehendes Rettungs-Backup wird von weiteren Fehl-Loads nicht überschrieben', () => {
+		localStorage.setItem(CORRUPT_BACKUP_KEY, 'erstes-backup');
+		localStorage.setItem(STORAGE_KEY, 'auch kaputt {');
+		loadSnapshots();
+		expect(localStorage.getItem(CORRUPT_BACKUP_KEY)).toBe('erstes-backup');
 	});
 
 	it('saveSnapshot persists with generated id + createdAt', () => {

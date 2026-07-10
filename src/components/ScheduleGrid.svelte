@@ -6,6 +6,8 @@
 	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
 	import { unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
 	import { buildScheduleExport } from '../lib/schedule-export';
+	import { mapScheduleImport, parseScheduleExport } from '../lib/schedule-import';
+	import { saveSnapshot } from '../lib/snapshots';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
@@ -172,6 +174,63 @@
 		URL.revokeObjectURL(url);
 	}
 
+	/**
+	 * Plan-Import: liest eine mit „Plan exportieren" erzeugte Datei wieder
+	 * ein. Matcht kaskadiert (Teacher-ID → Name), funktioniert also auch
+	 * nach frischem Stammdaten-Import mit neuen UUIDs — der Rettungsweg
+	 * nach einem localStorage-Verlust.
+	 */
+	async function importScheduleFile(ev: Event): Promise<void> {
+		const input = ev.target as HTMLInputElement;
+		const file = input.files?.[0];
+		input.value = ''; // gleicher Dateiname erneut wählbar
+		if (!file) return;
+		const text = await file.text();
+		const entries = parseScheduleExport(text);
+		if (!entries) {
+			alert(
+				'Diese Datei ist kein Plan-Export.\n\n' +
+				'Erwartet wird eine mit „📤 Plan exportieren" erzeugte Datei ' +
+				'(stundenplan-….json mit "placements"). Komplett-Backups gehören ' +
+				'in den Reiter Import/Export („JSON laden…").'
+			);
+			return;
+		}
+		const result = mapScheduleImport(store.doc, entries);
+		if (result.placed.length === 0) {
+			alert(
+				'Keine der Stunden konnte den aktuellen Lehreinheiten zugeordnet werden.\n' +
+				'Passen die Stammdaten (Fächer, Lehrer) zu diesem Export?'
+			);
+			return;
+		}
+		const skippedInfo = result.skipped.length > 0
+			? `\n\n⚠ ${result.skipped.length} Einträge nicht zuordenbar (werden übersprungen):\n` +
+				result.skipped.slice(0, 8).map(s => `• ${s.subject} ${s.day} P${s.period} (${s.grade}. SSt.)`).join('\n') +
+				(result.skipped.length > 8 ? `\n… und ${result.skipped.length - 8} weitere` : '')
+			: '';
+		const ok = confirm(
+			`Plan importieren: ${result.matched} von ${result.total} Stunden zuordenbar.${skippedInfo}\n\n` +
+			(store.doc.placed.length > 0
+				? `Der aktuelle Plan (${store.doc.placed.length} Stunden) wird ersetzt — vorher wird automatisch ein Backup-Snapshot gespeichert.`
+				: 'Der Plan wird eingespielt.')
+		);
+		if (!ok) return;
+		if (store.doc.placed.length > 0) {
+			saveSnapshot({
+				name: `Backup vor Plan-Import ${new Date().toLocaleTimeString('de-AT')}`,
+				score: 0,
+				placed: store.doc.placed.map(p => ({ ...p })),
+				source: 'auto',
+			});
+			if (typeof window !== 'undefined') {
+				window.dispatchEvent(new CustomEvent('snapshots-changed'));
+			}
+		}
+		store.doc.placed = result.placed;
+		store.persistNow();
+	}
+
 	/** Verwirft die nicht-gepinnten Stunden und behält alle 🔒 Pins.
 	 *  Standard-Aktion: trifft den häufigen Fall "neu generieren mit
 	 *  meinen Vorgaben". */
@@ -261,6 +320,13 @@
 		</span>
 		<span class="sep"></span>
 		<GenerateButton />
+		<label
+			class="btn small import-label"
+			title="Einen mit ‚Plan exportieren' erzeugten Stundenplan wieder einspielen. Funktioniert auch nach frisch importierten Stammdaten (Zuordnung über Fach + Stufe + Lehrer-Namen). Der aktuelle Plan wird vorher als Backup-Snapshot gesichert."
+		>
+			📥 Plan importieren
+			<input type="file" accept=".json,application/json" onchange={importScheduleFile} hidden />
+		</label>
 		{#if store.doc.placed.length > 0}
 			{@const pinnedCount = store.doc.placed.filter(p => p.pinned).length}
 			<button
@@ -432,6 +498,12 @@
 	}
 	.tools-body.hidden {
 		display: none;
+	}
+	.import-label {
+		cursor: pointer;
+		display: inline-flex;
+		align-items: center;
+		user-select: none;
 	}
 	.sep {
 		width: 1px;

@@ -7,6 +7,12 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig(({ mode }) => ({
 	plugins: [svelte()],
 	base: mode === 'production' ? '/Stundenplan27/' : '/',
+	// strictPort: localStorage (Plan + Snapshots!) hängt am Origin inkl.
+	// PORT. Ohne strictPort weicht Vite bei belegtem Port still auf
+	// 4174/5174 aus — die App startet dann mit LEEREM Speicher und der
+	// User glaubt, seine Daten seien weg. Lieber laut scheitern.
+	server: { strictPort: true },
+	preview: { strictPort: true },
 	test: {
 		environment: 'jsdom',
 		globals: true,

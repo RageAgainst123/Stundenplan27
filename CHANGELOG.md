@@ -79,6 +79,30 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Plan-Import + Absturz-Härtung
+User-Anlass: Preview-Server abgestürzt, nach Neustart waren die
+Snapshots weg — einziges Überbleibsel war eine Plan-Export-Datei.
+- **„📥 Plan importieren"** im Stundenplan-Reiter (`schedule-import.ts`):
+  liest Plan-Export-Dateien wieder ein. Kaskadiertes Matching pro
+  Eintrag: Lehrer-ID → Lehrer-Name → eindeutiger (Fach, Stufe)-Kandidat.
+  Funktioniert damit auch nach frisch importierten Stammdaten mit neuen
+  UUIDs (der Rettungsfall). Nicht zuordenbare Einträge werden VOR dem
+  Import aufgelistet statt still verworfen; der aktuelle Plan wird
+  vorher automatisch als Backup-Snapshot gesichert. E2E mit der echten
+  Verlust-Datei: 120/128 Stunden in ein frisch aufgesetztes Doc gerettet
+  (Rest = echte Strukturunterschiede, transparent gemeldet).
+- **Snapshot-Härtung** (`snapshots.ts`): Korrupter localStorage-Eintrag
+  (z. B. Browser-Crash mitten im Write) wird jetzt in den Rettungs-Key
+  `stundenplan27.snapshots.corrupt` kopiert — vorher überschrieb der
+  nächste Auto-Snapshot den rettbaren Inhalt endgültig. Bei vollem
+  Speicher (Quota) werden die ältesten AUTO-Snapshots geopfert und der
+  Save wiederholt, statt still verloren zu gehen.
+- **`strictPort`** für Dev- und Preview-Server: localStorage hängt am
+  Origin INKLUSIVE Port. Vorher wich Vite bei belegtem Port still auf
+  4174/5174 aus — die App startete mit leerem Speicher und die Daten
+  wirkten „weg". Jetzt scheitert der Start laut. (Wahrscheinlichste
+  Erklärung für den erlebten Snapshot-Verlust.)
+
 ### Runde 2 — „Ungeplante Stunden": drei Fixes + Regeln-Audit
 User-Befund: Der Solver meldete Lösungen, obwohl Stunden ungeplant blieben.
 Analyse ergab drei zusammenhängende Defekte:
