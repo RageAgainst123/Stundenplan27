@@ -14,6 +14,12 @@ const KEY = Symbol('stundenplan-store');
 
 export class ScheduleStore {
 	doc = $state<ScheduleDoc>(loadFromLocalStorage() ?? emptyDoc());
+	/**
+	 * Audit A2b: true wenn der letzte Auto-Save fehlschlug (z. B. localStorage-
+	 * Quota voll). App.svelte zeigt dann einen persistenten Warn-Banner —
+	 * vorher arbeitete der User unwissend ohne Persistenz weiter.
+	 */
+	saveFailed = $state<boolean>(false);
 	private saveTimer: ReturnType<typeof setTimeout> | null = null;
 
 	persist() {
@@ -30,7 +36,7 @@ export class ScheduleStore {
 			schemaVersion: SCHEMA_VERSION,
 			lastModified: new Date().toISOString()
 		};
-		saveToLocalStorage(snapshot);
+		this.saveFailed = !saveToLocalStorage(snapshot);
 	}
 
 	reset(schoolYear?: string) {

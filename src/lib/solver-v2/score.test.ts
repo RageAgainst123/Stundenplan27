@@ -155,6 +155,35 @@ describe('buildState', () => {
 		expect(state.nUnits).toBe(0);
 	});
 
+	it('Audit A2c: nicht zuordenbare Pins landen in droppedPins statt still zu verschwinden', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1)); // nur 1 Stunde
+		// Zwei Pins für eine 1-Stunden-Spec: der zweite findet keine freie Unit.
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: true });
+		doc.placed.push({ specId: 's', day: 'Di', period: 2, grade: 5, pinned: true });
+		// Pin auf eine Spec, die nicht mehr existiert.
+		doc.placed.push({ specId: 'geist', day: 'Mi', period: 3, grade: 5, pinned: true });
+		const state = buildState(doc);
+		const reasons = (state.droppedPins ?? []).map(d => d.reason);
+		expect(state.droppedPins).toHaveLength(2);
+		expect(reasons.some(r => r.includes('keine passende Stunde'))).toBe(true);
+		expect(reasons.some(r => r.includes('existiert nicht mehr'))).toBe(true);
+	});
+
+	it('Audit A2c: Hot-Start-Verluste werden ebenfalls gemeldet', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s', 'M', 't', [5], 1));
+		// Nicht-gepinntes Placement einer gelöschten Spec (Hot-Start-Pfad).
+		doc.placed.push({ specId: 'wegmigriert', day: 'Mo', period: 1, grade: 5, pinned: false });
+		const state = buildState(doc, { hotStart: true });
+		expect(state.droppedPins).toHaveLength(1);
+		expect(state.droppedPins![0].reason).toContain('Hot-Start');
+	});
+
 	it('groups specs with the same couplingId into coupling Units', () => {
 		const doc = emptyDoc();
 		doc.teachers.push(teacher('t1', 'L1'));

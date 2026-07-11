@@ -550,7 +550,10 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 			// wissen, sonst wundert er sich warum „seine" Pins fehlen.
 			if (state.droppedPins && state.droppedPins.length > 0) {
 				for (const dp of state.droppedPins) {
-					emitLog('warn', `Pin verworfen: ${dp.subjectCode} ${dp.day} P${dp.period} — ${dp.reason}`, {
+					// Audit A2c: droppedPins enthält jetzt auch Hot-Start-Verluste
+					// (reason beginnt mit 'Hot-Start:') — Label entsprechend wählen.
+					const label = dp.reason.startsWith('Hot-Start') ? 'Placement verworfen' : 'Pin verworfen';
+					emitLog('warn', `${label}: ${dp.subjectCode} ${dp.day} P${dp.period} — ${dp.reason}`, {
 						specId: dp.specId,
 						day: dp.day,
 						period: dp.period,

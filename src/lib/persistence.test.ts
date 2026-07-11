@@ -253,3 +253,80 @@ describe('migrateDoc — v4 → v5 afternoonAllowed default', () => {
 		});
 	});
 });
+
+describe('migrateDoc — Reihenfolge teacherMiddayBreak vs. Legacy-Delete (Audit A2d)', () => {
+	it('Legacy teacherLunchBreak wird gestrippt, das NEUE teacherMiddayBreak überlebt', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		const c = doc.constraints as any;
+		// Alt-Zustand simulieren: Legacy-Feld vorhanden, neues Feld fehlt.
+		delete c.teacherMiddayBreak;
+		c.teacherLunchBreak = { enabled: true, weight: 60 };
+		c.teacherDailyLoad = { enabled: true, max: 6 };
+		(doc.meta as any).schemaVersion = 4;
+
+		migrateDoc(doc);
+
+		// Namens-Verwandtschaft ist die dokumentierte Falle (types.ts):
+		// Der Legacy-Delete darf das frisch gesetzte neue Feld NIE treffen.
+		expect(c.teacherMiddayBreak).toEqual({ enabled: false, weight: 100 });
+		expect('teacherLunchBreak' in c).toBe(false);
+		expect('teacherDailyLoad' in c).toBe(false);
+	});
+
+	it('bereits vorhandenes (user-konfiguriertes) teacherMiddayBreak bleibt unangetastet', () => {
+		const doc = emptyDoc() as any as ScheduleDoc;
+		const c = doc.constraints as any;
+		c.teacherMiddayBreak = { enabled: true, weight: 250 };
+		c.teacherLunchBreak = { enabled: false, weight: 10 };
+		migrateDoc(doc);
+		expect(c.teacherMiddayBreak).toEqual({ enabled: true, weight: 250 });
+		expect('teacherLunchBreak' in c).toBe(false);
+	});
+});
+
+describe('validateDocStructure — JSON-Backup-Guard (Audit A2a)', () => {
+	const goodDoc = () => JSON.parse(JSON.stringify(emptyDoc('2026/27')));
+
+	it('akzeptiert ein gültiges Doc (auch mit Daten)', async () => {
+		const { validateDocStructure } = await import('./persistence');
+		const doc = goodDoc();
+		doc.teachers.push({ id: 't', name: 'L', shortNumber: 1, color: '#000', subjects: [], unavailable: [] });
+		doc.subjects.push({ code: 'M', name: 'M', category: 'PG', isMain: true, hoursPerWeek: {} });
+		doc.specs.push({ id: 's', subject: 'M', teachers: ['t'], classes: ['1a'], grades: [5], weekPattern: 'every', count: 2, includeInSolver: true, source: 'manual' });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false });
+		expect(validateDocStructure(doc)).toBeNull();
+	});
+
+	it('lehnt kaputte Strukturen mit präziser Meldung ab', async () => {
+		const { validateDocStructure } = await import('./persistence');
+		// placed kein Array
+		const d1 = goodDoc(); d1.placed = 'kaputt';
+		expect(validateDocStructure(d1)).toMatch(/placed/);
+		// count als String
+		const d2 = goodDoc();
+		d2.specs.push({ id: 's', subject: 'M', teachers: [], classes: [], grades: [5], weekPattern: 'every', count: 'x', includeInSolver: true, source: 'manual' });
+		expect(validateDocStructure(d2)).toMatch(/count/);
+		// erfundene Stufe
+		const d3 = goodDoc();
+		d3.specs.push({ id: 's', subject: 'M', teachers: [], classes: [], grades: [5, 9], weekPattern: 'every', count: 1, includeInSolver: true, source: 'manual' });
+		expect(validateDocStructure(d3)).toMatch(/grades/);
+		// Placement mit ungültigem Tag
+		const d4 = goodDoc();
+		d4.placed.push({ specId: 's', day: 'Sa', period: 1, grade: 5, pinned: false });
+		expect(validateDocStructure(d4)).toMatch(/Tag/);
+		// Placement mit Periode 0
+		const d5 = goodDoc();
+		d5.placed.push({ specId: 's', day: 'Mo', period: 0, grade: 5, pinned: false });
+		expect(validateDocStructure(d5)).toMatch(/Stunde/);
+	});
+
+	it('toleriert Alt-Backup-Eigenheiten (v1 placed ohne grade, v3 specs ohne teachers)', async () => {
+		const { validateDocStructure } = await import('./persistence');
+		const doc = goodDoc();
+		// v3-Spec: `teacher` (singular) statt `teachers` — Migration füllt das.
+		doc.specs.push({ id: 's', subject: 'M', teacher: 't', classes: [], grades: [5], weekPattern: 'every', count: 1, includeInSolver: true, source: 'manual' });
+		// v1-Placement ohne grade — Migration expandiert.
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, pinned: true });
+		expect(validateDocStructure(doc)).toBeNull();
+	});
+});

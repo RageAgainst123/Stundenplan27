@@ -336,6 +336,12 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 		if (sp?.couplingId && sp.couplingId.trim()) return `cpl:${sp.couplingId}`;
 		return `spec:${specId}`;
 	};
+	// Audit A2c: Verluste beim Placement-Loading MELDEN statt still schlucken.
+	// Ein Placement ohne passende Unit (Spec gelöscht, count gesunken, Stufe
+	// geändert) verschwand vorher kommentarlos — „meine gepinnte Stunde ist
+	// weg" blieb unerklärt. droppedPins wird deshalb schon hier befüllt
+	// (die Hard-Violation-Validierung unten pusht in dasselbe Array).
+	const droppedPins: NonNullable<SolverState['droppedPins']> = [];
 	if (doc.placed && doc.placed.length > 0) {
 		for (const pl of doc.placed) {
 			if (!pl.pinned) continue;
@@ -350,7 +356,18 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 			const target = unitsForSpec.find(
 				u => !u.pinned && placement[u.idx] === SLOT_UNPLACED && u.grades.includes(pl.grade)
 			);
-			if (!target) continue;
+			if (!target) {
+				droppedPins.push({
+					specId: pl.specId,
+					subjectCode: specsById.get(pl.specId)?.subject ?? '?',
+					day: pl.day,
+					period: pl.period,
+					reason: unitsForSpec.length === 0
+						? 'Lehreinheit existiert nicht mehr (oder ist vom Solver ausgenommen)'
+						: 'keine passende Stunde mehr frei (Stundenzahl gesunken oder Stufe geändert?)',
+				});
+				continue;
+			}
 			target.pinned = true;
 			target.pinnedDay = pl.day;
 			target.pinnedPeriod = pl.period;
@@ -375,7 +392,6 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 		teachersById,
 	};
 	const offenders = findHardViolations(stateForCheck);
-	const droppedPins: SolverState['droppedPins'] = [];
 	for (const idx of offenders) {
 		const u = units[idx];
 		const slot = placement[idx];
@@ -436,7 +452,21 @@ export function buildState(doc: ScheduleDoc, opts: BuildStateOpts = {}): SolverS
 			const target = unitsForSpec.find(
 				u => placement[u.idx] === SLOT_UNPLACED && u.grades.includes(pl.grade)
 			);
-			if (!target) continue;
+			if (!target) {
+				// Audit A2c: auch Hot-Start-Verluste melden (Stammdaten haben
+				// sich seit dem letzten Plan geändert) — Solver plant die
+				// Stunde neu, aber der User soll wissen WARUM sie wanderte.
+				droppedPins.push({
+					specId: pl.specId,
+					subjectCode: specsById.get(pl.specId)?.subject ?? '?',
+					day: pl.day,
+					period: pl.period,
+					reason: unitsForSpec.length === 0
+						? 'Hot-Start: Lehreinheit existiert nicht mehr — Stunde wird neu geplant'
+						: 'Hot-Start: keine passende Stunde mehr frei — wird neu geplant',
+				});
+				continue;
+			}
 			// Prüfe ob diese Position gegen aktuell belegte Slots
 			// (Pins + bereits hot-gestartete Units) verstößt.
 			const stateForViol: SolverState = {

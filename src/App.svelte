@@ -97,6 +97,22 @@
 	{/each}
 </nav>
 
+{#if store.saveFailed}
+	<div class="conflict-banner save-failed" role="alert">
+		<span class="icon">💾</span>
+		<span class="msg">
+			<strong>Speichern fehlgeschlagen!</strong>
+			Der Browser-Speicher konnte nicht beschrieben werden (vermutlich voll).
+			Deine Änderungen gehen beim Schließen verloren —
+			<strong>jetzt im Reiter Import/Export ein JSON-Backup exportieren</strong>
+			und ggf. alte Plan-Snapshots löschen.
+		</span>
+		<button class="btn small" onclick={() => store.persistNow()} title="Speichern erneut versuchen">
+			↻ Erneut versuchen
+		</button>
+	</div>
+{/if}
+
 {#if conflicts.length > 0}
 	<div class="conflict-banner" role="alert">
 		<span class="icon">⚠</span>

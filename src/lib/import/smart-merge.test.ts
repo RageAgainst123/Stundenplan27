@@ -61,6 +61,27 @@ describe('Smart-Merge — School B (Team-Teaching aktiv)', () => {
 		expect(merged.specs.length).toBeLessThanOrEqual(95);
 	});
 
+	it('Audit A2d/M6: Segment-Summe === count für ALLE gemergten Specs (Teleskop-Invariante)', () => {
+		// Audit-Verdacht: buildBestGuessSegments könnte bei ungünstigen
+		// Konstellationen (ergStunden > stunden, Halbzahlen, Duplikate) eine
+		// von count abweichende Segment-Summe produzieren — units.ts würde
+		// den Split dann STILL verwerfen und Team-Teaching ginge verloren.
+		// Mathematisch ist die Summe eine Teleskopsumme über die Breakpoints
+		// [0..mainHours] (Supports sind auf mainHours gecappt) und kann nicht
+		// abweichen; dieser Test sichert die Invariante über die echte
+		// Team-Teaching-Fixture ab.
+		const merged = importCsv(fixtureB, { smartMerge: true });
+		let checked = 0;
+		for (const spec of merged.specs) {
+			if (!spec.teachingSegments || spec.teachingSegments.length === 0) continue;
+			checked++;
+			const sum = spec.teachingSegments.reduce((s, seg) => s + seg.hours, 0);
+			expect(Math.abs(sum - spec.count), `Spec ${spec.subject}: Σ=${sum} count=${spec.count}`)
+				.toBeLessThanOrEqual(0.05);
+		}
+		expect(checked).toBeGreaterThanOrEqual(8); // Invariante wurde real ausgeübt
+	});
+
 	it('Team-Teaching-Spec für PG_M Stufe 5: count=4 mit Hauptlehrer Lehrer11 Iris', () => {
 		const result = importCsv(fixtureB, { smartMerge: true });
 		// PG_M Klasse 1 Stufe 5: Lehrer11 Iris 4h + Lehrer02 Max 2h Erg + Lehrer09 Bea 3h Erg

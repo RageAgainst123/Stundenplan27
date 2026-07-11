@@ -204,6 +204,9 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.
+		// Audit A2d: Diese Deletes MÜSSEN nach dem teacherMiddayBreak-Set oben
+		// laufen (Namens-Verwandtschaft!) — Reihenfolge ist per Test in
+		// persistence.test.ts abgesichert; beim Umsortieren Test beachten.
 		if ('teacherDailyLoad' in c12) delete c12.teacherDailyLoad;
 		if ('teacherLunchBreak' in c12) delete c12.teacherLunchBreak;
 		// Reactivate the previously-defunct preferDoubleLessonsContiguous
@@ -257,11 +260,19 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 	return doc;
 }
 
-export function saveToLocalStorage(doc: ScheduleDoc): void {
+/**
+ * Audit A2b: gibt zurück ob der Save gelungen ist. Vorher wurde ein
+ * Quota-Fehler nur nach console.warn geschluckt — der User arbeitete im
+ * Glauben weiter, gespeichert zu sein, und verlor beim Reload alles.
+ * Der Store hält daraus ein `saveFailed`-Flag, App.svelte zeigt den Banner.
+ */
+export function saveToLocalStorage(doc: ScheduleDoc): boolean {
 	try {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(doc));
+		return true;
 	} catch (e) {
 		console.warn('localStorage save failed', e);
+		return false;
 	}
 }
 
@@ -298,6 +309,73 @@ export function downloadAsJson(doc: ScheduleDoc, filename?: string): void {
 	URL.revokeObjectURL(url);
 }
 
+/**
+ * Audit A2a: strukturelle Validierung eines fremden JSON-Backups BEVOR es
+ * migriert und in den Store übernommen wird. Vorher passierten teil-kaputte
+ * Dateien (count als String, placed kein Array, erfundene Stufen) ungeprüft
+ * durch migrateDoc und ÜBERSCHRIEBEN den funktionierenden localStorage-Stand.
+ *
+ * Bewusst strukturell, nicht pedantisch: Arrays + Pflichtfeld-Typen +
+ * Werte-Ranges. Gibt eine präzise Fehlermeldung zurück oder null wenn ok.
+ */
+export function validateDocStructure(parsed: unknown): string | null {
+	if (typeof parsed !== 'object' || parsed === null) return 'Datei enthält kein Objekt.';
+	const d = parsed as Record<string, unknown>;
+	for (const field of ['teachers', 'subjects', 'specs', 'placed'] as const) {
+		if (!Array.isArray(d[field])) return `Feld "${field}" fehlt oder ist kein Array.`;
+	}
+	const validDays = new Set(['Mo', 'Di', 'Mi', 'Do', 'Fr']);
+	const isGrade = (g: unknown): boolean => g === 5 || g === 6 || g === 7 || g === 8;
+
+	for (const [i, t] of (d.teachers as unknown[]).entries()) {
+		const x = t as Record<string, unknown>;
+		if (typeof x?.id !== 'string' || typeof x?.name !== 'string') {
+			return `Lehrer #${i + 1}: id/name fehlen oder sind keine Strings.`;
+		}
+		if (x.unavailable !== undefined && !Array.isArray(x.unavailable)) {
+			return `Lehrer "${x.name}": unavailable ist kein Array.`;
+		}
+	}
+	for (const [i, s] of (d.subjects as unknown[]).entries()) {
+		const x = s as Record<string, unknown>;
+		if (typeof x?.code !== 'string' || !x.code) {
+			return `Fach #${i + 1}: code fehlt oder ist kein String.`;
+		}
+	}
+	for (const [i, s] of (d.specs as unknown[]).entries()) {
+		const x = s as Record<string, unknown>;
+		if (typeof x?.id !== 'string' || typeof x?.subject !== 'string') {
+			return `Lehreinheit #${i + 1}: id/subject fehlen oder sind keine Strings.`;
+		}
+		if (typeof x.count !== 'number' || !Number.isFinite(x.count) || x.count <= 0) {
+			return `Lehreinheit "${x.subject}" (#${i + 1}): count ist keine positive Zahl.`;
+		}
+		if (!Array.isArray(x.grades) || !(x.grades as unknown[]).every(isGrade)) {
+			return `Lehreinheit "${x.subject}" (#${i + 1}): grades muss ein Array aus 5-8 sein.`;
+		}
+		// teachers darf fehlen (v3-Backups haben `teacher`) — aber wenn
+		// vorhanden, muss es ein Array sein (Migration füllt den Rest).
+		if (x.teachers !== undefined && !Array.isArray(x.teachers)) {
+			return `Lehreinheit "${x.subject}" (#${i + 1}): teachers ist kein Array.`;
+		}
+	}
+	for (const [i, p] of (d.placed as unknown[]).entries()) {
+		const x = p as Record<string, unknown>;
+		if (typeof x?.specId !== 'string') return `Platzierung #${i + 1}: specId fehlt.`;
+		if (!validDays.has(x.day as string)) return `Platzierung #${i + 1}: ungültiger Tag "${x.day}".`;
+		const per = x.period;
+		if (typeof per !== 'number' || per < 1 || per > 8 || !Number.isInteger(per)) {
+			return `Platzierung #${i + 1}: ungültige Stunde "${per}".`;
+		}
+		// grade darf bei v1-Backups fehlen (Migration expandiert) — wenn
+		// vorhanden, muss der Wert stimmen.
+		if (x.grade !== undefined && !isGrade(x.grade)) {
+			return `Platzierung #${i + 1}: ungültige Stufe "${x.grade}".`;
+		}
+	}
+	return null;
+}
+
 export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	const text = await file.text();
 	const parsed = JSON.parse(text) as ScheduleDoc;
@@ -312,6 +390,11 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 		throw new Error(
 			`Inkompatibles Schema (gefunden: ${v ?? 'unbekannt'}, erwartet: 1, 2, 3, 4 oder ${SCHEMA_VERSION})`
 		);
+	}
+	// Audit A2a: Struktur prüfen BEVOR migrateDoc/Store das Backup übernehmen.
+	const structError = validateDocStructure(parsed);
+	if (structError) {
+		throw new Error(`Backup abgelehnt — Datei ist beschädigt: ${structError}`);
 	}
 	return migrateDoc(parsed);
 }
