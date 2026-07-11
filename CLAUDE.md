@@ -86,6 +86,11 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 
 - Im Dev-Mode (`npm run dev`) akkumulieren mehrere onclick-Listener bei HMR — beim Bug-Hunting **immer** mit `npm run build && npm run preview` arbeiten, nicht im Dev-Server.
 - Bei Cache-Problemen: `rm -rf node_modules/.vite dist && npm run build`.
+- **localStorage hängt am Origin INKLUSIVE Port.** Weicht Vite bei belegtem
+  Port still auf 5174/4174 aus, startet die App mit leerem Speicher und die
+  Daten wirken „weg" (so ist Geos Snapshot-Verlust entstanden). Deshalb steht
+  `strictPort: true` in `vite.config.ts` für Dev UND Preview — Ports nie
+  ändern, ausweichende Server nie akzeptieren.
 
 ### Solver (TypeScript Construct + Local Search, Phase 11/12)
 

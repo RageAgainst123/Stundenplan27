@@ -21,7 +21,9 @@ ScheduleDoc                         ← localStorage / JSON-Backup
 ├── teachers: Teacher[]
 │   └── unavailable: AvailabilityCell[]      (hart: Solver darf nicht hin)
 ├── subjects: Subject[]
-│   └── maxConsecutive: number              (für main_run-Score)
+│   └── maxConsecutive: number              (⚠ derzeit NICHT im Solver v2 angebunden —
+│                                            main_run nutzt nur das GLOBALE Limit aus
+│                                            ConstraintConfig.maxConsecutiveMain; Backlog)
 ├── specs: LessonSpec[]                      ← die "Lerneinheiten"
 │   ├── teachers: TeacherId[]               (1, 2, 3+ — Team-Teaching)
 │   ├── grades: GradeLevel[]                (1 oder mehrere — Multi-Grade)
@@ -29,7 +31,7 @@ ScheduleDoc                         ← localStorage / JSON-Backup
 │   ├── teachingSegments?: TeachingSegment[](Phase 17: Team-Teaching Aufteilung
 │   │     pro Lehrer-Subset, gemeinsamer Unterricht)
 │   ├── timePref?: 'early' | 'late'         (Soft, optional)
-│   ├── afternoonAllowed?: 'never'|'allowed'|'preferred' (Phase 13)
+│   ├── afternoonAllowed?: 'never'|'allowed'|'preferred'|'must' (Phase 13, 'must' Phase 18)
 │   ├── blocks?: BlockPattern               ([2,2] = 2 Doppelstunden)
 │   ├── count: number                       (Wochenstunden total)
 │   └── weekPattern: 'every'|'even'|'odd'   (G/U-Wochen)
@@ -37,7 +39,7 @@ ScheduleDoc                         ← localStorage / JSON-Backup
 │   ├── (specId, day, period, grade)        (eindeutig pro Pinned)
 │   └── pinned: boolean                     (true = Solver darf nicht bewegen)
 ├── constraints: ConstraintConfig            ← Soft-Constraint-Gewichte
-└── meta: { schemaVersion: 4, lastModified }
+└── meta: { schemaVersion: 5, lastModified }
 
 Beziehungen:
 LessonSpec.teachers[i]  → Teacher.id     (Mehrfach-Beziehung)
@@ -207,7 +209,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 
 ---
 
-## 4. Hard-Constraints (H1–H10)
+## 4. Hard-Constraints (H1–H11)
 
 Alle in `src/lib/solver-v2/hardCheck.ts` zentral geprüft. `wouldViolate(state, unit, slot)`
 gibt `null` zurück wenn ok, sonst Reason-String.
@@ -224,6 +226,7 @@ gibt `null` zurück wenn ok, sonst Reason-String.
 | H8  | Distinct-Occurrences (gleiche Spec, verschiedene Occurrences ≠ gleicher Slot). **R2-Fix:** die frühere sharesCoupling-Ausnahme entfernt — sie erlaubte zwei WOCHENSTUNDEN einer Kopplungsgruppe auf demselben Slot (Doppellage im Grid, „ungeplant" in der Sidebar). | `wouldViolate` (H8-Block) | `moves.test.ts > same-spec collision`, `coupled-decode.test.ts > Doppellage` |
 | H9  | Block-Pattern (blockSize > 1 = konsekutive Periods) | **implizit** in `units.ts` (Block-Unit hat blockSize, `wouldViolate` prüft dass period+blockSize-1 ≤ P) | (implizit in vielen Tests)               |
 | H10 | Hauptfach Nachmittag verboten: `unit.afternoonAllowed='never'` darf nicht in P7-P8 (auch Block-Reichweite) | `wouldViolate` ZL ~55-62 | `moves.test.ts > H10 afternoonAllowed=never` |
+| H11 | Nachmittag-Pflicht (Phase 18): `unit.afternoonAllowed='must'` MUSS ab `afternoonStartsAtPeriod` (Default P7) liegen, jede Block-Periode | `wouldViolate` (H11-Block, nach H10) | `hardCheck.test.ts` (Referenz-Implementierung im Property-Test), `dzn-export.test.ts` |
 
 **"Implizit"** bedeutet: Der Constraint wird durch die Datenstruktur erzwungen,
 nicht durch eine eigene Prüfung. Eine Coupling-Unit existiert nur als **eine**

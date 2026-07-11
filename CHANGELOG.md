@@ -133,6 +133,18 @@ Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.
   (hätte eine Doppellage gebaut), sondern transparent gemeldet.
 - `matched` zählt nur noch echte Platzierungen.
 
+**A6 — Doku-Sync:**
+- MODEL.md: Hard-Constraint-Tabelle um **H11** ergänzt (Titel „H1–H11",
+  `afternoonAllowed='must'` muss ab P7 liegen), §1-Box auf
+  `schemaVersion: 5` und den `'must'`-Wert nachgezogen,
+  `Subject.maxConsecutive` ehrlich annotiert (im Solver v2 nicht
+  angebunden — nur das globale Regeln-Limit wirkt; verifiziert:
+  score.ts nutzt ausschließlich `ConstraintConfig.maxConsecutiveMain`).
+- CLAUDE.md-Stolperfalle ergänzt: localStorage hängt am Origin
+  INKLUSIVE Port (strictPort-Kontext, Ursache des Snapshot-Verlusts).
+- SubjectList: Tooltip von „Max in Folge" sagt jetzt klar, dass das
+  Feld derzeit NICHT im Generator wirkt (Pro-Fach-Anbindung = Backlog).
+
 **A5 — Code-Gesundheit:**
 - Toter Code entfernt: fünf verwaiste Handler in ScheduleGrid
   (Zellen-Interaktion lebt seit Phase 8 komplett in ScheduleCell),

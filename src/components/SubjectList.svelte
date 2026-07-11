@@ -49,7 +49,9 @@
 				<th>Name</th>
 				<th>Kat.</th>
 				<th>Hauptfach</th>
-				<th title="Maximale Anzahl gleicher Fächer in Folge an einem Tag">Max&nbsp;in Folge</th>
+				<!-- Audit A6: ehrlicher Tooltip — das Feld ist im Solver v2 (noch)
+				     nicht angebunden; main_run nutzt nur das globale Regeln-Limit. -->
+				<th title="Maximale Anzahl gleicher Fächer in Folge an einem Tag. ⚠ Wirkt derzeit NICHT im Generator — es gilt nur das globale Limit im Reiter ‚Regeln‘ (max. Hauptfächer in Folge). Pro-Fach-Anbindung ist Backlog.">Max&nbsp;in Folge&nbsp;ⓘ</th>
 				<th>Stunden 5./6./7./8. (informativ)</th>
 				<th></th>
 			</tr>
