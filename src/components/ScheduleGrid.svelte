@@ -1,17 +1,16 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
-	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES, type Day, type GradeLevel, type LessonSpec, type Period } from '../lib/types';
+	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES, type GradeLevel, type LessonSpec } from '../lib/types';
 	import type { DragPayload } from '../lib/types-ui';
 	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
-	import { unplacedSpecs, checkPlacementConflict } from '../lib/schedule-helpers';
+	import { unplacedSpecs } from '../lib/schedule-helpers';
 	import { buildScheduleExport } from '../lib/schedule-export';
 	import { mapScheduleImport, parseScheduleExport } from '../lib/schedule-import';
 	import { saveSnapshot } from '../lib/snapshots';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
-	import LessonCell from './LessonCell.svelte';
 	import ScheduleCell from './ScheduleCell.svelte';
 	import GenerateButton from './GenerateButton.svelte';
 
@@ -92,8 +91,9 @@
 	// (Cell rendering moved to ScheduleCell.svelte for proper Svelte 5 reactivity scoping.)
 
 	// ---- Drag & Drop ----
-	let dragHoverConflict = $state<{ day: Day; period: Period; reasons: string[] } | null>(null);
-
+	// Die Zellen-Interaktion (Drop in Zelle, Pin, Entfernen, Live-Konflikt)
+	// lebt komplett in ScheduleCell.svelte — hier nur der Drop ZURÜCK in
+	// die Sidebar (Stunde entplanen).
 	function handleDropToSidebar(state: DragDropState<DragPayload>) {
 		const { specId, fromCell } = state.draggedItem;
 		if (!fromCell) return;
@@ -102,61 +102,9 @@
 		store.doc.placed = store.doc.placed.filter(
 			p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
 		);
-		dragHoverConflict = null;
-	}
-
-	function handleDropToCell(day: Day, period: Period, state: DragDropState<DragPayload>) {
-		const { specId, fromCell } = state.draggedItem;
-		const spec = store.doc.specs.find(s => s.id === specId);
-		if (!spec) return;
-		const conflict = checkPlacementConflict(
-			store.doc, spec, day, period,
-			fromCell ? { specId, day: fromCell.day, period: fromCell.period } : undefined
-		);
-		if (conflict.hasConflict) {
-			alert('Kann hier nicht platziert werden:\n' + conflict.reasons.join('\n'));
-			return;
-		}
-		// remove ALL grade-rows from old cell if move
-		if (fromCell) {
-			store.doc.placed = store.doc.placed.filter(
-				p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
-			);
-		}
-		// Phase 8 v2: emit ONE placement per grade column the spec covers.
-		const grades = spec.grades.length > 0 ? spec.grades : ([5] as const);
-		for (const g of grades) {
-			store.doc.placed.push({ specId, day, period, grade: g, pinned: true });
-		}
-		dragHoverConflict = null;
-	}
-
-	function togglePin(specId: string, day: Day, period: Period) {
-		// Toggle pin on every grade-row this lesson occupies — pinning is per
-		// pedagogical lesson, not per grade column.
-		const matching = store.doc.placed.filter(
-			x => x.specId === specId && x.day === day && x.period === period
-		);
-		if (matching.length === 0) return;
-		const newPinned = !matching[0].pinned;
-		for (const p of matching) p.pinned = newPinned;
-	}
-
-	function removePlacement(specId: string, day: Day, period: Period) {
-		store.doc.placed = store.doc.placed.filter(
-			p => !(p.specId === specId && p.day === day && p.period === period)
-		);
 	}
 
 	const teacherById = (id: string) => teacherByIdH(store.doc, id);
-
-	// Probe a cell for live conflict highlighting while dragging
-	function probeConflict(day: Day, period: Period, draggedSpecId: string | undefined): string[] {
-		if (!draggedSpecId) return [];
-		const spec = store.doc.specs.find(s => s.id === draggedSpecId);
-		if (!spec) return [];
-		return checkPlacementConflict(store.doc, spec, day, period).reasons;
-	}
 
 	/**
 	 * Phase 18: Stundenplan exportieren als JSON.

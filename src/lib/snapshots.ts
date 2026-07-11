@@ -20,6 +20,8 @@ export const STORAGE_KEY = 'stundenplan27.snapshots';
  * Manuell inspizier-/rettbar über die DevTools.
  */
 export const CORRUPT_BACKUP_KEY = 'stundenplan27.snapshots.corrupt';
+/** Persistenter Namens-Zähler — siehe nextSnapshotNumber(). */
+export const COUNTER_KEY = 'stundenplan27.snapshots.counter';
 export const MAX_SNAPSHOTS = 10;
 
 /** Solver-Score-Komponenten (gespiegelt aus solver-v2/index PenaltyBreakdown). */
@@ -175,4 +177,32 @@ export function clearSnapshots(): void {
 /** Anzahl gespeicherter Snapshots. */
 export function snapshotCount(): number {
 	return loadSnapshots().length;
+}
+
+/**
+ * Persistenter, monoton steigender Zähler für Default-Snapshot-Namen
+ * („Auto #N", „Plan #N"). Vorher wurde `loadSnapshots().length + 1`
+ * verwendet — nach dem FIFO-Cleanup (MAX_SNAPSHOTS) sank die Länge wieder
+ * und neue Snapshots bekamen bereits vergebene Nummern (Audit A5).
+ * Jeder Aufruf vergibt die nächste Nummer und persistiert den Stand.
+ */
+export function nextSnapshotNumber(): number {
+	let current = 0;
+	try {
+		const raw = localStorage.getItem(COUNTER_KEY);
+		const parsed = raw === null ? NaN : parseInt(raw, 10);
+		if (Number.isFinite(parsed) && parsed > 0) current = parsed;
+	} catch {
+		// localStorage gesperrt — unten greift der Galerie-Fallback.
+	}
+	// Sanfte Migration / Fallback: nie hinter die bestehende Galerie
+	// zurückfallen (Alt-Stände ohne Zähler-Key zählen ab Galerie-Größe).
+	current = Math.max(current, loadSnapshots().length);
+	const next = current + 1;
+	try {
+		localStorage.setItem(COUNTER_KEY, String(next));
+	} catch {
+		// Ohne Persistenz bleibt die Nummer für diesen Aufruf trotzdem gültig.
+	}
+	return next;
 }

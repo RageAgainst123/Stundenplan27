@@ -1,5 +1,6 @@
 <script lang="ts">
 	import type { LessonSpec, Teacher, WeekPattern } from '../lib/types';
+	import { teacherStripeBackground } from '../lib/teacher-helpers';
 
 	interface Props {
 		spec: LessonSpec;
@@ -23,22 +24,11 @@
 	const dimmedByWeek = $derived(spec.weekPattern !== 'every' && spec.weekPattern !== weekParity);
 
 	/**
-	 * Phase 17: N-Streifen-Gradient für beliebig viele Lehrer. Jeder Lehrer
-	 * bekommt einen vertikalen Streifen gleicher Breite mit seiner Lehrerfarbe
-	 * als 35%-Tint. Bei 1 Lehrer: einfacher Tint ohne Gradient. Bei 2: 50/50.
-	 * Bei 3: 33/33/33. Bei N: je 100/N.
+	 * Phase 17: N-Streifen-Gradient für beliebig viele Lehrer — seit Audit
+	 * A5 im gemeinsamen Helper `teacherStripeBackground` (ein Tint-Wert für
+	 * Grid, Wochenplan und Export-Vorschau).
 	 */
-	const background = $derived.by(() => {
-		const tint = (c: string) => `color-mix(in srgb, ${c} 35%, white)`;
-		if (validTeachers.length === 0) return tint('#9ca3af');
-		if (validTeachers.length === 1) return tint(validTeachers[0].color);
-		const stops = validTeachers.map((t, i) => {
-			const from = ((i / validTeachers.length) * 100).toFixed(2);
-			const to = (((i + 1) / validTeachers.length) * 100).toFixed(2);
-			return `${tint(t.color)} ${from}% ${to}%`;
-		}).join(', ');
-		return `linear-gradient(to right, ${stops})`;
-	});
+	const background = $derived(teacherStripeBackground(validTeachers.map(t => t.color)));
 
 	// Bis 3 Lehrer alle als L-Badge anzeigen. Ab 4: erste 2 + "+N"-Indikator.
 	const visibleTeachers = $derived(validTeachers.length <= 3 ? validTeachers : validTeachers.slice(0, 2));

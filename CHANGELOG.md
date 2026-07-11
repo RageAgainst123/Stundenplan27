@@ -133,6 +133,32 @@ Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.
   (hätte eine Doppellage gebaut), sondern transparent gemeldet.
 - `matched` zählt nur noch echte Platzierungen.
 
+**A5 — Code-Gesundheit:**
+- Toter Code entfernt: fünf verwaiste Handler in ScheduleGrid
+  (Zellen-Interaktion lebt seit Phase 8 komplett in ScheduleCell),
+  `applySmartMerge`/`RawMergeRow` (exportierter No-Op — der echte Pfad
+  ist `buildSpecsWithSmartMerge`), `formatCellText` in excel-export.
+- Duplikate konsolidiert: EINE Slot-Map (`buildSlotOccupancy` in
+  schedule-helpers — vorher dreifach in ExportPanel/excel-export/
+  WeekView), EIN Kopplungs-Hintergrund (`couplingBackground` — vorher
+  byte-identisch in ScheduleCell + WeekView), EIN Lehrerfarb-Tint
+  (`teacherTint`/`teacherStripeBackground` in teacher-helpers).
+  **Sichtbare Änderung:** der Tint ist jetzt überall 40 % — vorher
+  Grid 35 %, Wochenplan 45 %, Export-Vorschau ≙35 %. Per Browser-E2E
+  verifiziert (Grid, Wochenplan, Export-Vorschau, Kopplungs-Pastell).
+- Snapshot-Namen: `window.prompt()` durch Inline-Input ersetzt
+  (Enter = speichern, Escape = abbrechen, leer = „Plan #N"); „Auto #N"/
+  „Plan #N" nutzen einen persistenten Zähler (eigener localStorage-Key)
+  statt der Galerie-Länge — nach dem FIFO-Cleanup kollidierten Nummern.
+- Kleinkram: 🔬 Solver-Snapshot-Button ist während eines Worker-Laufs
+  disabled (getDzn liefert mid-run leer); später poolBest-Event nach
+  Abort wird nicht mehr als 'solution' gespiegelt (done-Guard);
+  kaputter title-Ternär im Wochenplan-Vergleichs-Umschalter repariert.
+- Bewusst NICHT angefasst (jetzt im Code dokumentiert): die
+  Doppel-Serialisierung im Store-Auto-Save — der `JSON.stringify`-
+  Deep-Tracker ist der Preis für zuverlässiges Deep-Tracking
+  (CLAUDE.md-Reactivity-Falle), Kosten ~1-2 ms pro Mutation.
+
 **A3 — Halbzahlige Stunden (0.5/1.5) konsistent:**
 - Neuer kanonischer Helper `effectiveSlotCount(spec)` =
   `max(1, round(count))` in `schedule-helpers.ts` — exakt die

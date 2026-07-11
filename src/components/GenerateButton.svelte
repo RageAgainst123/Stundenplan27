@@ -6,7 +6,7 @@
 	// Worker-Support auf das bisherige Inline-startSolve zurück.
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { PlacedLesson } from '../lib/types';
-	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
+	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
 	const store = useStore();
@@ -365,9 +365,10 @@
 				if (!frameSwitched && typeof newScore === 'number' && preRunScore !== null && preRunScore > 0) {
 					const improvement = (preRunScore - newScore) / preRunScore;
 					if (improvement >= AUTO_SNAPSHOT_THRESHOLD) {
-						const count = loadSnapshots().length;
+						// Audit A5: persistenter Zähler statt Galerie-Länge —
+						// nach dem FIFO-Cleanup kollidierten „Auto #N"-Namen.
 						saveSnapshot({
-							name: `Auto #${count + 1}`,
+							name: `Auto #${nextSnapshotNumber()}`,
 							score: Math.round(newScore),
 							placed: d.final.placed.map(p => ({ ...p })),
 							scoreBreakdown: d.final.penalties as any,
@@ -400,23 +401,37 @@
 	}
 
 	// ---- Phase 15: Snapshot-Manage ----
-	function saveCurrentAsSnapshot(): void {
-		const score = bestScore ?? result?.penalties?.total ?? 0;
+	// Audit A5: Inline-Input statt window.prompt() (blockiert den ganzen
+	// Tab und lässt sich nicht stylen). Leerer Name → Default „Plan #N"
+	// aus dem persistenten Zähler (erst BEIM Speichern gezogen, damit
+	// Abbrechen keine Nummern verbrennt).
+	let snapshotNameOpen = $state(false);
+	let snapshotNameDraft = $state('');
+
+	function openSnapshotNameInput(): void {
 		if (store.doc.placed.length === 0) {
 			alert('Kein Plan vorhanden — erst generieren.');
 			return;
 		}
-		const count = loadSnapshots().length;
-		const defaultName = `Plan #${count + 1}`;
-		const name = prompt(`Name für diesen Snapshot:`, defaultName);
-		if (!name || !name.trim()) return;
+		snapshotNameDraft = '';
+		snapshotNameOpen = true;
+	}
+
+	function confirmSaveSnapshot(): void {
+		if (store.doc.placed.length === 0) {
+			snapshotNameOpen = false;
+			return;
+		}
+		const score = bestScore ?? result?.penalties?.total ?? 0;
+		const name = snapshotNameDraft.trim() || `Plan #${nextSnapshotNumber()}`;
 		saveSnapshot({
-			name: name.trim(),
+			name,
 			score: Math.round(score),
 			placed: store.doc.placed.map(p => ({ ...p })),
 			scoreBreakdown: result?.penalties as any,
 			source: 'manual'
 		});
+		snapshotNameOpen = false;
 		notifySnapshotsChanged();
 	}
 
@@ -429,7 +444,6 @@
 		if (!ok) return;
 		// Auto-Backup vor Restore (nur wenn aktueller Plan nicht leer)
 		if (store.doc.placed.length > 0) {
-			const backupCount = loadSnapshots().length;
 			saveSnapshot({
 				name: `Backup vor Restore ${new Date().toLocaleTimeString('de-AT')}`,
 				score: Math.round(bestScore ?? result?.penalties?.total ?? 0),
@@ -437,7 +451,6 @@
 				scoreBreakdown: result?.penalties as any,
 				source: 'auto'
 			});
-			void backupCount;
 		}
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
@@ -813,7 +826,10 @@
 				</button>
 				<div class="debug-actions">
 					<button class="btn small" onclick={copyLog} disabled={logEntries.length === 0} title="Log als Text in die Zwischenablage kopieren">📋 Log kopieren</button>
-					<button class="btn small" onclick={downloadDzn} disabled={!lastDzn && !session} title="JSON-Snapshot des Solver-Inputs: Stammdaten, Lehreinheiten (inkl. Team-Teaching-Segmente), Constraints, Units, Placements, Score, Lockerungs-Info. Für Debug/Bug-Reports.">🔬 Solver-Snapshot</button>
+					<!-- Audit A5: disabled={!lastDzn} — während eines Worker-Laufs liefert
+					     getDzn() einen leeren String (kommt erst mit dem done-Event),
+					     der Button war mid-run klickbar aber wirkungslos. -->
+					<button class="btn small" onclick={downloadDzn} disabled={!lastDzn} title="JSON-Snapshot des Solver-Inputs: Stammdaten, Lehreinheiten (inkl. Team-Teaching-Segmente), Constraints, Units, Placements, Score, Lockerungs-Info. Für Debug/Bug-Reports.">🔬 Solver-Snapshot</button>
 				</div>
 			</div>
 			{#if logOpen}
@@ -828,9 +844,27 @@
 		<div class="gallery-header">
 			<h4>📸 Plan-Snapshots ({snapshots.length}/{MAX_SNAPSHOTS})</h4>
 			<div class="gallery-actions">
-				<button class="btn small" onclick={saveCurrentAsSnapshot} disabled={busy || !hasExistingPlan} title="Aktuellen Plan-Stand als Snapshot speichern">
-					💾 Aktuellen Plan speichern
-				</button>
+				{#if snapshotNameOpen}
+					<span class="snap-name-input">
+						<!-- svelte-ignore a11y_autofocus -->
+						<input
+							type="text"
+							bind:value={snapshotNameDraft}
+							placeholder="Name (leer = Plan #N)"
+							autofocus
+							onkeydown={(e) => {
+								if (e.key === 'Enter') confirmSaveSnapshot();
+								if (e.key === 'Escape') snapshotNameOpen = false;
+							}}
+						/>
+						<button class="btn small primary" onclick={confirmSaveSnapshot}>Speichern</button>
+						<button class="btn small" onclick={() => (snapshotNameOpen = false)}>Abbrechen</button>
+					</span>
+				{:else}
+					<button class="btn small" onclick={openSnapshotNameInput} disabled={busy || !hasExistingPlan} title="Aktuellen Plan-Stand als Snapshot speichern">
+						💾 Aktuellen Plan speichern
+					</button>
+				{/if}
 				{#if snapshots.length > 0}
 					<button class="btn danger small" onclick={clearAllSnapshots} disabled={busy} title="Alle Snapshots löschen">
 						🗑 Alle löschen
@@ -1247,6 +1281,18 @@
 	.gallery-actions {
 		display: flex;
 		gap: 6px;
+	}
+	.snap-name-input {
+		display: inline-flex;
+		align-items: center;
+		gap: 6px;
+	}
+	.snap-name-input input {
+		padding: 4px 8px;
+		font-size: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: 4px;
+		min-width: 180px;
 	}
 	.snap-list {
 		list-style: none;

@@ -8,8 +8,8 @@
 		DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES,
 		type Day, type GradeLevel, type LessonSpec, type Period, type PlacedLesson
 	} from '../lib/types';
-	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
-	import { groupColor } from '../lib/blocks';
+	import { teacherStripeBackground } from '../lib/teacher-helpers';
+	import { buildSlotOccupancy, couplingBackground, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { loadSnapshots, type Snapshot } from '../lib/snapshots';
 
@@ -52,30 +52,11 @@
 		return snap ? `${snap.name} · Score ${snap.score}` : 'Aktueller Plan';
 	}
 
-	// ---- Spec lookup ----
-	function specById(id: string): LessonSpec | undefined {
-		return store.doc.specs.find(s => s.id === id);
-	}
-
-	// ---- Cell-Daten: pro (day, period, grade) die Placements ----
-	interface CellPlacement {
-		placed: PlacedLesson;
-		spec: LessonSpec;
-	}
-
-	function placementsAt(placed: PlacedLesson[], day: Day, period: Period, grade: GradeLevel): CellPlacement[] {
-		const out: CellPlacement[] = [];
-		const seen = new Set<string>();
-		for (const p of placed) {
-			if (p.day !== day || p.period !== period || p.grade !== grade) continue;
-			const spec = specById(p.specId);
-			if (!spec) continue;
-			const key = p.specId + '|' + p.day + '|' + p.period + '|' + p.grade;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			out.push({ placed: p, spec });
-		}
-		return out;
+	// ---- Cell-Daten: gemeinsame Slot-Map (Audit A5) ----
+	// buildSlotOccupancy löst Specs + effektive Lehrer EINMAL pro Quelle auf
+	// (inkl. defensivem Dedup); die Zellen machen nur noch Map-Lookups.
+	function placementsAt(map: Map<string, SlotOccupant[]>, day: Day, period: Period, grade: GradeLevel): SlotOccupant[] {
+		return map.get(slotKeyOf(day, period, grade)) ?? [];
 	}
 
 	/**
@@ -93,21 +74,21 @@
 	interface CellSlot {
 		colspan: number;
 		startGrade: GradeLevel;
-		placements: CellPlacement[];
+		placements: SlotOccupant[];
 	}
 
-	function rowLayout(placed: PlacedLesson[], day: Day, period: Period): CellSlot[] {
+	function rowLayout(map: Map<string, SlotOccupant[]>, day: Day, period: Period): CellSlot[] {
 		const slots: CellSlot[] = [];
 		// Set zur Track: welche Grades sind in dieser (day, period) schon
 		// von einem multi-Grade-Slot abgedeckt → überspringen.
 		const consumed = new Set<GradeLevel>();
 		for (const grade of GRADES) {
 			if (consumed.has(grade)) continue;
-			const cps = placementsAt(placed, day, period, grade);
+			const cps = placementsAt(map, day, period, grade);
 			// Suche nach einer Multi-Grade-Spec deren niedrigste Stufe = grade
 			// und deren Stufen konsekutiv sind. Erste passende wird als
 			// breite Zelle gerendert.
-			let multiCp: CellPlacement | null = null;
+			let multiCp: SlotOccupant | null = null;
 			for (const cp of cps) {
 				const gs = [...cp.spec.grades].sort((a, b) => a - b);
 				if (gs.length < 2) continue;
@@ -203,21 +184,6 @@
 		return !!nowState && nowState.day === day && nowState.period === period;
 	}
 
-	// ---- Coupling-Hintergrund pro Cell ----
-	function couplingBgFor(cellPlacements: CellPlacement[]): string {
-		if (cellPlacements.length < 2) return '';
-		const keys = cellPlacements.map(cp => cp.spec.couplingId ?? '');
-		if (keys.some(k => !k)) return '';
-		const uniq = new Set(keys);
-		if (uniq.size !== 1) return '';
-		return groupColor([...uniq][0]);
-	}
-
-	// ---- Teacher-Helper ----
-	function teacherById(id: string) {
-		return teacherByIdH(store.doc, id);
-	}
-
 	// ---- Subject-Liste für Dropdown ----
 	const subjectOptions = $derived(
 		Array.from(new Set(store.doc.specs.map(s => s.subject))).sort()
@@ -247,7 +213,7 @@
 						class="slot-btn"
 						class:active={slotCount === n}
 						onclick={() => (slotCount = n)}
-						title="{n} Plan{n === 1 ? '' : ' ne'}{n === 1 ? '' : 'beneinander vergleichen'}"
+						title={n === 1 ? 'Einen Plan anzeigen' : `${n} Pläne nebeneinander vergleichen`}
 					>{n}</button>
 				{/each}
 			</div>
@@ -301,6 +267,7 @@
 	<div class="slots-grid" class:cols-1={slotCount === 1} class:cols-2={slotCount === 2} class:cols-3={slotCount === 3} class:cols-4={slotCount === 4}>
 		{#each Array(slotCount) as _, slotIdx (slotIdx)}
 			{@const placedHere = placedFor(slotIds[slotIdx])}
+			{@const slotMapHere = buildSlotOccupancy(store.doc, placedHere)}
 			{@const slotStats = statsFor(placedHere)}
 			<div class="plan-slot" class:compact-2={slotCount === 2} class:compact-3-4={slotCount >= 3}>
 				<div class="slot-header">
@@ -346,8 +313,8 @@
 										<div class="period-time">{DEFAULT_PERIOD_TIMES[p - 1]}</div>
 									</td>
 									{#each DAYS as d (d)}
-										{#each rowLayout(placedHere, d, p) as slot, sidx (d + '-' + p + '-' + sidx + '-' + slot.startGrade)}
-											{@const couplingBg = couplingBgFor(slot.placements)}
+										{#each rowLayout(slotMapHere, d, p) as slot, sidx (d + '-' + p + '-' + sidx + '-' + slot.startGrade)}
+											{@const couplingBg = couplingBackground(slot.placements.map(cp => cp.spec))}
 											{@const isNow = isNowCell(d, p)}
 											{@const isLastInDay = (slot.startGrade + slot.colspan - 1) === GRADES[GRADES.length - 1]}
 											<td
@@ -361,18 +328,11 @@
 												{#if slot.placements.length > 0}
 													<div class="row" class:team={couplingBg !== ''}>
 														{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
-															{@const effectiveTeacherIds = cp.placed.teachers ?? cp.spec.teachers}
-															{@const teachersAll = effectiveTeacherIds.map(tid => teacherById(tid)).filter((t): t is NonNullable<typeof t> => !!t)}
+															{@const teachersAll = cp.teachers}
 															{@const visible = isHighlighted(cp.spec, slot.startGrade)}
 															{@const tcol = teachersAll[0]?.color ?? '#9ca3af'}
 															{@const tcolLast = teachersAll.length > 1 ? teachersAll[teachersAll.length - 1].color : tcol}
-															{@const teachersBg = teachersAll.length <= 1
-																? `color-mix(in srgb, ${tcol} 45%, white)`
-																: 'linear-gradient(to right, ' + teachersAll.map((t, i) => {
-																	const from = ((i / teachersAll.length) * 100).toFixed(2);
-																	const to = (((i + 1) / teachersAll.length) * 100).toFixed(2);
-																	return `color-mix(in srgb, ${t.color} 45%, white) ${from}% ${to}%`;
-																}).join(', ') + ')'}
+															{@const teachersBg = teacherStripeBackground(teachersAll.map(t => t.color))}
 															{@const namesTooltip = teachersAll.map(t => t.name).join(' + ')}
 															{@const dimmedByWeek = cp.spec.weekPattern !== 'every' && cp.spec.weekPattern !== weekInfo.parity}
 															<div

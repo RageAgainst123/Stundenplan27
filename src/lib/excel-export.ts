@@ -15,6 +15,7 @@
 import type { ScheduleDoc, Day, GradeLevel, Period, Teacher } from './types';
 import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from './types';
 import { buildScheduleExport } from './schedule-export';
+import { buildSlotOccupancy } from './schedule-helpers';
 
 export interface ExcelExportOptions {
 	includeClassPlan?: boolean;
@@ -47,28 +48,20 @@ interface SlotEntry {
 /**
  * Map (day, period, grade) → SlotEntry[].
  * Mehrere Einträge pro Slot wenn Coupling/Multi-Grade.
+ * Audit A5: die Roh-Auflösung (Spec-Join, effektive Lehrer) kommt aus dem
+ * gemeinsamen `buildSlotOccupancy` — hier nur noch das Excel-Shape.
  */
 function buildSlotMap(doc: ScheduleDoc): Map<string, SlotEntry[]> {
-	const teacherById = new Map(doc.teachers.map(t => [t.id, t]));
-	const specById = new Map(doc.specs.map(s => [s.id, s]));
 	const map = new Map<string, SlotEntry[]>();
-	for (const pl of doc.placed) {
-		const spec = specById.get(pl.specId);
-		if (!spec) continue;
-		const teacherIds = pl.teachers ?? spec.teachers;
-		const teachers = teacherIds.map(tid => teacherById.get(tid)).filter((t): t is Teacher => !!t);
-		const key = `${pl.day}|${pl.period}|${pl.grade}`;
-		const entry: SlotEntry = {
-			subject: spec.subject,
-			teachers,
-			grades: [...spec.grades],
-			weekPattern: spec.weekPattern,
-			pinned: pl.pinned,
-			isTeamTeaching: !!(spec.teachingSegments && spec.teachingSegments.length > 0),
-		};
-		const arr = map.get(key) ?? [];
-		arr.push(entry);
-		map.set(key, arr);
+	for (const [key, occupants] of buildSlotOccupancy(doc)) {
+		map.set(key, occupants.map(o => ({
+			subject: o.spec.subject,
+			teachers: o.teachers,
+			grades: [...o.spec.grades],
+			weekPattern: o.spec.weekPattern,
+			pinned: o.placed.pinned,
+			isTeamTeaching: !!(o.spec.teachingSegments && o.spec.teachingSegments.length > 0),
+		})));
 	}
 	return map;
 }
@@ -95,19 +88,6 @@ function isDarkColor(hex: string): boolean {
 
 function colorOf(teacher: Teacher, overrides: Record<string, string>): string {
 	return overrides[teacher.id] ?? teacher.color;
-}
-
-/**
- * Cell-Inhalt-Helper: subject + L-Badges + Stufe + G/U
- * Wird als Multi-Line Plain-Text gebaut (xlsx Cell-Rich-Text wäre overkill).
- */
-function formatCellText(entry: SlotEntry): string {
-	const teacherBadges = entry.teachers.length <= 3
-		? entry.teachers.map(t => `L${t.shortNumber}`).join(' ')
-		: entry.teachers.slice(0, 2).map(t => `L${t.shortNumber}`).join(' ') + ` +${entry.teachers.length - 2}`;
-	const gradesStr = entry.grades.length > 1 ? entry.grades.join('+') : entry.grades[0]?.toString() ?? '';
-	const weekBadge = entry.weekPattern === 'every' ? '' : (entry.weekPattern === 'even' ? ' [G]' : ' [U]');
-	return `${entry.subject}  ${teacherBadges}\n${gradesStr}${weekBadge}`;
 }
 
 /**

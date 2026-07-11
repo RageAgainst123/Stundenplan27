@@ -301,6 +301,10 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		const w = newWorker();
 		poolWorkers.push(w);
 		w.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
+			// Nach finish() (Abort während des Pools) keine Events mehr
+			// spiegeln — ein spätes poolBest würde sonst ein 'solution'
+			// NACH dem done-Event emittieren (Guard wie in startMainSession).
+			if (done) return;
 			const m = e.data;
 			if (m.kind === 'poolBest') {
 				const cand = m.payload;

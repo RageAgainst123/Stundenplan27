@@ -55,6 +55,14 @@ export function initStore(): ScheduleStore {
 	setContext(KEY, s);
 	// Auto-save on any nested mutation. Uses an effect root so it lives for the
 	// whole app lifetime; explicit JSON.stringify forces a deep dependency read.
+	//
+	// Audit A5 — BEWUSST SO GELASSEN: Ja, das serialisiert das Doc doppelt
+	// (einmal hier als Deep-Tracker, einmal in saveToLocalStorage). Der
+	// JSON.stringify ist aber der einzige zuverlässige Weg, JEDE verschachtelte
+	// Mutation (bind:value in Tabellenzellen, Array-Pushes im Solver-Apply)
+	// als Dependency zu erfassen — jede "Optimierung" hier riskiert die
+	// CLAUDE.md-Reactivity-Falle (Auto-Save-Lücken nach Tab-Wechseln).
+	// Kosten real ~1-2 ms pro Mutation. Nicht anfassen.
 	$effect.root(() => {
 		$effect(() => {
 			JSON.stringify(s.doc);

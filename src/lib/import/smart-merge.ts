@@ -22,74 +22,11 @@
 import type { LessonSpec, TeachingSegment } from '../types';
 import type { ImportResult } from './csv';
 
-export interface RawMergeRow {
-	specId: string;
-	subjectCode: string;
-	classes: string[];
-	groupLabel: string;
-	stunden: number;
-	ergStunden: number;
-	teacherId: string;
-	gradesKey: string; // serialised grades for grouping
-}
-
 export interface SmartMergeStats {
 	teamGroupsMerged: number;
 	sameTeacherRowsCollapsed: number;
 	leistungsCouplings: number;
 	warnings: string[];
-}
-
-/**
- * Apply smart-merge logic. Returns NEW arrays — the input `result` is not
- * mutated, so the caller can still display "before vs after" diffs.
- *
- * Algorithm overview:
- *   1. Group specs by (subjectCode + classes + groupLabel + grades).
- *   2. For each group:
- *      - If all rows have same teacher → collapse to one spec (sum counts).
- *      - If exactly one row has Stunden>0 and others ErgStunden>0 →
- *        team-teaching merge with team[0] = main teacher.
- *      - Otherwise leave as-is.
- *   3. Group remaining specs by (subjectCode + classes + grades) — if
- *      multiple groupLabels exist → set shared couplingId.
- */
-export function applySmartMerge(result: ImportResult): {
-	result: ImportResult;
-	stats: SmartMergeStats;
-} {
-	const stats: SmartMergeStats = {
-		teamGroupsMerged: 0,
-		sameTeacherRowsCollapsed: 0,
-		leistungsCouplings: 0,
-		warnings: []
-	};
-
-	// Build the raw row view from the parser's specs. Each spec corresponds
-	// to exactly one CSV row at this point — that's the precondition we rely
-	// on (smart-merge always runs AFTER csv.ts produces 1-spec-per-row).
-	const rows: RawMergeRow[] = result.specs.map(s => ({
-		specId: s.id,
-		subjectCode: s.subject,
-		classes: [...s.classes],
-		groupLabel: s.groupLabel ?? '',
-		// We can't recover stunden vs ergStunden from the parsed spec — they're
-		// already collapsed into `count`. So we treat `count` as the per-row
-		// total and use a heuristic: if a row's teacher appears in MULTIPLE
-		// rows of the group with one of them having a "big" count and others
-		// "small", the big one is the main teacher. See group-analysis below.
-		stunden: s.count,
-		ergStunden: 0,
-		teacherId: s.teachers[0],
-		gradesKey: s.grades.slice().sort().join(',')
-	}));
-
-	// We need stunden vs ergStunden differentiation — the parser doesn't
-	// preserve it. So this module needs raw input. Caller must use the
-	// alternative entry point `applySmartMergeFromRaw` (below).
-	// For the public API used here, we use a coarse heuristic that works
-	// when the parser was extended to mark rows. For now: pass-through.
-	return { result, stats };
 }
 
 /**

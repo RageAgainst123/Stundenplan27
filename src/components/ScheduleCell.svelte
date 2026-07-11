@@ -5,8 +5,7 @@
 	import type { DragDropState } from '@thisux/sveltednd';
 	import type { Day, GradeLevel, LessonSpec, Period, Teacher } from '../lib/types';
 	import type { DragPayload } from '../lib/types-ui';
-	import { checkPlacementConflict } from '../lib/schedule-helpers';
-	import { groupColor } from '../lib/blocks';
+	import { checkPlacementConflict, couplingBackground } from '../lib/schedule-helpers';
 	import LessonCell from './LessonCell.svelte';
 
 	const store = useStore();
@@ -28,15 +27,9 @@
 
 	// If all placements in this cell share a non-empty couplingId → coupling background.
 	// Phase 8 v3: only solver couplings (couplingId) get the visual highlight,
-	// not descriptive Sokrates labels (groupLabel).
-	const couplingBg = $derived.by(() => {
-		if (cellPlacements.length < 2) return '';
-		const keys = cellPlacements.map(cp => cp.spec.couplingId ?? '');
-		if (keys.some(k => !k)) return '';
-		const uniq = new Set(keys);
-		if (uniq.size !== 1) return '';
-		return groupColor([...uniq][0]);
-	});
+	// not descriptive Sokrates labels (groupLabel). Audit A5: gemeinsamer
+	// Helper (identische Logik lebte auch im WeekView).
+	const couplingBg = $derived(couplingBackground(cellPlacements.map(cp => cp.spec)));
 
 	function handleDrop(state: DragDropState<DragPayload>) {
 		const { specId, fromCell } = state.draggedItem;

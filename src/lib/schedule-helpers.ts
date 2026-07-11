@@ -1,7 +1,8 @@
 // Pure helpers for the schedule grid: which cells are filled, conflict detection,
 // computing visible specs in the sidebar.
 
-import { type Day, type GradeLevel, type LessonSpec, type PlacedLesson, type Period, type ScheduleDoc } from './types';
+import { type Day, type GradeLevel, type LessonSpec, type PlacedLesson, type Period, type ScheduleDoc, type Teacher } from './types';
+import { groupColor } from './blocks';
 
 export interface CellPlacement {
 	placed: PlacedLesson;
@@ -67,6 +68,63 @@ export function unplacedSpecs(doc: ScheduleDoc): { spec: LessonSpec; remaining: 
 	return doc.specs
 		.map(s => ({ spec: s, remaining: effectiveSlotCount(s) - placedCountForSpec(doc, s.id) }))
 		.filter(x => x.remaining > 0);
+}
+
+/** Key für Slot-Lookups über (Tag, Periode, Stufe). */
+export function slotKeyOf(day: Day, period: Period, grade: GradeLevel): string {
+	return `${day}|${period}|${grade}`;
+}
+
+export interface SlotOccupant {
+	placed: PlacedLesson;
+	spec: LessonSpec;
+	/** Effektive Lehrer der Stunde (Segment-Team ?? Spec-Team), aufgelöst. */
+	teachers: Teacher[];
+}
+
+/**
+ * Audit A5: DIE gemeinsame Slot-Map — vorher nahezu identisch dreifach
+ * gebaut (ExportPanel-Vorschau, excel-export, WeekView). Key via
+ * `slotKeyOf`, Werte in placed-Reihenfolge. `placed` ist überschreibbar
+ * (Snapshot-Ansicht im WeekView); Specs/Lehrer kommen immer aus dem Doc.
+ * Dedupliziert defensiv identische (spec, slot)-Duplikate aus Alt-Daten.
+ */
+export function buildSlotOccupancy(
+	doc: ScheduleDoc,
+	placed: PlacedLesson[] = doc.placed
+): Map<string, SlotOccupant[]> {
+	const teacherById = new Map(doc.teachers.map(t => [t.id, t]));
+	const specById = new Map(doc.specs.map(s => [s.id, s]));
+	const map = new Map<string, SlotOccupant[]>();
+	const seen = new Set<string>();
+	for (const pl of placed) {
+		const spec = specById.get(pl.specId);
+		if (!spec) continue;
+		const key = slotKeyOf(pl.day, pl.period, pl.grade);
+		const dedupKey = pl.specId + '|' + key;
+		if (seen.has(dedupKey)) continue;
+		seen.add(dedupKey);
+		const tids = pl.teachers ?? spec.teachers;
+		const teachers = tids.map(tid => teacherById.get(tid)).filter((t): t is Teacher => !!t);
+		const arr = map.get(key) ?? [];
+		arr.push({ placed: pl, spec, teachers });
+		map.set(key, arr);
+	}
+	return map;
+}
+
+/**
+ * Audit A5: gemeinsamer Kopplungs-Hintergrund — vorher byte-identisch in
+ * ScheduleCell und WeekView. Nur wenn ALLE Specs der Zelle dieselbe
+ * nicht-leere couplingId teilen (Solver-Kopplung, nicht groupLabel).
+ */
+export function couplingBackground(specs: readonly Pick<LessonSpec, 'couplingId'>[]): string {
+	if (specs.length < 2) return '';
+	const keys = specs.map(s => s.couplingId ?? '');
+	if (keys.some(k => !k)) return '';
+	const uniq = new Set(keys);
+	if (uniq.size !== 1) return '';
+	return groupColor(keys[0]);
 }
 
 export interface ConflictCheck {

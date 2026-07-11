@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from '../lib/types';
+	import { buildSlotOccupancy } from '../lib/schedule-helpers';
+	import { teacherStripeBackground, teacherTint } from '../lib/teacher-helpers';
 	const store = useStore();
 
 	// Optionen
@@ -25,34 +27,12 @@
 		colorOverrides = { ...colorOverrides, [teacherId]: color };
 	}
 
-	// Vorschau-Daten — gleicher Slot-Lookup wie excel-export.ts
+	// Vorschau-Daten — gemeinsame Slot-Map (Audit A5, identischer Lookup
+	// wie excel-export.ts und WeekView).
 	const slotMap = $derived.by(() => {
 		void store.doc.placed.length;
 		void store.doc.specs.length;
-		const teacherById = new Map(store.doc.teachers.map(t => [t.id, t]));
-		const specById = new Map(store.doc.specs.map(s => [s.id, s]));
-		const map = new Map<string, Array<{
-			subject: string;
-			teachers: typeof store.doc.teachers;
-			grades: number[];
-			weekPattern: 'every' | 'even' | 'odd';
-		}>>();
-		for (const pl of store.doc.placed) {
-			const spec = specById.get(pl.specId);
-			if (!spec) continue;
-			const tids = pl.teachers ?? spec.teachers;
-			const teachers = tids.map(tid => teacherById.get(tid)).filter((t): t is NonNullable<typeof t> => !!t);
-			const key = `${pl.day}|${pl.period}|${pl.grade}`;
-			const arr = map.get(key) ?? [];
-			arr.push({
-				subject: spec.subject,
-				teachers,
-				grades: [...spec.grades],
-				weekPattern: spec.weekPattern
-			});
-			map.set(key, arr);
-		}
-		return map;
+		return buildSlotOccupancy(store.doc);
 	});
 
 	const hasPlan = $derived(store.doc.placed.length > 0);
@@ -95,15 +75,6 @@
 		}
 	}
 
-	function blendWhite(hex: string, ratio: number): string {
-		const c = hex.replace('#', '').padEnd(6, '0').slice(0, 6);
-		const r = parseInt(c.slice(0, 2), 16);
-		const g = parseInt(c.slice(2, 4), 16);
-		const b = parseInt(c.slice(4, 6), 16);
-		const bl = (v: number) => Math.round(v + (255 - v) * ratio);
-		const hex2 = (n: number) => n.toString(16).padStart(2, '0');
-		return `#${hex2(bl(r))}${hex2(bl(g))}${hex2(bl(b))}`;
-	}
 </script>
 
 <div class="export-panel">
@@ -212,7 +183,7 @@
 										{#if primary}
 											{@const allTeachers = (() => {
 												const seen = new Set<string>();
-												const list: typeof primary.teachers = [];
+												const list: typeof entries[number]['teachers'] = [];
 												for (const e of entries) {
 													for (const t of e.teachers) {
 														if (!seen.has(t.id)) { seen.add(t.id); list.push(t); }
@@ -221,22 +192,17 @@
 												return list;
 											})()}
 											{@const firstColor = allTeachers[0] ? effectiveColor(allTeachers[0].id, allTeachers[0].color) : '#9ca3af'}
-											{@const bgGradient = allTeachers.length <= 1
-												? blendWhite(firstColor, 0.65)
-												: 'linear-gradient(to right, ' + allTeachers.map((t, i) => {
-														const c = blendWhite(effectiveColor(t.id, t.color), 0.65);
-														const from = (i / allTeachers.length * 100).toFixed(1);
-														const to = ((i + 1) / allTeachers.length * 100).toFixed(1);
-														return `${c} ${from}% ${to}%`;
-													}).join(', ') + ')'}
+											{@const bgGradient = allTeachers.length === 0
+												? teacherTint('#9ca3af')
+												: teacherStripeBackground(allTeachers.map(t => effectiveColor(t.id, t.color)))}
 											<td class="slot filled" style:background={bgGradient} style:border-left={`3px solid ${firstColor}`}>
 												<div class="slot-line">
-													<span class="subj">{primary.subject}</span>
+													<span class="subj">{primary.spec.subject}</span>
 													<span class="teach">{allTeachers.slice(0, 3).map(t => 'L' + t.shortNumber).join(' ')}{#if allTeachers.length > 3} +{allTeachers.length - 3}{/if}</span>
 												</div>
 												<div class="slot-meta">
-													{primary.grades.join('+')}
-													{#if primary.weekPattern !== 'every'}[{primary.weekPattern === 'even' ? 'G' : 'U'}]{/if}
+													{primary.spec.grades.join('+')}
+													{#if primary.spec.weekPattern !== 'every'}[{primary.spec.weekPattern === 'even' ? 'G' : 'U'}]{/if}
 												</div>
 											</td>
 										{:else}
