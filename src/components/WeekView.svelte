@@ -12,8 +12,15 @@
 	import { buildSlotOccupancy, couplingBackground, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { loadSnapshots, type Snapshot } from '../lib/snapshots';
+	import PrintSheets from './PrintSheets.svelte';
+	import type { PrintMode } from '../lib/types-ui';
 
 	const store = useStore();
+
+	// Audit A7 / Phase 18: Druckmodus — rendert statt der Vergleichsansicht
+	// A4-Blätter (pro Lehrer / pro Stufe / Gesamtplan) als Druckvorschau.
+	// Quelle ist immer Slot 1 der Vergleichsansicht.
+	let printMode = $state<PrintMode | null>(null);
 
 	// ---- Datenquelle: aktueller Plan oder Snapshot ----
 	let snapshots = $state<Snapshot[]>(loadSnapshots());
@@ -203,6 +210,14 @@
 </script>
 
 <div class="weekview">
+{#if printMode !== null}
+	<PrintSheets
+		mode={printMode}
+		placed={placedFor(slotIds[0])}
+		sourceLabel={sourceLabelFor(slotIds[0])}
+		onClose={() => (printMode = null)}
+	/>
+{:else}
 	<header class="wv-header">
 		<div class="hd-row top-row">
 			<div class="slot-toggle">
@@ -216,6 +231,17 @@
 						title={n === 1 ? 'Einen Plan anzeigen' : `${n} Pläne nebeneinander vergleichen`}
 					>{n}</button>
 				{/each}
+			</div>
+			<div class="print-actions">
+				<button type="button" class="btn small" onclick={() => (printMode = 'teachers')} title="Eine A4-Seite (quer) pro Lehrer — nur dessen Stunden, Lehrerfarbe als dezenter Rand">
+					🖨 Alle Lehrer
+				</button>
+				<button type="button" class="btn small" onclick={() => (printMode = 'grades')} title="Eine A4-Seite (quer) pro Schulstufe">
+					🖨 Alle Stufen
+				</button>
+				<button type="button" class="btn small" onclick={() => (printMode = 'view')} title="Ganzer Plan (alle Stufen) auf einer A4-Seite quer">
+					🖨 Gesamtplan
+				</button>
 			</div>
 			<span class="kw-info muted small">
 				KW {weekInfo.week} · {weekInfo.parity === 'even' ? 'G-Woche' : 'U-Woche'}
@@ -368,6 +394,7 @@
 			</div>
 		{/each}
 	</div>
+{/if}
 </div>
 
 <style>
@@ -396,6 +423,12 @@
 	/* Phase 16.3: Slot-Toggle (1-4 Pläne vergleichen) */
 	.top-row {
 		justify-content: space-between;
+	}
+	/* Audit A7: Druck-Buttons */
+	.print-actions {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 	.slot-toggle {
 		display: flex;

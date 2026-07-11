@@ -143,13 +143,14 @@ User-Bedarf: Plateau-Bruch + Plan-Versionsverwaltung.
 ## 🔜 Phase 16 — Nächste Ausbauschritte
 
 ### High-Prio
-1. **Print-Layout.** Eigentlich seit Phase 14 geplant, jetzt überfällig.
-
-2. **Print-Layout.**
-   `@media print` für:
-   - A4 pro Lehrer (eine Seite, nur dessen Stunden farbig hervorgehoben)
-   - A4 pro Schulstufe
-   - „Nur Plan ohne Editor-Chrome"-Modus
+1. ✅ **Print-Layout.** (Audit A7, 2026-07-11) Druckmodus im
+   Wochenplan-Reiter — `PrintSheets.svelte` mit `@media print`:
+   - A4 quer pro Lehrer (eine Seite, nur dessen Stunden, Lehrerfarbe als
+     dezenter Rand, Multi-Grade zusammengeführt, Co-Lehrer-Badges)
+   - A4 quer pro Schulstufe (mit L#-Legende)
+   - Gesamtplan auf einer Seite; App-Chrome wird beim Druck ausgeblendet
+   Akzeptanz erfüllt: Lehrer-Wochenplan druckt als lesbare A4-Seite ohne
+   manuelles CSS-Tweaken (Kopfzeile Name — Schuljahr — Datum).
 
 ### Medium-Prio
 4. **Schuljahr-Wechsel im UI.** Aktuell ist `schoolYear` einfach ein

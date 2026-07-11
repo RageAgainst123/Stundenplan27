@@ -18,3 +18,10 @@ export interface DragPayload {
 	specId: string;
 	fromCell?: { day: Day; period: Period };
 }
+
+/**
+ * Audit A7 / Phase 18: Druckmodus des Wochenplans — eine A4-Seite pro
+ * Lehrer ('teachers'), pro Schulstufe ('grades') oder der ganze Plan auf
+ * einer Seite ('view'). `null` in der UI = normaler Vergleichsmodus.
+ */
+export type PrintMode = 'teachers' | 'grades' | 'view';

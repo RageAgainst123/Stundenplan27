@@ -133,6 +133,27 @@ Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.
   (hätte eine Doppellage gebaut), sondern transparent gemeldet.
 - `matched` zählt nur noch echte Platzierungen.
 
+**A7 — Print-Layout (Phase 18, sichtbarer Abschluss):**
+- Neuer Druckmodus im Wochenplan-Reiter: drei Buttons **„🖨 Alle
+  Lehrer"** (eine A4-Querformat-Seite pro Lehrer mit Stunden),
+  **„🖨 Alle Stufen"** (eine Seite pro Schulstufe, mit L#-Legende) und
+  **„🖨 Gesamtplan"** (alle 4 Stufen auf einer Seite). Quelle ist
+  Slot 1 der Vergleichsansicht — Snapshots sind damit auch druckbar.
+- Neue Komponente `PrintSheets.svelte`: Bildschirm-Druckvorschau
+  (weiße A4-Karten) mit Toolbar „Drucken/Schließen"; `window.print()`
+  druckt über `@page { size: A4 landscape }` + `page-break-after`
+  genau ein Blatt pro Seite. `@media print` blendet App-Chrome
+  (Header, Tabs, Banner, Toolbar) aus.
+- Blatt-Inhalt: Kopfzeile „Name — Schuljahr — Wochenstunden — Datum",
+  Wochenmatrix 8 Perioden × 5 Tage. Toner-schonend: schwarzer Text,
+  Lehrerfarbe nur als schmaler linker Rand. Multi-Grade-Stunden werden
+  pro Lehrer zu EINEM Eintrag zusammengeführt („5+6. SSt."), Team-/
+  Kopplungs-Partner als „+ L2"-Badge, G/U-Stunden mit [G]/[U]-Badge.
+  Datenbasis: der in A5 konsolidierte `buildSlotOccupancy`-Helper.
+- Browser-E2E: Lehrer-Blätter (Stundenzahl, Multi-Grade-Merge,
+  Co-Badge, G/U), Stufen-Blätter (leere Stufe wird übersprungen,
+  Legende), Gesamtplan (alle Placements), Druck-CSS-Regeln verifiziert.
+
 **A6 — Doku-Sync:**
 - MODEL.md: Hard-Constraint-Tabelle um **H11** ergänzt (Titel „H1–H11",
   `afternoonAllowed='must'` muss ab P7 liegen), §1-Box auf
