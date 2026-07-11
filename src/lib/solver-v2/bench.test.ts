@@ -147,6 +147,49 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 		expect(agg.median['breakdown.no_free'], 'median(no_free) muss 0 sein').toBe(0);
 	}, 120_000);
 
+	// Audit A3: ZWEITER, LÖSBARER Bench-Fall. Die rohe Liste.csv ist ohne
+	// Kopplungen strukturell überlastet (Stufe 7: 42h > 40 Slots) — dort ist
+	// unplaced > 0 unvermeidbar und die Vollständigkeits-Invariante nicht
+	// prüfbar. Dieser Fall koppelt die Parallel-Gruppen wie im echten
+	// Workflow und verlangt BEIDES: alles platziert UND keine Klassen-Lücken.
+	it(`coupled-solvable: 5 Seeds × ${BUDGET_MS / 1000}s — unplaced=0 UND no_free=0`, () => {
+		const runs: BenchMetrics[] = [];
+		const perSeed: Record<string, unknown>[] = [];
+		for (const seed of SEEDS) {
+			const doc = loadRealDoc();
+			for (const s of doc.specs.filter(s => s.subject === 'BSP' && s.count === 3)) s.couplingId = 'bench-bsp';
+			for (const s of doc.specs.filter(s => s.subject === 'REL' && s.count === 2)) s.couplingId = 'bench-rel';
+			const state = buildState(doc);
+			const w = defaultWeights(doc);
+			construct(state, { weights: w, seed });
+			const ils = iteratedLocalSearch(state, computeScore(state, w), {
+				weights: w,
+				totalBudgetMs: BUDGET_MS,
+				innerBudgetMs: INNER_MS,
+				plateauMs: PLATEAU_MS,
+				seed,
+			});
+			const metrics = computeBenchMetrics(state, ils.bestBreakdown);
+			runs.push(metrics);
+			perSeed.push({
+				seed,
+				unplaced: metrics.breakdown.unplaced,
+				no_free: metrics.breakdown.no_free,
+				teacherGaps: metrics.teacher.gapsTotal,
+				iterPerSec: Math.round(ils.totalIterations / (ils.tElapsedMs / 1000)),
+			});
+		}
+		const agg = aggregateBench(runs);
+		// eslint-disable-next-line no-console
+		console.log('BENCH-COUPLED per-seed:', JSON.stringify(perSeed, null, 2));
+		// Vollständigkeits- UND Klassen-Invariante — beides Pflicht auf
+		// lösbaren Daten. (VS-NaSt ohne Stufen wird von buildState geskippt
+		// und zählt nicht als Unit — beeinflusst unplaced nicht.)
+		expect(agg.median['breakdown.unplaced'], 'median(unplaced) muss 0 sein — Daten sind lösbar').toBe(0);
+		expect(agg.median['breakdown.no_free'], 'median(no_free) muss 0 sein').toBe(0);
+		expect(agg.median['breakdown.min_daily'], 'median(min_daily) muss 0 sein').toBe(0);
+	}, 120_000);
+
 	// Runde 2, Schritt 1: Diversify-Destroy-Strategien im Vergleich.
 	// Pro Seed: Basis-Plan (construct + 8s Sync-ILS), dann von IDENTISCHER
 	// Basis 3 Diversify-Zyklen à 2.5s — einmal 'random', einmal

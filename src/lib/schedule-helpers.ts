@@ -46,10 +46,26 @@ export function placedCountForSpec(doc: ScheduleDoc, specId: string): number {
 	return slots.size;
 }
 
+/**
+ * Audit A3 — DIE kanonische Slot-Zahl einer Spec: so viele volle
+ * Wochen-Slots belegt der Solver für sie (units.ts resolveBlocks nutzt
+ * dieselbe Formel). Halbzahlige counts (BBO/EH 0.5/1.5 aus Sokrates)
+ * werden AUFGERUNDET — eine 0.5-Stunde belegt einen vollen Slot; die
+ * G/U-Halbierung modelliert man über `weekPattern` (even/odd), nicht
+ * über den count (die Diagnose warnt bei 0.5 ohne G/U-Pattern).
+ *
+ * Vor diesem Helper rechneten Sidebar/Diagnose mit dem ROHEN count —
+ * eine 1.5er-Spec zeigte ewig „×0.5 ungeplant", eine 0.5er-Spec
+ * verschwand aus der Liste obwohl der Solver 1 vollen Slot belegt.
+ */
+export function effectiveSlotCount(spec: Pick<LessonSpec, 'count'>): number {
+	return Math.max(1, Math.round(spec.count));
+}
+
 /** Specs that still need to be placed (count not fully reached). */
 export function unplacedSpecs(doc: ScheduleDoc): { spec: LessonSpec; remaining: number }[] {
 	return doc.specs
-		.map(s => ({ spec: s, remaining: s.count - placedCountForSpec(doc, s.id) }))
+		.map(s => ({ spec: s, remaining: effectiveSlotCount(s) - placedCountForSpec(doc, s.id) }))
 		.filter(x => x.remaining > 0);
 }
 

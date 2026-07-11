@@ -8,6 +8,7 @@
 
 import type { ScheduleDoc, GradeLevel } from '../types';
 import { DAYS, PERIODS } from '../types';
+import { effectiveSlotCount } from '../schedule-helpers';
 
 export interface Hint {
 	severity: 'error' | 'warn';
@@ -27,11 +28,20 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 		if (available <= 0) continue; // teacher has no slots at all — handled below
 		// Sum hours assigned to this teacher across includeInSolver specs.
 		// A team-teaching spec counts the hours for EVERY team member.
+		// Audit A3: Kopplungs-Dedup pro Lehrer — zwei gekoppelte Specs
+		// DESSELBEN Lehrers teilen real einen Slot (z. B. even/odd-Paar);
+		// vorher wurde 2× count gezählt → falsche „überlastet"-Errors,
+		// die valide Pläne als UNSAT abstempelten.
 		let load = 0;
+		const seenTeacherCouplings = new Set<string>();
 		for (const spec of doc.specs) {
 			if (spec.includeInSolver === false) continue;
 			if (!spec.teachers.includes(teacher.id)) continue;
-			load += Math.round(spec.count);
+			if (spec.couplingId) {
+				if (seenTeacherCouplings.has(spec.couplingId)) continue;
+				seenTeacherCouplings.add(spec.couplingId);
+			}
+			load += effectiveSlotCount(spec);
 		}
 		if (load > available) {
 			hints.push({
@@ -73,7 +83,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			seenCouplings.add(spec.couplingId);
 		}
 		for (const g of spec.grades) {
-			gradeLoad.set(g, (gradeLoad.get(g) ?? 0) + Math.round(spec.count));
+			gradeLoad.set(g, (gradeLoad.get(g) ?? 0) + effectiveSlotCount(spec));
 		}
 	}
 	for (const [grade, load] of gradeLoad) {
@@ -236,7 +246,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			if (spec.includeInSolver === false) continue;
 			if ((spec.afternoonAllowed ?? 'allowed') !== 'never') continue;
 			if (!spec.teachers.includes(teacher.id)) continue;
-			neverLoad += Math.round(spec.count);
+			neverLoad += effectiveSlotCount(spec);
 		}
 		if (neverLoad > 0 && neverLoad > morningAvailable) {
 			hints.push({
@@ -259,7 +269,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			seenCouplingsAft.add(spec.couplingId);
 		}
 		for (const g of spec.grades) {
-			neverLoadByGrade.set(g, (neverLoadByGrade.get(g) ?? 0) + Math.round(spec.count));
+			neverLoadByGrade.set(g, (neverLoadByGrade.get(g) ?? 0) + effectiveSlotCount(spec));
 		}
 	}
 	for (const [grade, load] of neverLoadByGrade) {
@@ -305,7 +315,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			if (spec.includeInSolver === false) continue;
 			if ((spec.afternoonAllowed ?? 'allowed') !== 'must') continue;
 			if (!spec.teachers.includes(teacher.id)) continue;
-			mustLoad += Math.round(spec.count);
+			mustLoad += effectiveSlotCount(spec);
 		}
 		if (mustLoad > 0 && mustLoad > aftAvailable) {
 			hints.push({
@@ -327,7 +337,7 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			seenCouplingsMust.add(spec.couplingId);
 		}
 		for (const g of spec.grades) {
-			mustLoadByGrade.set(g, (mustLoadByGrade.get(g) ?? 0) + Math.round(spec.count));
+			mustLoadByGrade.set(g, (mustLoadByGrade.get(g) ?? 0) + effectiveSlotCount(spec));
 		}
 	}
 	for (const [grade, load] of mustLoadByGrade) {
@@ -355,6 +365,59 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 			severity: 'warn',
 			message: `Pin auf ${p.day} ${p.period}. Stunde verletzt H11 ("Pflicht-Nachmittag", ${spec.subject}). Beim Solver-Lauf wird der Pin verworfen.`
 		});
+	}
+
+	// 8) Audit A3 — Halbzahlige Stunden + Kopplungs-Konsistenz.
+
+	// 8a) Halbzahliger count ohne G/U-Wochen-Pattern: Sokrates exportiert
+	// BBO/EH als 0.5/1.5 (Wochen-Durchschnitt). Der Solver rundet auf volle
+	// Slots AUF (effectiveSlotCount) — gemeint ist aber fast immer eine
+	// G/U-Wochen-Stunde. Ohne Pattern belegt die Spec JEDE Woche den Slot.
+	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
+		if (spec.count % 1 === 0) continue;
+		if (spec.weekPattern !== 'every') continue;
+		hints.push({
+			severity: 'warn',
+			message: `Lehreinheit ${spec.subject} (${spec.classes.join('+')}) hat ${String(spec.count).replace('.', ',')} Wochenstunden OHNE G/U-Wochen-Muster — der Solver plant ${effectiveSlotCount(spec)} volle Stunde(n) jede Woche. Gemeint ist vermutlich eine G- oder U-Wochen-Stunde: im Reiter Lehreinheiten das Wochen-Muster setzen.`
+		});
+	}
+
+	// 8b/8c) Kopplungs-Gruppen einsammeln und auf Konsistenz prüfen.
+	const couplingGroups = new Map<string, typeof doc.specs>();
+	for (const spec of doc.specs) {
+		if (spec.includeInSolver === false) continue;
+		if (!spec.couplingId) continue;
+		const list = couplingGroups.get(spec.couplingId) ?? [];
+		list.push(spec);
+		couplingGroups.set(spec.couplingId, list);
+	}
+	for (const [, group] of couplingGroups) {
+		if (group.length < 2) continue;
+		// 8b) Ungleiche Slot-Zahlen: nur min(counts) Wochenstunden laufen
+		// wirklich gekoppelt; der Überhang der größeren Spec läuft solo.
+		const counts = group.map(s => effectiveSlotCount(s));
+		const minC = Math.min(...counts);
+		const maxC = Math.max(...counts);
+		if (minC !== maxC) {
+			const desc = group.map(s => `${s.subject} ${effectiveSlotCount(s)}h`).join(' + ');
+			hints.push({
+				severity: 'warn',
+				message: `Kopplung ${desc}: ungleiche Stundenzahlen — nur ${minC} Stunde(n) laufen wirklich parallel, die restlichen ${maxC - minC} der größeren Lehreinheit werden UNGEKOPPELT geplant. Falls unbeabsichtigt, Stundenzahlen angleichen.`
+			});
+		}
+		// 8c) Widersprüchliche Nachmittag-Politik: 'never' + 'must' in einer
+		// Gruppe ist unerfüllbar — units.ts lässt 'never' gewinnen, die
+		// 'must'-Vorgabe wird ignoriert. (Der Kommentar dort verwies bisher
+		// auf eine Diagnose-Warnung, die es nicht gab — jetzt gibt es sie.)
+		const hasNever = group.some(s => (s.afternoonAllowed ?? 'allowed') === 'never');
+		const hasMust = group.some(s => (s.afternoonAllowed ?? 'allowed') === 'must');
+		if (hasNever && hasMust) {
+			hints.push({
+				severity: 'warn',
+				message: `Kopplung ${group.map(s => s.subject).join(' + ')}: eine Lehreinheit verbietet den Nachmittag ('nie'), eine andere erzwingt ihn ('Pflicht') — unerfüllbar. Der Solver plant die Gruppe am Vormittag ('nie' gewinnt), die Pflicht-Vorgabe wird ignoriert.`
+			});
+		}
 	}
 
 	// 7) Pinned-Slot-Verfügbarkeitskonflikt: Spec gepinnt aber Lehrer ist gesperrt.

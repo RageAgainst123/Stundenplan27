@@ -60,6 +60,27 @@ Eine **Coupling** aus zwei Specs S1+S2 (`couplingId: 'X'`, je `count=1, grades=[
 - 1 Coupling-Unit hält Instances aus **beiden** Specs
 - Decode → 4 `PlacedLesson` (2 Specs × 2 Stufen, alle im selben Slot)
 
+### Halbzahlige Stunden (0.5 / 1.5) — Aufrundung auf volle Slots (Audit A3)
+
+Sokrates exportiert BBO/EH mit `count: 0.5` bzw. `1.5` (halbe Wochenstunde =
+14-tägig). Der Solver kennt **keine halben Slots** — die kanonische Slot-Zahl
+einer Spec ist überall:
+
+```ts
+effectiveSlotCount(spec) === Math.max(1, Math.round(spec.count))
+// 0.5 → 1 Slot, 1 → 1, 1.5 → 2, 2 → 2
+```
+
+Der Helper lebt in `schedule-helpers.ts` und wird von `units.ts`
+(`resolveBlocks`), `unplacedSpecs` (Sidebar) und `diagnose.ts` (Lasten,
+UNSAT-Vorhersage) gemeinsam genutzt — vorher rechneten Sidebar/Diagnose mit
+dem rohen `count` und liefen dem Solver hinterher („×0.5 ungeplant" für immer).
+
+Die 14-Tägigkeit modelliert man über `weekPattern: 'even' | 'odd'`, **nicht**
+über den halben count — die Diagnose warnt bei halbzahligem `count` ohne
+G/U-Muster. Zwei G/U-Zwillinge koppelt man per `couplingId`, dann teilen sie
+sich den Slot (und die Diagnose dedupliziert die Lehrer-Last entsprechend).
+
 ### Team-Teaching mit Segmenten (Phase 17)
 
 Eine `LessonSpec` mit `teachingSegments` wird **vor** der Unit-Expansion in N

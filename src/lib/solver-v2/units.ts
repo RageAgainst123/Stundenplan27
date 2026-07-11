@@ -9,6 +9,7 @@
 // Construction and Local Search treat each Unit as an atomic placement.
 
 import { GRADES, type GradeLevel, type LessonSpec, type ScheduleDoc, type WeekPattern } from '../types';
+import { effectiveSlotCount } from '../schedule-helpers';
 import {
 	DAY_INDEX,
 	DAYS_BY_INDEX,
@@ -24,7 +25,9 @@ import { findHardViolations, wouldViolate } from './hardCheck';
 
 /** Resolve `spec.blocks` to a concrete sequence of block sizes. */
 function resolveBlocks(spec: LessonSpec): number[] {
-	const count = Math.max(1, Math.round(spec.count));
+	// Audit A3: kanonische Slot-Zahl — identische Formel überall
+	// (Sidebar/Diagnose richten sich nach dieser Solver-Wahrheit).
+	const count = effectiveSlotCount(spec);
 	if (spec.blocks && spec.blocks.length > 0) {
 		// Validate sum, fall back to all-ones on mismatch
 		const sum = spec.blocks.reduce((a, b) => a + b, 0);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { placementsAt, placedCountForSpec, checkPlacementConflict } from './schedule-helpers';
+import { placementsAt, placedCountForSpec, checkPlacementConflict, effectiveSlotCount, unplacedSpecs } from './schedule-helpers';
 import { emptyDoc, type LessonSpec, type Subject, type Teacher } from './types';
 
 function teacher(id: string, name: string, unavailable: { day: 'Mo'|'Di'|'Mi'|'Do'|'Fr'; period: 1|2|3|4|5|6|7|8 }[] = []): Teacher {
@@ -202,5 +202,47 @@ describe('checkPlacementConflict — Solver-Parität (Audit A1c)', () => {
 		// gehört NICHT zum bewegten Segment → kein Konflikt.
 		const conflict = checkPlacementConflict(doc, team, 'Mo', 1, { specId: 'team', day: 'Di', period: 2 });
 		expect(conflict.hasConflict).toBe(false);
+	});
+});
+
+describe('effectiveSlotCount + unplacedSpecs — halbzahlige Stunden (Audit A3)', () => {
+	it('rundet wie der Solver: 0.5→1, 1.5→2, 2→2', () => {
+		expect(effectiveSlotCount({ count: 0.5 })).toBe(1);
+		expect(effectiveSlotCount({ count: 1 })).toBe(1);
+		expect(effectiveSlotCount({ count: 1.5 })).toBe(2);
+		expect(effectiveSlotCount({ count: 2 })).toBe(2);
+		// Defensive Untergrenze: nie 0 Slots.
+		expect(effectiveSlotCount({ count: 0 })).toBe(1);
+	});
+
+	it('0.5er-Spec ist nach EINER Platzierung fertig (kein ewiges „×0.5 ungeplant")', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BBO'));
+		doc.specs.push({ ...spec('s', 'BBO', 't', [7], 0.5), weekPattern: 'odd' });
+		// Ungeplant: remaining = 1 voller Slot (nicht 0.5).
+		let open = unplacedSpecs(doc);
+		expect(open).toHaveLength(1);
+		expect(open[0].remaining).toBe(1);
+		// Nach einer Platzierung: raus aus der Liste. Vorher blieb sie mit
+		// remaining=-0.5 zwar draußen, aber eine 0.5er-Spec OHNE Platzierung
+		// zeigte „×0.5" — jetzt konsistent ganzzahlig.
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 7, pinned: false });
+		open = unplacedSpecs(doc);
+		expect(open).toHaveLength(0);
+	});
+
+	it('1.5er-Spec braucht ZWEI Slots (Solver-Aufrundung), nicht 1.5', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('EH'));
+		doc.specs.push({ ...spec('s', 'EH', 't', [8], 1.5), weekPattern: 'even' });
+		doc.placed.push({ specId: 's', day: 'Mo', period: 1, grade: 8, pinned: false });
+		// Eine Platzierung reicht NICHT: remaining = 2 - 1 = 1 (vorher 0.5).
+		let open = unplacedSpecs(doc);
+		expect(open).toHaveLength(1);
+		expect(open[0].remaining).toBe(1);
+		doc.placed.push({ specId: 's', day: 'Di', period: 2, grade: 8, pinned: false });
+		expect(unplacedSpecs(doc)).toHaveLength(0);
 	});
 });

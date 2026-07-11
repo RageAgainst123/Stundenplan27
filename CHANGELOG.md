@@ -79,6 +79,62 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Audit-Paket A1–A3 — Korrektheit, Datenintegrität, Halbstunden
+Komplett-Audit der Codebase (3 parallele Tiefen-Audits, alle Befunde mit
+Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.
+
+**A1 — Kritische Fixes:**
+- Zwei `snapshots-changed`-Listener-Leaks (GenerateButton, WeekView):
+  Registrierung jetzt im `$effect` mit Cleanup — vorher blieb pro
+  Tab-Besuch ein toter Listener auf zerstörten Instanzen zurück.
+- Auto-Relax (Phase 3) verglich Scores über zwei Gewichts-Frames und
+  übernahm das relaxed-Ergebnis bedingungslos. Jetzt expliziter
+  Best-Guard im selben Frame (sonst Revert auf den Phase-2-Stand) und
+  Auto-Snapshot-Trigger setzt bei `noFreeRelaxed` aus (kein spurious
+  Snapshot durch Frame-Sprung).
+- Drag&Drop-Konfliktprüfung auf Solver-Parität gebracht: Doppellage
+  (zweite Wochenstunde derselben Einheit am selben Slot) ist jetzt auch
+  per Hand verboten — inkl. beim Move (quellgenauer Exclude via
+  `MoveSource` statt pauschalem Same-Spec-Skip). Team-Teaching zählt die
+  EFFEKTIVEN Segment-Lehrer statt des vollen Spec-Teams (keine
+  False-Positives mehr). Dabei entdeckt & gefixt: beim Verschieben einer
+  Segment-Stunde gingen ihre `teachers` verloren (ScheduleCell rettet
+  sie jetzt beim Move).
+
+**A2 — Datenintegrität:**
+- JSON-Backup-Import validiert jetzt die Struktur VOR der Migration
+  (`validateDocStructure`) — teil-kaputte Dateien brechen mit klarer
+  Meldung ab statt den Store zu überschreiben; Alt-Backups (v1/v3)
+  bleiben ladbar.
+- Auto-Save meldet Fehlschläge: rotes Banner „Speichern fehlgeschlagen"
+  mit Retry-Button statt stillen Quota-Schluckens (`saveFailed`-Flag im
+  Store; der `$effect.root`-Mechanismus selbst blieb unangetastet).
+- Still verworfene Pins/Hot-Start-Placements (Spec gelöscht, count
+  gesunken, kein Unit-Match) landen jetzt mit Begründung in der
+  `droppedPins`-Meldung im Solver-Log.
+- Migrations-Reihenfolge (`teacherMiddayBreak` vs. Legacy-Delete) und
+  Smart-Merge-Teleskop-Invariante (Σ Segment-Stunden === count) per
+  Tests abgesichert.
+
+**A3 — Halbzahlige Stunden (0.5/1.5) konsistent:**
+- Neuer kanonischer Helper `effectiveSlotCount(spec)` =
+  `max(1, round(count))` in `schedule-helpers.ts` — exakt die
+  Solver-Formel aus `units.ts`, jetzt von Sidebar (`unplacedSpecs`),
+  Diagnose und Legacy-blocks-Migration gemeinsam genutzt. Vorher zeigte
+  die Sidebar für BBO/EH ewig „×0.5 ungeplant" bzw. ließ halb platzierte
+  Specs verschwinden, und die Diagnose unterschätzte Lasten.
+- Diagnose-Fixes: Lehrer-Last dedupliziert Kopplungen jetzt wie die
+  Stufen-Last (gekoppelte Specs desselben Lehrers zählen einmal);
+  3 neue Warnungen: halbzahliger count ohne G/U-Wochen-Muster,
+  Kopplung mit ungleichen Stundenzahlen (Überhang läuft ungekoppelt),
+  Kopplung mischt `afternoonAllowed` never+must (unplatzierbar).
+- Neuer Bench-Fall **coupled-solvable** (Liste.csv + BSP/REL-Kopplungen,
+  strukturell lösbar): Median-Gate `unplaced=0` UND `no_free=0` UND
+  `min_daily=0` — bestanden (3/5 Seeds vollständig platziert in 10 s,
+  Details `docs/bench-baseline.json`). Aufrundungs-Verhalten in
+  MODEL.md §1 dokumentiert.
+- 370 Tests grün (vorher 347).
+
 ### Plan-Import + Absturz-Härtung
 User-Anlass: Preview-Server abgestürzt, nach Neustart waren die
 Snapshots weg — einziges Überbleibsel war eine Plan-Export-Datei.

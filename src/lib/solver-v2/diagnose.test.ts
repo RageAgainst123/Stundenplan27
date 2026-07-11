@@ -14,7 +14,7 @@ function spec(id: string, sub: string, t: string, grades: number[], count: numbe
 	return {
 		id, subject: sub, teachers: [t], classes: ['1a'], grades: grades as any,
 		weekPattern: 'every', count,
-		blocks: 'blocks' in opts ? opts.blocks : Array(count).fill(1),
+		blocks: 'blocks' in opts ? opts.blocks : Array(Math.max(1, Math.round(count))).fill(1),
 		includeInSolver: opts.includeInSolver ?? true,
 		groupLabel: opts.groupLabel,
 		couplingId: opts.couplingId,
@@ -282,5 +282,80 @@ describe('diagnose — Phase 13 H10 bottleneck', () => {
 		const hints = diagnose(doc);
 		const error = hints.find(h => h.severity === 'error' && h.message.includes('Hauptfach-Stunden'));
 		expect(error).toBeFalsy();
+	});
+});
+
+describe('diagnose — Halbstunden & Kopplungs-Konsistenz (Audit A3)', () => {
+	it('warnt bei halbzahligem count ohne G/U-Wochen-Muster', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BBO'));
+		doc.specs.push({ ...spec('s1', 'BBO', 't', [7], 0.5), blocks: undefined });
+		const hints = diagnose(doc);
+		const w = hints.find(h => h.message.includes('OHNE G/U-Wochen-Muster'));
+		expect(w).toBeTruthy();
+		expect(w!.severity).toBe('warn');
+		expect(w!.message).toContain('0,5');
+	});
+
+	it('warnt NICHT bei halbzahligem count MIT G/U-Muster oder bei Ganzzahl', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('BBO'), subject('M'));
+		doc.specs.push({ ...spec('s1', 'BBO', 't', [7], 0.5), blocks: undefined, weekPattern: 'odd' });
+		doc.specs.push({ ...spec('s2', 'M', 't', [5], 4) });
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.message.includes('OHNE G/U-Wochen-Muster'))).toBe(false);
+	});
+
+	it('warnt bei Kopplung mit ungleichen Stundenzahlen', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'A'), teacher('t2', 'B'));
+		doc.subjects.push(subject('BSP'));
+		doc.specs.push({ ...spec('s1', 'BSP', 't1', [5], 3), couplingId: 'c1' });
+		doc.specs.push({ ...spec('s2', 'BSP', 't2', [7], 2), couplingId: 'c1' });
+		const hints = diagnose(doc);
+		const w = hints.find(h => h.message.includes('ungleiche Stundenzahlen'));
+		expect(w).toBeTruthy();
+		expect(w!.message).toMatch(/nur 2 Stunde/);
+	});
+
+	it('warnt bei Kopplung mit never+must-Widerspruch', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'A'), teacher('t2', 'B'));
+		doc.subjects.push(subject('M'), subject('GZ'));
+		doc.specs.push({ ...spec('s1', 'M', 't1', [5], 2), couplingId: 'c1', afternoonAllowed: 'never' });
+		doc.specs.push({ ...spec('s2', 'GZ', 't2', [7], 2), couplingId: 'c1', afternoonAllowed: 'must' });
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.message.includes('unerfüllbar'))).toBe(true);
+	});
+
+	it('Lehrer-Last dedupliziert gekoppelte Specs DESSELBEN Lehrers', () => {
+		const doc = emptyDoc();
+		// Lehrer nur Fr verfügbar (8 Slots). Zwei gekoppelte 6h-Specs desselben
+		// Lehrers = real 6 Slots (parallel) → KEIN Overload-Error.
+		// Vorher: 12 > 8 → falscher Error.
+		doc.teachers.push(teacher('t1', 'GU-Lehrer', [
+			...['Mo', 'Di', 'Mi', 'Do'].flatMap(d =>
+				[1, 2, 3, 4, 5, 6, 7, 8].map(p => ({ day: d as any, period: p as any }))
+			)
+		]));
+		doc.subjects.push(subject('EH'));
+		doc.specs.push({ ...spec('s1', 'EH', 't1', [7], 6), couplingId: 'gu', weekPattern: 'even' });
+		doc.specs.push({ ...spec('s2', 'EH', 't1', [8], 6), couplingId: 'gu', weekPattern: 'odd' });
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.severity === 'error' && h.message.includes('GU-Lehrer'))).toBe(false);
+	});
+
+	it('effectiveSlotCount-Konsistenz: 0.5er-Spec zählt als 1 voller Slot in der Stufen-Last', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push(subject('X'));
+		// 41 Specs à 0.5h auf Stufe 5: roh 20.5h, effektiv 41 Slots > 40 → Error.
+		for (let i = 0; i < 41; i++) {
+			doc.specs.push({ ...spec(`s${i}`, 'X', 't', [5], 0.5), blocks: undefined, weekPattern: 'odd' });
+		}
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.severity === 'error' && h.message.includes('Schulstufe 5'))).toBe(true);
 	});
 });

@@ -314,6 +314,42 @@
         "Schritt 6 (Parallel-Pool, 4 Worker auf 8 Kernen): ~44 Pool-Versuche/s statt ~10-20 (~4x). Qualitäts-Effekt real: Score 8836 nach 5s Pool + 3s ILS — die Single-Worker-Messung davor stand bei ~10230 nach 20s. Bessere Startlösungen tragen durch die ganze Optimierung.",
         "OFFEN für Runde 3: Diversify-Strategien-Wiedervorlage im Browser-Bench (Varianz-Problem braucht 10+ Läufe/Arm — mit 4x Pool-Durchsatz und freiem UI-Thread jetzt praktikabler); Island-ILS über mehrere Worker mit Best-Austausch."
       ]
+    },
+    {
+      "label": "audit-a3-halbstunden-diagnose",
+      "commit": "(siehe git log: fix(model) halbzahlige Stunden / Audit A3)",
+      "date": "2026-07-11",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "weightedTotal": "414820 (unplaced=4 × 100000 dominiert; Rest ~14820 vergleichbar mit r2-Ständen)",
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.main_aft": 0,
+          "breakdown.unplaced": 4,
+          "breakdown.compact_teacher": 15,
+          "breakdown.main_run": 3,
+          "breakdown.teacher_gap_fairness": 31,
+          "breakdown.teacher_days_present": 13,
+          "teacher.gapsTotal": 13,
+          "teacher.gapsMaxPerTeacher": 4,
+          "teacher.daysPresentTotal": 36,
+          "teacher.lateStartsTotal": 84,
+          "teacher.miniDays": 3
+        }
+      },
+      "coupled_solvable": {
+        "perSeed_unplaced": [0, 1, 1, 0, 0],
+        "perSeed_no_free": [0, 0, 0, 0, 0],
+        "perSeed_teacherGaps": [12, 10, 8, 8, 9],
+        "iterPerSec": "7192-10101",
+        "median": { "unplaced": 0, "no_free": 0, "min_daily": 0 }
+      },
+      "_befund": [
+        "NEUER Bench-Fall 'coupled-solvable': Liste.csv + BSP/REL-Kopplungen (wie Diversify-Fall) — im Gegensatz zur Roh-Fixture strukturell LÖSBAR. Median-Assertions unplaced=0 UND no_free=0 UND min_daily=0 sind das Qualitäts-Gate, das die überlastete Roh-Fixture nicht liefern kann (dort ist unplaced=4 der strukturelle Boden seit dem H8-Doppellage-Fix).",
+        "KONTEXT Roh-Fixture: unplaced=4 im Median ist KEIN Regressionssignal — vor dem H8-Fix 'löste' der Solver die Überlast per Doppellage. gapsTotal 13 vs 9 (r2-s3) erklärt sich durch die 4 unplatzierten Stunden + unplaced-dominierte Suche; Klassen-Invarianten no_free=0/min_daily=0/main_aft=0 halten in allen 5 Seeds.",
+        "A3-Änderungen selbst sind score-neutral: effectiveSlotCount ist exakt die bisherige units.ts-Formel (Math.max(1, Math.round(count))), nur zentralisiert; Diagnose-Änderungen (Lehrer-Coupling-Dedup, 3 neue warn-Hints) betreffen nur den Pre-Flight, nicht die Suche."
+      ]
     }
   ]
 }

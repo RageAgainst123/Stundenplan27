@@ -66,7 +66,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 			delete (s as unknown as Record<string, unknown>).pairedWith;
 		}
 		if (Array.isArray(s.blocks) && s.blocks.length > 0) {
-			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.round(s.count);
+			// Audit A3: dieselbe Slot-Formel wie der Solver (effectiveSlotCount:
+			// max(1, round)) — bei sehr kleinen counts (< 0.5) lieferte das
+			// nackte Math.round 0 und die Legacy-Erkennung matchte nie; solche
+			// Specs behielten ein explizites [1] statt Auto-Modus.
+			const isLegacyAllSingles = s.blocks.every(n => n === 1) && s.blocks.length === Math.max(1, Math.round(s.count));
 			if (isLegacyAllSingles) {
 				// Legacy default — was implicit, now means "auto mode"
 				s.blocks = undefined;
