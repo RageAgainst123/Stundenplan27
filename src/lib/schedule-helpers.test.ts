@@ -117,3 +117,90 @@ describe('checkPlacementConflict — grade-aware (Phase 8)', () => {
 		expect(conflict.reasons.some(r => r.includes('Schulstufe 5'))).toBe(true);
 	});
 });
+
+describe('checkPlacementConflict — Solver-Parität (Audit A1c)', () => {
+	it('Doppellage verboten: zweite Wochenstunde derselben Spec am selben Slot', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'));
+		const sM = spec('sM', 'M', 't1', [5], 2);
+		doc.specs.push(sM);
+		doc.placed.push({ specId: 'sM', day: 'Mo', period: 1, grade: 5, pinned: true });
+		// Zweite Occurrence auf denselben Slot ziehen → Konflikt (H8-Gegenstück).
+		const conflict = checkPlacementConflict(doc, sM, 'Mo', 1);
+		expect(conflict.hasConflict).toBe(true);
+		expect(conflict.reasons.some(r => r.includes('liegt hier bereits'))).toBe(true);
+	});
+
+	it('Doppellage auch beim MOVE erkannt (Quell-Exclude ist quellgenau)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'));
+		const sM = spec('sM', 'M', 't1', [5], 2);
+		doc.specs.push(sM);
+		doc.placed.push({ specId: 'sM', day: 'Mo', period: 1, grade: 5, pinned: false });
+		doc.placed.push({ specId: 'sM', day: 'Di', period: 3, grade: 5, pinned: false });
+		// Stunde von Di P3 auf Mo P1 ziehen — dort liegt die ANDERE Occurrence.
+		// Vorher wurde sie durch den pauschalen Same-Spec-Exclude übersehen.
+		const conflict = checkPlacementConflict(doc, sM, 'Mo', 1, { specId: 'sM', day: 'Di', period: 3 });
+		expect(conflict.hasConflict).toBe(true);
+		// Drop zurück auf die EIGENE Zelle bleibt konfliktfrei.
+		const selfDrop = checkPlacementConflict(doc, sM, 'Di', 3, { specId: 'sM', day: 'Di', period: 3 });
+		expect(selfDrop.hasConflict).toBe(false);
+	});
+
+	it('Kopplungs-Parallelität (verschiedene Specs, gleiche couplingId) bleibt erlaubt', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'), teacher('t2', 'L2'));
+		doc.subjects.push(subject('BSP'));
+		const a = spec('a', 'BSP', 't1', [5], 1, { couplingId: 'c1' });
+		const b = spec('b', 'BSP', 't2', [5], 1, { couplingId: 'c1' });
+		doc.specs.push(a, b);
+		doc.placed.push({ specId: 'a', day: 'Mo', period: 1, grade: 5, pinned: true });
+		expect(checkPlacementConflict(doc, b, 'Mo', 1).hasConflict).toBe(false);
+	});
+
+	it('Team-Teaching: liegende Segment-Stunde zählt nur mit EFFEKTIVEM Team', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'A'), teacher('tB', 'B'));
+		doc.subjects.push(subject('M'), subject('D'));
+		// Team-Spec [A,B] mit Segmenten; am Slot liegt ein Segment NUR mit A.
+		const team: LessonSpec = {
+			...spec('team', 'M', 'tA', [5], 2),
+			teachers: ['tA', 'tB'],
+			teachingSegments: [
+				{ hours: 1, teachers: ['tA'] },
+				{ hours: 1, teachers: ['tA', 'tB'] },
+			],
+		};
+		const sB = spec('sB', 'D', 'tB', [6], 1);
+		doc.specs.push(team, sB);
+		doc.placed.push({ specId: 'team', day: 'Mo', period: 1, grade: 5, pinned: false, teachers: ['tA'] });
+		// B ist im Slot NICHT anwesend → sB (Lehrer B, andere Stufe) darf hier hin.
+		// Vorher: False-Positive über das volle Spec-Team [A,B].
+		expect(checkPlacementConflict(doc, sB, 'Mo', 1).hasConflict).toBe(false);
+	});
+
+	it('Team-Teaching: bewegte Segment-Stunde prüft mit ihrem Quell-Team', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('tA', 'A'), teacher('tB', 'B'), teacher('tC', 'C'));
+		doc.subjects.push(subject('M'), subject('D'));
+		const team: LessonSpec = {
+			...spec('team', 'M', 'tA', [5], 2),
+			teachers: ['tA', 'tB'],
+			teachingSegments: [
+				{ hours: 1, teachers: ['tA'] },
+				{ hours: 1, teachers: ['tA', 'tB'] },
+			],
+		};
+		const sB = spec('sB', 'D', 'tB', [6], 1);
+		doc.specs.push(team, sB);
+		// Nur-A-Segment liegt auf Di P2; B unterrichtet Mo P1 in Stufe 6.
+		doc.placed.push({ specId: 'team', day: 'Di', period: 2, grade: 5, pinned: false, teachers: ['tA'] });
+		doc.placed.push({ specId: 'sB', day: 'Mo', period: 1, grade: 6, pinned: false });
+		// Das Nur-A-Segment nach Mo P1 ziehen: B ist dort beschäftigt, aber B
+		// gehört NICHT zum bewegten Segment → kein Konflikt.
+		const conflict = checkPlacementConflict(doc, team, 'Mo', 1, { specId: 'team', day: 'Di', period: 2 });
+		expect(conflict.hasConflict).toBe(false);
+	});
+});

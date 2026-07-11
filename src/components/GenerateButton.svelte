@@ -48,9 +48,13 @@
 		snapshots = loadSnapshots();
 	}
 
-	if (typeof window !== 'undefined') {
+	// Audit-Fix A1a: Listener an den Komponenten-Lifecycle binden. Die alte
+	// Setup-Registrierung ohne Cleanup leakte pro Tab-Wechsel einen toten
+	// Listener (ScheduleGrid/GenerateButton werden per {#if} unmountet).
+	$effect(() => {
 		window.addEventListener('snapshots-changed', refreshSnapshots);
-	}
+		return () => window.removeEventListener('snapshots-changed', refreshSnapshots);
+	});
 
 	function notifySnapshotsChanged(): void {
 		if (typeof window !== 'undefined') {
@@ -352,8 +356,13 @@
 				// Phase 15: Auto-Snapshot bei großem Score-Improvement.
 				// Trigger nur wenn Score VOR diesem Lauf bekannt war und neuer
 				// Score >= 5% besser. Default-Auto-Naming nach Score.
+				// Audit-Fix A1b: NICHT triggern wenn die Auto-Lockerung lief —
+				// der finale Score ist dann im relaxed-Gewichts-Frame gemessen
+				// (no_free ×1 statt ×50) und der Vergleich mit preRunScore
+				// (strict-Frame) würde ein Schein-Improvement melden.
+				const frameSwitched = d.final.relaxation?.noFreeRelaxed === true;
 				const newScore = d.final.penalties?.total;
-				if (typeof newScore === 'number' && preRunScore !== null && preRunScore > 0) {
+				if (!frameSwitched && typeof newScore === 'number' && preRunScore !== null && preRunScore > 0) {
 					const improvement = (preRunScore - newScore) / preRunScore;
 					if (improvement >= AUTO_SNAPSHOT_THRESHOLD) {
 						const count = loadSnapshots().length;

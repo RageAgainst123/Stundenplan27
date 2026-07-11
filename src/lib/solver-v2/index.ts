@@ -807,7 +807,12 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 				const relaxedWeights = defaultWeights(doc, false);
 				weights = relaxedWeights;
 				noFreeRelaxed = true;
+				// Audit-Fix A1b (Frame-Konsistenz): relaxBaseline ist der
+				// Phase-2-Endstand IM RELAXED-FRAME — nur in diesem Frame sind
+				// Vorher/Nachher vergleichbar (strict wiegt no_free/no_p1_start
+				// ×50). Snapshot für den expliziten Best-Guard unten.
 				const relaxBaseline = computeScore(state, relaxedWeights);
+				const preRelaxPlacement = new Int32Array(state.placement);
 				const ils2 = await iteratedLocalSearchAsync(state, relaxBaseline, {
 					weights: relaxedWeights,
 					totalBudgetMs: Math.max(2_000, totalBudget - (Date.now() - tStart)),
@@ -827,7 +832,23 @@ export function startSolve(doc: ScheduleDoc, opts: StartSolveOptions = {}): Solv
 					},
 				});
 				emitLog('stat', `Relax-Phase abgeschlossen: ${ils2.totalIterations} Iter, ${ils2.restartCount} Restarts in ${ils2.tElapsedMs} ms`);
-				bestBreakdown = ils2.bestBreakdown;
+				// Best-Guard im SELBEN Frame (analog Diversify-Revert): das
+				// ILS-Best-Tracking startet zwar vom relaxBaseline und kann
+				// formal nicht schlechter werden — der Guard macht die bisher
+				// nur behauptete Invariante („never lets the score get worse")
+				// explizit und robust gegen künftige ILS-Änderungen.
+				if (ils2.bestBreakdown.total <= relaxBaseline.total) {
+					bestBreakdown = ils2.bestBreakdown;
+					emitLog('stat', `Relax-Vergleich (relaxed-Frame): ${Math.round(relaxBaseline.total)} → ${Math.round(ils2.bestBreakdown.total)}`);
+				} else {
+					state.placement.set(preRelaxPlacement);
+					bestBreakdown = relaxBaseline;
+					emitLog('warn', `Relax-Phase ohne Verbesserung (${Math.round(relaxBaseline.total)} → ${Math.round(ils2.bestBreakdown.total)}) — Phase-2-Stand wiederhergestellt`);
+				}
+				// ACHTUNG Frame-Wechsel: bestBreakdown.total ist ab hier im
+				// relaxed-Frame und NICHT mit Phase-2-/Vorlauf-Scores (strict)
+				// vergleichbar. Konsumenten (Auto-Snapshot in GenerateButton)
+				// erkennen das am relaxation.noFreeRelaxed-Flag.
 			}
 
 			const relaxation = noFreeRelaxed

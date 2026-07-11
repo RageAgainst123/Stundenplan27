@@ -58,25 +58,51 @@ export interface ConflictCheck {
 	reasons: string[];
 }
 
+/** Quell-Slot eines Drag-Moves (die Stunde, die gerade bewegt wird). */
+export interface MoveSource {
+	specId: string;
+	day: Day;
+	period: Period;
+}
+
 /**
  * Would placing `spec` at (day,period) — across ALL its grades — violate any
  * hard constraint given the current `placed` array? When dragging from another
- * cell, pass `excludeSpecAtDayPeriod` (a "specId|day|period" key set) to skip
- * the source placements being moved.
+ * cell, pass `moveSource` (the origin slot) so the lesson being moved doesn't
+ * conflict with itself when dropped back onto its own cell.
+ *
+ * Audit-Fix A1c — Solver-Parität:
+ *  - Doppellage verboten: eine ZWEITE Wochenstunde derselben Lehreinheit am
+ *    selben (Tag, Periode) ist jetzt ein Konflikt (H8-Gegenstück; vorher
+ *    „same spec is fine for repeat" — exakt der im Solver gefixte
+ *    Doppellage-Bug, nur per Hand baubar). Kopplungs-Parallelität
+ *    (VERSCHIEDENE Specs, gleiche couplingId) bleibt erlaubt.
+ *  - Team-Teaching-Segmente: es zählen die EFFEKTIVEN Lehrer — beim Move die
+ *    `teachers` der Quell-Lesson, bei liegenden Lessons deren `p.teachers`
+ *    (Fallback jeweils spec.teachers). Vorher prüfte der Check immer das
+ *    volle Spec-Team → False-Positives gegen abwesende Segment-Lehrer.
  */
 export function checkPlacementConflict(
 	doc: ScheduleDoc,
 	spec: LessonSpec,
 	day: Day,
 	period: Period,
-	excludeSpecAtDayPeriod?: string
+	moveSource?: MoveSource
 ): ConflictCheck {
 	const reasons: string[] = [];
 	const reasonSet = new Set<string>();
 	const push = (r: string) => { if (!reasonSet.has(r)) { reasonSet.add(r); reasons.push(r); } };
 
-	// Teacher unavailable — every team member must be free
-	for (const tid of spec.teachers) {
+	// Effektive Lehrer der zu platzierenden Stunde: beim Move das
+	// Segment-Team der Quell-Lesson, sonst das volle Spec-Team.
+	const movingLesson = moveSource
+		? doc.placed.find(p =>
+			p.specId === moveSource.specId && p.day === moveSource.day && p.period === moveSource.period)
+		: undefined;
+	const movingTeachers = movingLesson?.teachers ?? spec.teachers;
+
+	// Teacher unavailable — every effective team member must be free
+	for (const tid of movingTeachers) {
 		const teacher = doc.teachers.find(t => t.id === tid);
 		if (teacher?.unavailable.some(u => u.day === day && u.period === period)) {
 			push(`Lehrer "${teacher.name}" ist hier nicht verfügbar.`);
@@ -84,6 +110,8 @@ export function checkPlacementConflict(
 	}
 
 	// Phase 13/18: afternoonAllowed-Hard-Constraints (H10/H11) für Drag&Drop.
+	// (Block-Reichweite ist hier bewusst KEIN Thema: doc.placed kennt nur
+	// Einzelperioden — Block-Units dekodiert der Solver zu einzelnen Lessons.)
 	const afternoonStart = Math.max(1, Math.min(8, Math.round(
 		doc.constraints?.noMainSubjectAfternoon?.afternoonStartsAtPeriod ?? 7
 	)));
@@ -98,21 +126,38 @@ export function checkPlacementConflict(
 
 	for (const p of doc.placed) {
 		if (p.day !== day || p.period !== period) continue;
-		// Skip the slot we're moving away from
-		if (excludeSpecAtDayPeriod && p.specId === excludeSpecAtDayPeriod) continue;
+		// Nur die Quell-Lesson SELBST ausschließen (Drop zurück auf die eigene
+		// Zelle). Vorher wurde pauschal jede Lesson derselben Spec am Ziel
+		// übersprungen — dadurch rutschte die Doppellage beim Move durch.
+		if (
+			moveSource &&
+			p.specId === moveSource.specId &&
+			moveSource.day === day &&
+			moveSource.period === period
+		) continue;
 
 		const otherSpec = doc.specs.find(s => s.id === p.specId);
 		if (!otherSpec) continue;
-		if (otherSpec.id === spec.id) continue; // same spec already there is fine for repeat
+
+		// H8-Gegenstück: zweite Wochenstunde derselben Lehreinheit am selben
+		// Slot ist eine Doppellage (im Grid übereinander, in der Sidebar als
+		// „ungeplant" gezählt) — im Solver hart verboten, hier jetzt auch.
+		if (otherSpec.id === spec.id) {
+			push(`Lehreinheit "${spec.subject}" liegt hier bereits — eine zweite Wochenstunde derselben Einheit auf demselben Slot ist nicht erlaubt.`);
+			continue;
+		}
 
 		// Phase 8 v3: coupling check uses couplingId (solver-relevant), NOT
 		// groupLabel (display-only). The legacy pairedWith field was removed
 		// in Phase 12 — couplingId is the single source of truth.
 		const sameGroup = !!(spec.couplingId && otherSpec.couplingId === spec.couplingId);
 
-		// Teacher clash (unless paired/group) — any shared team member counts
+		// Effektive Lehrer der LIEGENDEN Stunde (Segment-Team, Fallback Spec-Team).
+		const otherTeachers = p.teachers ?? otherSpec.teachers;
+
+		// Teacher clash (unless paired/group) — any shared effective member counts
 		if (!sameGroup) {
-			const sharedTeacher = spec.teachers.find(tid => otherSpec.teachers.includes(tid));
+			const sharedTeacher = movingTeachers.find(tid => otherTeachers.includes(tid));
 			if (sharedTeacher) {
 				const tn = doc.teachers.find(t => t.id === sharedTeacher)?.name ?? '?';
 				push(`Lehrer "${tn}" hat hier bereits Unterricht (${otherSpec.subject}).`);

@@ -42,12 +42,24 @@
 		const { specId, fromCell } = state.draggedItem;
 		const spec = store.doc.specs.find(s => s.id === specId);
 		if (!spec) return;
-		const conflict = checkPlacementConflict(store.doc, spec, day, period, fromCell ? specId : undefined);
+		const conflict = checkPlacementConflict(
+			store.doc, spec, day, period,
+			fromCell ? { specId, day: fromCell.day, period: fromCell.period } : undefined
+		);
 		if (conflict.hasConflict) {
 			alert('Kann hier nicht platziert werden:\n' + conflict.reasons.join('\n'));
 			return;
 		}
+		// Audit-Fix A1c: Segment-Team der bewegten Stunde retten. Team-
+		// Teaching-Lessons tragen ihr effektives Slot-Team in `teachers` —
+		// ohne Übernahme würde die Stunde nach dem Move das VOLLE Spec-Team
+		// zeigen (Datenverlust, falsche Konflikt-Prüfung).
+		let movedTeachers: string[] | undefined;
 		if (fromCell) {
+			const source = store.doc.placed.find(
+				p => p.specId === specId && p.day === fromCell.day && p.period === fromCell.period
+			);
+			movedTeachers = source?.teachers ? [...source.teachers] : undefined;
 			store.doc.placed = store.doc.placed.filter(
 				p => !(p.specId === specId && p.day === fromCell.day && p.period === fromCell.period)
 			);
@@ -55,7 +67,10 @@
 		// Phase 8 v2: one placement per grade-column the spec covers.
 		const grades = spec.grades.length > 0 ? spec.grades : [grade];
 		for (const g of grades) {
-			store.doc.placed.push({ specId, day, period, grade: g, pinned: true });
+			store.doc.placed.push({
+				specId, day, period, grade: g, pinned: true,
+				...(movedTeachers ? { teachers: movedTeachers } : {})
+			});
 		}
 	}
 

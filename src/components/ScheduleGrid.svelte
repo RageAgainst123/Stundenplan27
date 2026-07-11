@@ -109,7 +109,10 @@
 		const { specId, fromCell } = state.draggedItem;
 		const spec = store.doc.specs.find(s => s.id === specId);
 		if (!spec) return;
-		const conflict = checkPlacementConflict(store.doc, spec, day, period, fromCell ? specId : undefined);
+		const conflict = checkPlacementConflict(
+			store.doc, spec, day, period,
+			fromCell ? { specId, day: fromCell.day, period: fromCell.period } : undefined
+		);
 		if (conflict.hasConflict) {
 			alert('Kann hier nicht platziert werden:\n' + conflict.reasons.join('\n'));
 			return;

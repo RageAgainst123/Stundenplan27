@@ -29,9 +29,13 @@
 		snapshots = loadSnapshots();
 	}
 
-	if (typeof window !== 'undefined') {
+	// Audit-Fix A1a: Listener an den Komponenten-Lifecycle binden. Die alte
+	// Setup-Registrierung ohne Cleanup leakte pro Tab-Wechsel einen toten
+	// Listener (WeekView wird per {#if} in App.svelte unmountet).
+	$effect(() => {
 		window.addEventListener('snapshots-changed', refreshSnapshots);
-	}
+		return () => window.removeEventListener('snapshots-changed', refreshSnapshots);
+	});
 
 	function placedFor(sourceId: string): PlacedLesson[] {
 		if (sourceId === 'current') {

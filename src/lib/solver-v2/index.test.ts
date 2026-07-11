@@ -168,6 +168,44 @@ describe('strict-noFree auto-relaxation', () => {
 		);
 		expect(done.final.relaxation?.noFreeRelaxed).toBe(false);
 	});
+
+	it('Audit A1b: erzwungene Relax-Phase — Frame-konsistenter Vergleich, kein Score-Regress', async () => {
+		// Unvermeidbare Sandwich-Lücke konstruieren: Lehrer LA kann NUR Mo P1,
+		// Lehrer LB NUR Mo P3 → Stufe 5 hat zwangsweise P2 frei → strict-Phase
+		// endet mit no_free>0 → Auto-Lockerung (Phase 3) muss feuern.
+		const allExcept = (day: 'Mo', period: number) => {
+			const out: { day: any; period: any }[] = [];
+			for (const d of ['Mo', 'Di', 'Mi', 'Do', 'Fr']) {
+				for (let p = 1; p <= 8; p++) {
+					if (d === day && p === period) continue;
+					out.push({ day: d, period: p });
+				}
+			}
+			return out;
+		};
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('la', 'LA', allExcept('Mo', 1) as any));
+		doc.teachers.push(teacher('lb', 'LB', allExcept('Mo', 3) as any));
+		doc.subjects.push(subject('M'));
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('sa', 'M', 'la', [5], 1));
+		doc.specs.push(spec('sb', 'D', 'lb', [5], 1));
+		const session = startSolve(doc, { totalBudgetMs: 3000, innerBudgetMs: 600, seed: 42 });
+		const logs: string[] = [];
+		session.on('log', (e: any) => { if (typeof e.message === 'string') logs.push(e.message); });
+		const done = await new Promise<{ final: { status: string; relaxation?: { noFreeRelaxed: boolean }; penalties?: { no_free: number; total: number } } }>(
+			(resolve) => session.on('done', e => resolve(e as any))
+		);
+		expect(done.final.relaxation?.noFreeRelaxed).toBe(true);
+		// Die Lücke bleibt real bestehen (unvermeidbar) …
+		expect(done.final.penalties!.no_free).toBeGreaterThanOrEqual(1);
+		// … und der Frame-konsistente Vergleich/Guard hat geloggt (einer der
+		// beiden Pfade: Verbesserung übernommen ODER Phase-2-Stand restauriert).
+		expect(logs.some(m =>
+			m.includes('Relax-Vergleich (relaxed-Frame)') ||
+			m.includes('Phase-2-Stand wiederhergestellt')
+		)).toBe(true);
+	}, 15_000);
 });
 
 describe('solve() — Promise-based wrapper', () => {
