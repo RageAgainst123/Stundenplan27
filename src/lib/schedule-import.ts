@@ -13,6 +13,11 @@
 // Kopplungen brauchen keine Sonderbehandlung: der Export enthält pro
 // PlacedLesson (= pro Spec) einen Eintrag — gekoppelte Specs erscheinen
 // als getrennte Einträge am selben Slot und werden einzeln zugeordnet.
+// Die Zuordnung ist GREEDY pro Slot (Audit A4): eine Spec, die an einem
+// (Tag, Periode, Stufe) schon einen Eintrag bekommen hat, steht für
+// weitere Einträge desselben Slots nicht mehr zur Wahl — sonst gewinnt
+// bei Kopplungs-Slots zweimal dieselbe Spec und der zweite Eintrag geht
+// still verloren (bzw. der Fallback bleibt fälschlich ambig).
 
 import type { Day, GradeLevel, LessonSpec, Period, PlacedLesson, ScheduleDoc } from './types';
 import { DAYS, GRADES, PERIODS } from './types';
@@ -133,49 +138,19 @@ export function mapScheduleImport(doc: ScheduleDoc, entries: ImportedPlacement[]
 	}
 
 	const placed: PlacedLesson[] = [];
-	const seen = new Set<string>();
+	// Bereits vergebene (Spec, Slot)-Paare — Grundlage der Greedy-Zuordnung
+	// UND Dedup gegen doppelte Export-Zeilen (eine Doppel-Zeile findet keine
+	// freie Spec mehr und landet transparent in skipped statt still wegzufallen).
+	const taken = new Set<string>();
 	const skipped: ScheduleImportResult['skipped'] = [];
 	let matched = 0;
 
-	for (const e of entries) {
-		// Kandidaten: Fach + Stufe müssen passen, Lehrer-Überlappung > 0
-		// (wenn der Eintrag Lehrer nennt). Bei mehreren Kandidaten gewinnt
-		// die größte Lehrer-Überlappung, dann exakte Team-Größe, dann
-		// Wochen-Pattern-Gleichheit.
-		let best: LessonSpec | null = null;
-		let bestScore = -1;
-		const subjectGradeMatches: LessonSpec[] = [];
-		for (const spec of doc.specs) {
-			if (spec.subject !== e.subject) continue;
-			if (!spec.grades.includes(e.grade)) continue;
-			subjectGradeMatches.push(spec);
-			const overlap = teacherOverlap(spec, e);
-			if (e.teachers.length > 0 && overlap === 0) continue;
-			let score = overlap * 100;
-			if (spec.teachers.length === e.teachers.length) score += 10;
-			if (e.weekPattern && spec.weekPattern === e.weekPattern) score += 5;
-			if (e.classes && e.classes.length > 0 && e.classes.every(c => spec.classes.includes(c))) score += 1;
-			if (score > bestScore) {
-				bestScore = score;
-				best = spec;
-			}
-		}
-		// Fallback-Stufe 3: Kein Lehrer-Match (Lehrer wurde inzwischen
-		// umbenannt oder die Stunde einem anderen Lehrer zugeteilt), aber
-		// (Fach + Stufe) hat GENAU einen Kandidaten → Zuordnung ist logisch
-		// eindeutig. Bei mehreren Kandidaten bleibt der Eintrag übersprungen
-		// (lieber transparent melden als falsch raten).
-		if (!best && subjectGradeMatches.length === 1) {
-			best = subjectGradeMatches[0];
-		}
-		if (!best) {
-			skipped.push({ day: e.day, period: e.period, grade: e.grade, subject: e.subject });
-			continue;
-		}
+	const slotKey = (specId: string, e: ImportedPlacement) =>
+		`${specId}|${e.day}|${e.period}|${e.grade}`;
+
+	function assign(best: LessonSpec, e: ImportedPlacement): void {
 		matched++;
-		const key = `${best.id}|${e.day}|${e.period}|${e.grade}`;
-		if (seen.has(key)) continue; // Dedup (defensiv gegen doppelte Export-Zeilen)
-		seen.add(key);
+		taken.add(slotKey(best.id, e));
 		const lesson: PlacedLesson = {
 			specId: best.id,
 			day: e.day,
@@ -190,6 +165,63 @@ export function mapScheduleImport(doc: ScheduleDoc, entries: ImportedPlacement[]
 			if (ids) lesson.teachers = ids;
 		}
 		placed.push(lesson);
+	}
+
+	// Pass 1 — sichere Zuordnungen: Fach + Stufe passen, Lehrer-Überlappung
+	// belegt den Match. Bei mehreren Kandidaten gewinnt die größte
+	// Überlappung, dann exakte Team-Größe, dann Wochen-Pattern, dann Klassen.
+	// Einträge ohne Lehrer-Beleg werden VERTAGT statt geraten — der Fallback
+	// in Pass 2 sieht dann alle sicheren Zuordnungen und ist dadurch
+	// unabhängig von der Reihenfolge in der Export-Datei (Audit A4).
+	const deferred: ImportedPlacement[] = [];
+	for (const e of entries) {
+		let best: LessonSpec | null = null;
+		let bestScore = -1;
+		for (const spec of doc.specs) {
+			if (spec.subject !== e.subject) continue;
+			if (!spec.grades.includes(e.grade)) continue;
+			// Greedy pro Slot: diese Spec hat an diesem Slot schon einen
+			// Eintrag bekommen → für weitere Einträge nicht mehr wählbar.
+			if (taken.has(slotKey(spec.id, e))) continue;
+			const overlap = teacherOverlap(spec, e);
+			if (overlap === 0) continue;
+			let score = overlap * 100;
+			if (spec.teachers.length === e.teachers.length) score += 10;
+			if (e.weekPattern && spec.weekPattern === e.weekPattern) score += 5;
+			if (e.classes && e.classes.length > 0 && e.classes.every(c => spec.classes.includes(c))) score += 1;
+			if (score > bestScore) {
+				bestScore = score;
+				best = spec;
+			}
+		}
+		if (best) assign(best, e);
+		else deferred.push(e);
+	}
+
+	// Pass 2 — Fallback: Kein Lehrer-Match (Lehrer wurde inzwischen umbenannt
+	// oder die Stunde einem anderen Lehrer zugeteilt), aber unter den am Slot
+	// noch FREIEN Specs hat (Fach + Stufe) GENAU einen Kandidaten → Zuordnung
+	// ist logisch eindeutig. Bei mehreren Kandidaten bleibt der Eintrag
+	// übersprungen (lieber transparent melden als falsch raten). Zusätzlicher
+	// Guard (Audit A4): even↔odd-Widerspruch beim Wochen-Muster
+	// disqualifiziert den Kandidaten — sonst würde der Eintrag eines
+	// gelöschten G/U-Zwillings dem falschen Zwilling zugeordnet.
+	for (const e of deferred) {
+		const candidates = doc.specs.filter(s =>
+			s.subject === e.subject &&
+			s.grades.includes(e.grade) &&
+			!taken.has(slotKey(s.id, e))
+		);
+		let best: LessonSpec | null = null;
+		if (candidates.length === 1) {
+			const only = candidates[0];
+			const guClash =
+				(e.weekPattern === 'even' && only.weekPattern === 'odd') ||
+				(e.weekPattern === 'odd' && only.weekPattern === 'even');
+			if (!guClash) best = only;
+		}
+		if (best) assign(best, e);
+		else skipped.push({ day: e.day, period: e.period, grade: e.grade, subject: e.subject });
 	}
 
 	return { placed, total: entries.length, matched, skipped };

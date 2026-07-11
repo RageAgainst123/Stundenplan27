@@ -146,6 +146,54 @@ describe('mapScheduleImport', () => {
 		expect(result.skipped.some(s => s.subject === 'BSP' && (s.grade === 7 || s.grade === 8))).toBe(true);
 	});
 
+	it('Greedy pro Slot (Audit A4): zweiter Kopplungs-Eintrag fällt auf die verbleibende Spec zurück', () => {
+		const doc = sampleDoc();
+		// Reihenfolge-Robustheit: der später verwaiste bspK-Eintrag steht in
+		// der Export-Datei VOR dem sicheren bspM-Eintrag (stabile Sortierung
+		// erhält die placed-Reihenfolge) — das Ergebnis darf sich nicht ändern.
+		doc.placed.reverse();
+		const entries = parseScheduleExport(JSON.stringify(buildScheduleExport(doc)))!;
+		// Der Knaben-Lehrer wurde komplett ausgetauscht (neue ID, neuer Name)
+		// → der bspK-Eintrag hat KEINEN Lehrer-Match mehr. Vorher blieb er
+		// ambig hängen (2 BSP-Kandidaten an Stufe 7/8); mit Greedy ist s-bspM
+		// nach dem Mädchen-Eintrag am Slot vergeben → bspK ist eindeutig.
+		doc.teachers.push(teacher('t-x', 'Fremd Eins', 9));
+		doc.specs.find(s => s.id === 's-bspK')!.teachers = ['t-x'];
+		const result = mapScheduleImport(doc, entries);
+		expect(result.skipped).toEqual([]);
+		for (const grade of [7, 8] as const) {
+			const atSlot = result.placed.filter(p => p.day === 'Mi' && p.period === 3 && p.grade === grade);
+			expect(new Set(atSlot.map(p => p.specId))).toEqual(new Set(['s-bspM', 's-bspK']));
+		}
+		// matched zählt nur echte Platzierungen (kein Dedup-Schlupf mehr).
+		expect(result.matched).toBe(result.placed.length);
+	});
+
+	it('weekPattern-Guard (Audit A4): Eintrag eines gelöschten G/U-Zwillings matcht NICHT den falschen Zwilling', () => {
+		const doc = sampleDoc();
+		doc.subjects.push(subject('BBO'));
+		doc.teachers.push(teacher('t-even', 'Gerade Woche', 9), teacher('t-odd', 'Ungerade Woche', 10));
+		doc.specs.push(
+			spec('s-bbo-g', 'BBO', ['t-even'], [7], 1, { weekPattern: 'even' }),
+			spec('s-bbo-u', 'BBO', ['t-odd'], [7], 1, { weekPattern: 'odd' }),
+		);
+		doc.placed.push(
+			{ specId: 's-bbo-g', day: 'Fr', period: 5, grade: 7, pinned: false },
+			{ specId: 's-bbo-u', day: 'Fr', period: 5, grade: 7, pinned: false },
+		);
+		const entries = parseScheduleExport(JSON.stringify(buildScheduleExport(doc)))!;
+		// Der odd-Zwilling wurde inzwischen samt Lehrer gelöscht → für seinen
+		// Eintrag bleibt GENAU ein (Fach, Stufe)-Kandidat: der even-Zwilling.
+		// Ohne Guard würde der Fallback ihn falsch zuordnen (Doppellage!).
+		doc.specs = doc.specs.filter(s => s.id !== 's-bbo-u');
+		doc.teachers = doc.teachers.filter(t => t.id !== 't-odd');
+		const result = mapScheduleImport(doc, entries);
+		const bboPlaced = result.placed.filter(p => p.specId.startsWith('s-bbo'));
+		expect(bboPlaced).toHaveLength(1);
+		expect(bboPlaced[0].specId).toBe('s-bbo-g');
+		expect(result.skipped.filter(s => s.subject === 'BBO')).toHaveLength(1);
+	});
+
 	it('meldet nicht zuordenbare Einträge statt sie still zu verlieren', () => {
 		const doc = sampleDoc();
 		const entries = parseScheduleExport(JSON.stringify(buildScheduleExport(doc)))!;

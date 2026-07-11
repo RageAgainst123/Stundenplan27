@@ -116,6 +116,23 @@ Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.
   Smart-Merge-Teleskop-Invariante (Σ Segment-Stunden === count) per
   Tests abgesichert.
 
+**A4 — Plan-Import-Verfeinerung:**
+- Die Zuordnung Export-Eintrag → Spec läuft jetzt in ZWEI Pässen:
+  erst alle Lehrer-belegten Matches (greedy pro Slot — eine bereits
+  vergebene Spec steht am selben Slot nicht mehr zur Wahl), dann der
+  Eindeutigkeits-Fallback über die verbleibenden freien Kandidaten.
+  Vorher entschied jeder Eintrag unabhängig per argmax: bei
+  Kopplungs-Slots konnte zweimal dieselbe Spec gewinnen und der zweite
+  Eintrag ging still verloren (Dedup zählte ihn trotzdem als
+  „zugeordnet"); der Fallback blieb fälschlich ambig, obwohl nach den
+  sicheren Zuordnungen nur ein Kandidat übrig war. Das Ergebnis ist
+  jetzt unabhängig von der Reihenfolge in der Export-Datei.
+- Fallback-Guard: ein even↔odd-Widerspruch beim Wochen-Muster
+  disqualifiziert den letzten Kandidaten — der Eintrag eines gelöschten
+  G/U-Zwillings wird nicht mehr dem falschen Zwilling zugeordnet
+  (hätte eine Doppellage gebaut), sondern transparent gemeldet.
+- `matched` zählt nur noch echte Platzierungen.
+
 **A3 — Halbzahlige Stunden (0.5/1.5) konsistent:**
 - Neuer kanonischer Helper `effectiveSlotCount(spec)` =
   `max(1, round(count))` in `schedule-helpers.ts` — exakt die
