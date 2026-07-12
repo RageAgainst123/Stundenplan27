@@ -76,40 +76,99 @@ export class Rng {
 }
 
 /**
+ * R3-S4: Generator-Indizes für die adaptive Move-Auswahl (ALNS-light).
+ * Reihenfolge ist Teil des Resume-Zustands (LsResumeState.alnsWeights) —
+ * NICHT umsortieren.
+ */
+export const MOVE_GENERATORS = [
+	'slot-move', 'slot-swap', 'kempe', 'teacher-gap-repair',
+	'day-eliminator', 'class-gap-repair', 'unplaced-insert',
+] as const;
+export const N_GENERATORS = MOVE_GENERATORS.length;
+
+/** Fester Default-Mix (Solver-Opt Schritt 4) in MOVE_GENERATORS-Reihenfolge. */
+const FIXED_MIX = [0.35, 0.30, 0.05, 0.10, 0.05, 0.05, 0.10];
+
+function runGenerator(idx: number, state: SolverState, rng: Rng, movable?: Unit[]): Move | null {
+	switch (idx) {
+		case 0: return genSlotMove(state, rng, movable);
+		case 1: return genSlotSwap(state, rng, movable);
+		case 2: return genKempeChain(state, rng);
+		case 3: return genTeacherGapRepair(state, rng);
+		case 4: return genDayEliminator(state, rng);
+		case 5: return genClassGapRepair(state, rng);
+		// R2 unplaced-Fix: Insertion-Versuch für ungeplante Units. Meist gibt
+		// es keine (Generator liefert null) → Fallback auf slot-move, damit
+		// die Iteration nicht verpufft.
+		case 6: return genUnplacedInsert(state, rng) ?? genSlotMove(state, rng, movable);
+		default: return null;
+	}
+}
+
+/**
  * Generate a candidate move. May return null if no valid move can be
  * constructed (e.g. all units pinned).
  *
- * Mix (Solver-Opt Schritt 4): slot-move 45% / slot-swap 30% / kempe 5%
- * / teacher-gap-repair 10% / day-eliminator 5% / class-gap-repair 5%.
- * `kempeBoost` verschiebt Richtung Diversifikation — der Caller
- * (typischerweise ILS nach unproduktivem Plateau) hebt ihn an, um aus
- * lokalen Optima zu entkommen.
+ * Mix (Solver-Opt Schritt 4): slot-move 35% / slot-swap 30% / kempe 5%
+ * / teacher-gap-repair 10% / day-eliminator 5% / class-gap-repair 5%
+ * / unplaced-insert 10%. `kempeBoost` verschiebt Richtung
+ * Diversifikation — der Caller (typischerweise ILS nach unproduktivem
+ * Plateau) hebt ihn an, um aus lokalen Optima zu entkommen.
  */
 export function genMove(state: SolverState, rng: Rng, kempeBoost = 0, movable?: Unit[]): Move | null {
+	return genMoveWithSource(state, rng, kempeBoost, movable).move;
+}
+
+/**
+ * R3-S4: wie genMove, gibt zusätzlich den Generator-Index zurück (für die
+ * ALNS-Erfolgs-Statistik in der Local Search). Ohne `alnsWeights` exakt der
+ * bisherige feste Mix (identischer RNG-Verbrauch: genau EIN rng.next() für
+ * die Auswahl); mit Gewichten Roulette-Auswahl proportional zu
+ * `max(w_i, minShare)` — kein Generator verhungert.
+ */
+export function genMoveWithSource(
+	state: SolverState,
+	rng: Rng,
+	kempeBoost = 0,
+	movable?: Unit[],
+	alnsWeights?: Float64Array
+): { move: Move | null; source: number } {
+	const probs = alnsWeights ? alnsProbs(alnsWeights, kempeBoost) : fixedProbs(kempeBoost);
+	let total = 0;
+	for (let i = 0; i < N_GENERATORS; i++) total += probs[i];
+	const r = rng.next() * total;
+	let acc = 0;
+	for (let i = 0; i < N_GENERATORS; i++) {
+		acc += probs[i];
+		if (r < acc) return { move: runGenerator(i, state, rng, movable), source: i };
+	}
+	return { move: runGenerator(0, state, rng, movable), source: 0 };
+}
+
+// Wiederverwendete Wahrscheinlichkeits-Puffer (single-threaded).
+const probBuf = new Float64Array(N_GENERATORS);
+
+/** Fester Mix, kempeBoost hebt Kempe auf Kosten von slot-move (wie bisher). */
+function fixedProbs(kempeBoost: number): Float64Array {
 	const kempeProb = Math.min(0.4, 0.05 + kempeBoost);
-	const swapProb = 0.30;
-	const teacherGapProb = 0.10;
-	const dayElimProb = 0.05;
-	const classGapProb = 0.05;
-	const insertProb = 0.10;
-	const moveProb = Math.max(0.05, 1 - swapProb - kempeProb - teacherGapProb - dayElimProb - classGapProb - insertProb);
-	const r = rng.next() * (moveProb + swapProb + kempeProb + teacherGapProb + dayElimProb + classGapProb + insertProb);
-	let acc = moveProb;
-	if (r < acc) return genSlotMove(state, rng, movable);
-	acc += swapProb;
-	if (r < acc) return genSlotSwap(state, rng, movable);
-	acc += kempeProb;
-	if (r < acc) return genKempeChain(state, rng);
-	acc += teacherGapProb;
-	if (r < acc) return genTeacherGapRepair(state, rng);
-	acc += dayElimProb;
-	if (r < acc) return genDayEliminator(state, rng);
-	acc += classGapProb;
-	if (r < acc) return genClassGapRepair(state, rng);
-	// R2 unplaced-Fix: Insertion-Versuch für ungeplante Units. Meist gibt
-	// es keine (Generator liefert null) → Fallback auf slot-move, damit die
-	// Iteration nicht verpufft.
-	return genUnplacedInsert(state, rng) ?? genSlotMove(state, rng, movable);
+	probBuf.set(FIXED_MIX);
+	probBuf[2] = kempeProb;
+	probBuf[0] = Math.max(0.05, 1 - probBuf[1] - kempeProb - probBuf[3] - probBuf[4] - probBuf[5] - probBuf[6]);
+	return probBuf;
+}
+
+/** ALNS-Gewichte → Auswahl-Wahrscheinlichkeiten mit Mindest-Anteil 3 %. */
+const ALNS_MIN_SHARE = 0.03;
+function alnsProbs(weights: Float64Array, kempeBoost: number): Float64Array {
+	let sum = 0;
+	for (let i = 0; i < N_GENERATORS; i++) sum += weights[i];
+	if (sum <= 0) sum = 1;
+	for (let i = 0; i < N_GENERATORS; i++) {
+		probBuf[i] = Math.max(ALNS_MIN_SHARE, weights[i] / sum);
+	}
+	// kempeBoost wirkt auch adaptiv als Diversifikations-Hebel.
+	probBuf[2] = Math.max(probBuf[2], Math.min(0.4, 0.05 + kempeBoost));
+	return probBuf;
 }
 
 /**

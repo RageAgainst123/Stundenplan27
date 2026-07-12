@@ -79,6 +79,16 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 4 — Experiment lernende Tausch-Auswahl (verworfen)
+Adaptive Move-Generator-Auswahl nach ALNS-Vorbild (erfolgreiche
+Tausch-Arten bekommen mehr Anteil): sauber gebaut, streng gemessen,
+**verworfen** — Vollständigkeit identisch, aber Springstunden schlechter
+(Median 12→16) bei höherer Varianz. Der handgetunte Mix mit den
+zielgerichteten Repair-Moves kodiert bereits, was die Automatik erst
+lernen müsste. Der Schalter bleibt als getesteter Hook erhalten
+(`moveSelection: 'alns'`, Bench-Arm `BENCH_MOVESEL=alns`); Zahlen in
+bench-baseline.json.
+
 ### Runde 3, Schritt 3 — Neues Akzeptanz-Kriterium: LAHC schlägt SA
 - Der Generator akzeptiert „vorübergehend schlechtere" Zwischenschritte
   jetzt per **Late Acceptance Hill Climbing** (Vergleich mit dem Stand

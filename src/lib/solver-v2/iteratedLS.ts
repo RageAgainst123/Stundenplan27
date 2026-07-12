@@ -48,6 +48,8 @@ export interface IteratedLSOptions {
 	 * localSearch.ts und docs/bench-baseline.json (r3-schritt-3).
 	 */
 	acceptance?: LocalSearchOptions['acceptance'];
+	/** R3-S4: Move-Generator-Auswahl ('fixed' Default, 'alns' adaptiv). */
+	moveSelection?: LocalSearchOptions['moveSelection'];
 }
 
 export interface IteratedLSResult {
@@ -137,6 +139,7 @@ function runOneChunkSync(ils: IlsState, ctx: IlsCtx): boolean {
 		tStart: tStartLS,
 		kempeBoost,
 		acceptance: ctx.opts.acceptance,
+		moveSelection: ctx.opts.moveSelection,
 		onImprovement: makeImprovementHook(ils, ctx),
 		shouldAbort: ctx.opts.shouldAbort,
 	});
@@ -307,6 +310,7 @@ export async function iteratedLocalSearchAsync(
 				tStart: tStartLS,
 				kempeBoost,
 				acceptance: ctx.opts.acceptance,
+				moveSelection: ctx.opts.moveSelection,
 				resume,
 				restoreBestOnExit: false,
 				onImprovement: makeImprovementHook(ils, ctx),

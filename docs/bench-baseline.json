@@ -427,6 +427,22 @@
         "Erster Bench-Experiment-GEWINN nach 7 verworfenen Tuning-Experimenten (R1-S5: 2, R2-S4: 4, Diversify-Strategien) — die Forschungslage (LAHC schlug SA auf HSTT-Instanzen) hat sich auf unseren Daten bestätigt.",
         "Mechanik: acceptance-Option in localSearch ('sa' bleibt Referenz-Arm via BENCH_ACCEPT=sa), Ring-Puffer chunk-resume-fähig in LsResumeState, ILS-Reheat-Temperatur unter LAHC wirkungslos (kempeBoost bleibt der Eskalations-Hebel)."
       ]
+    },
+    {
+      "label": "r3-schritt-4-alns-move-auswahl",
+      "commit": "(Hook committet, Default bleibt 'fixed' — Experiment VERWORFEN)",
+      "date": "2026-07-12",
+      "machine": "Geo-Windows-Dev",
+      "_experiment": {
+        "setup": "A/B über BENCH_MOVESEL-Env auf LAHC-Basis: adaptive Generator-Auswahl (EMA-Erfolgs-Gewichte, Reward 3=Verbesserung/1=akzeptiert, ρ=0.01, Mindest-Anteil 3%, Roulette) vs fester Mix. Identische 5 Seeds × 10s, beide Fixtures.",
+        "fixed_referenz": { "coupled_gaps": [7, 16, 12, 18, 11], "roh_median": { "unplaced": 2, "gapsTotal": 17, "compact": 19, "weightedTotal": 215695 } },
+        "alns": { "coupled_gaps": [15, 17, 24, 16, 2], "coupled_unplaced": [0, 0, 0, 0, 0], "roh_median": { "unplaced": 2, "gapsTotal": 19, "compact": 23, "weightedTotal": 217113 } }
+      },
+      "_befund": [
+        "VERWORFEN — Default bleibt der feste Mix. Vollständigkeit identisch (5/5), aber alle Sekundär-Metriken leicht schlechter (coupled gaps-Median 12→16, Summe 64→74; roh gaps 17→19, compact 19→23) bei höherer Seed-Varianz (Spannweite 2..24).",
+        "INTERPRETATION: Der handgetunte Mix mit den zielgerichteten Domain-Repair-Moves (R1-S4) kodiert bereits, was ALNS erst lernen müsste — und das Akzeptanz-basierte Reward-Signal belohnt unter LAHC billige akzeptierte Moves statt Fortschritt auf der Ziel-Metrik. Deckt sich mit dem R2-S1-Befund (zielgerichtetes Destroy ohne Vorteil).",
+        "Der Hook bleibt (moveSelection: 'fixed' | 'alns' in localSearch/ILS, Statistik chunk-resume-fähig, Bench-Arm BENCH_MOVESEL=alns) — als getestete Basis für spätere Reward-Varianten (z. B. Delta-proportional statt Akzeptanz-binär). genMove-Refactor auf Generator-Tabelle ist RNG-verbrauchs-identisch zum alten Kaskaden-Code (ein rng.next pro Auswahl)."
+      ]
     }
   ]
 }

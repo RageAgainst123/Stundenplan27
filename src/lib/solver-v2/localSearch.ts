@@ -18,7 +18,7 @@
 // Walk-Punkt (statt Best zu restaurieren), damit der nächste Chunk den Walk
 // fortsetzt; die Best-Restauration übernimmt der Caller am ECHTEN Ende.
 
-import { genMove, movableUnits, Rng, type Move } from './moves';
+import { genMoveWithSource, movableUnits, N_GENERATORS, Rng, type Move } from './moves';
 import { commitMove, dropScoreCache, evaluateDelta, rebuildScoreCache } from './scoreDelta';
 import { SLOT_UNPLACED, type ScoreBreakdown, type ScoreWeights, type SolverState } from './types';
 
@@ -57,6 +57,11 @@ export interface LsResumeState {
 	 * nur belegt wenn acceptance='lahc'. Überlebt Chunk-Grenzen wie Tabu/RNG.
 	 */
 	lahc?: Float64Array;
+	/**
+	 * R3-S4 (ALNS): Erfolgs-Gewichte pro Move-Generator (Reihenfolge =
+	 * MOVE_GENERATORS) — nur belegt wenn moveSelection='alns'.
+	 */
+	alnsWeights?: Float64Array;
 }
 
 export interface LocalSearchOptions {
@@ -129,6 +134,15 @@ export interface LocalSearchOptions {
 	acceptance?: 'sa' | 'lahc';
 	/** LAHC-Historienlänge L. Default 1000. */
 	lahcLength?: number;
+	/**
+	 * R3-S4: Move-Generator-Auswahl. 'fixed' (Default) = bewährter fester
+	 * Mix. 'alns' = adaptive Auswahl nach ALNS-Vorbild (Lectio, ITC2011
+	 * Platz 2): Generatoren, deren Moves akzeptiert werden/verbessern,
+	 * bekommen per exponentiell verfallendem Erfolgs-Gewicht mehr Anteil;
+	 * Mindest-Anteil 3 % pro Generator. Bench-Befund siehe
+	 * docs/bench-baseline.json (r3-schritt-4).
+	 */
+	moveSelection?: 'fixed' | 'alns';
 }
 
 export interface LocalSearchResult {
@@ -190,6 +204,14 @@ export function localSearch(
 		? (resume?.lahc ?? new Float64Array(Math.max(2, opts.lahcLength ?? 1000)).fill(curBreakdown.total))
 		: undefined;
 
+	// R3-S4: ALNS-Gewichte — Start neutral (1.0 pro Generator), EMA-Update
+	// pro Move: w = (1-ρ)·w + ρ·Reward (Reward 3 = Verbesserung, 1 =
+	// akzeptiert, 0 = abgelehnt). Überlebt Chunk-Grenzen via Resume.
+	const ALNS_RHO = 0.01;
+	const alnsWeights = (opts.moveSelection ?? 'fixed') === 'alns'
+		? (resume?.alnsWeights ?? new Float64Array(N_GENERATORS).fill(1))
+		: undefined;
+
 	let localIter = 0;
 	let acceptedMoves = 0;
 	let improvementCount = 0;
@@ -221,7 +243,7 @@ export function localSearch(
 			if (elapsed > timeBudgetMs) break;
 		}
 
-		const move = genMove(state, rng, kempeBoost, movable);
+		const { move, source } = genMoveWithSource(state, rng, kempeBoost, movable, alnsWeights);
 		if (!move) {
 			localIter++;
 			globalIter++;
@@ -276,6 +298,12 @@ export function localSearch(
 		// aktualisieren (klassische Formulierung: history[i mod L] = f(current)).
 		if (lahc) lahc[globalIter % lahc.length] = curBreakdown.total;
 
+		// R3-S4: ALNS-Erfolgs-Update für den Quell-Generator dieses Moves.
+		if (alnsWeights) {
+			const reward = accept ? (delta < 0 ? 3 : 1) : 0;
+			alnsWeights[source] = (1 - ALNS_RHO) * alnsWeights[source] + ALNS_RHO * reward;
+		}
+
 		T = Math.max(tMin, T * cooling);
 		localIter++;
 		globalIter++;
@@ -305,6 +333,7 @@ export function localSearch(
 			improvementCount: (resume?.improvementCount ?? 0) + improvementCount,
 			rngState: rng.getState(),
 			lahc,
+			alnsWeights,
 		},
 	};
 }

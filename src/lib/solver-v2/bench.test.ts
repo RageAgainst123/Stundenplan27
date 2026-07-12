@@ -40,6 +40,9 @@ const benchDescribe = process.env.BENCH === '1' ? describe : describe.skip;
  */
 const BENCH_ACCEPT: 'sa' | 'lahc' = process.env.BENCH_ACCEPT === 'sa' ? 'sa' : 'lahc';
 
+/** R3-S4: Move-Auswahl-A/B — `BENCH_MOVESEL=alns npm run bench`. Default: fixed. */
+const BENCH_MOVESEL: 'fixed' | 'alns' = process.env.BENCH_MOVESEL === 'alns' ? 'alns' : 'fixed';
+
 /** Feste Seeds — NIE ändern, sonst bricht die Baseline-Vergleichbarkeit. */
 const SEEDS = [42, 1337, 7, 2024, 99999] as const;
 /** Budget pro Lauf. 10s ILS wie der etablierte Real-Liste-Test. */
@@ -79,6 +82,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 				plateauMs: PLATEAU_MS,
 				seed,
 				acceptance: BENCH_ACCEPT,
+				moveSelection: BENCH_MOVESEL,
 			});
 			// state.placement ist nach ILS auf best restauriert (finalize) —
 			// Metriken direkt vom State berechnen.
@@ -177,6 +181,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 				plateauMs: PLATEAU_MS,
 				seed,
 				acceptance: BENCH_ACCEPT,
+				moveSelection: BENCH_MOVESEL,
 			});
 			const metrics = computeBenchMetrics(state, ils.bestBreakdown);
 			runs.push(metrics);
