@@ -8,10 +8,11 @@
 	import RulesPanel from './components/RulesPanel.svelte';
 	import ImportExport from './components/ImportExport.svelte';
 	import WeekView from './components/WeekView.svelte';
+	import FinetuneView from './components/FinetuneView.svelte';
 	import ExportPanel from './components/ExportPanel.svelte';
 	import { findPlanConflicts, removeConflictedPlacements } from './lib/plan-validation';
 
-	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'weekview' | 'rules' | 'import' | 'export';
+	type Tab = 'teachers' | 'subjects' | 'specs' | 'schedule' | 'finetune' | 'weekview' | 'rules' | 'import' | 'export';
 	let active: Tab = $state('import');
 
 	const tabs: { id: Tab; label: string }[] = [
@@ -20,6 +21,7 @@
 		{ id: 'subjects', label: 'Fächer' },
 		{ id: 'specs', label: 'Lehreinheiten' },
 		{ id: 'schedule', label: 'Stundenplan' },
+		{ id: 'finetune', label: 'Feinschliff 🔧' },
 		{ id: 'weekview', label: 'Wochenplan 📋' },
 		{ id: 'export', label: 'Export 📊' },
 		{ id: 'rules', label: 'Regeln' }
@@ -138,6 +140,8 @@
 		<SpecList />
 	{:else if active === 'schedule'}
 		<ScheduleGrid />
+	{:else if active === 'finetune'}
+		<FinetuneView />
 	{:else if active === 'weekview'}
 		<WeekView />
 	{:else if active === 'export'}

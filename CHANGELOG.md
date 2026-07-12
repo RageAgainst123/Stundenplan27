@@ -79,6 +79,42 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 7 — Neuer Reiter „Feinschliff 🔧": gezielt nachbessern
+User-Wunsch: „Es gibt manchmal Dinge, die mich in einem Plan stören —
+ich will gezielt sagen: DAS da ändern, den Rest in Ruhe lassen."
+
+- **Neuer Tab „Feinschliff 🔧"** (zwischen Stundenplan und Wochenplan):
+  zeigt den Plan als anklickbare Wochenmatrix. Drei Werkzeuge, alle auf
+  demselben Mechanismus — gewählte Stunden freigeben, ALLE anderen
+  temporär fixieren, kurzer Solver-Lauf (10–60 s einstellbar) auf einer
+  KOPIE des Plans:
+  1. **Stunden anklicken → „🔄 Ausgewählte neu setzen"** — nur die
+     markierten Stunden werden neu arrangiert (gepinnte 🔒 sind nicht
+     wählbar, sie sind Vorgaben).
+  2. **„Lehrer entlasten"** — ein Klick auf den Lehrer-Chip (mit
+     Springstunden-Badge ✂) wählt alle seine beweglichen Stunden und
+     setzt sie neu.
+  3. **„🎯 Dahin verschieben"** — eine Stunde wählen, Ziel-Zelle
+     anklicken: die Stunde wird dort FIXIERT, kollidierende Stunden
+     werden automatisch freigeräumt und neu untergebracht.
+     Kopplungs-Gruppen wandern als Ganzes; unhaltbare Ziele
+     (Lehrer-Sperre, Doppellage, gepinnte Kollision) werden ehrlich
+     gemeldet statt still ignoriert.
+- **Vorher/Nachher-Diff mit Übernehmen/Verwerfen:** Nach dem Lauf
+  listet der Vorschlag jede Änderung („MU: Do P4 → Mi P7") plus neuen
+  Score. Übernehmen speichert vorher automatisch einen
+  Backup-Snapshot; Verwerfen lässt den Plan unangetastet (der Lauf
+  arbeitete auf einer Kopie). „Keine Änderung gefunden" wird ehrlich
+  angezeigt (Übernehmen dann deaktiviert). Damit ist auch die alte
+  Backlog-Idee „Diff-View" praktisch eingelöst.
+- **Browser-E2E (echte Liste.csv):** (a) 3 Stunden neu setzen —
+  ehrlicher Keine-Änderung-Fall, Verwerfen unverändert; (b) unmögliches
+  Ziel → klare Meldung, nichts geändert; (c) MU → Mi P7: die
+  MU-Gruppe wanderte gemeinsam, die kollidierende FÖ-Stunde wurde
+  automatisch nach Do P4 getauscht, nach Übernehmen liegt MU gepinnt
+  am Ziel, Backup-Snapshot existiert, 155/155 Stunden erhalten,
+  0 Konsolen-Fehler.
+
 ### Runde 3, Schritt 6 — Bedienung: Presets, Schwierigkeits-Report, Qualitäts-Note
 - **Gewichts-Presets im Regeln-Reiter:** Ein Klick auf „⚖ Ausgewogen",
   „👩‍🏫 Lehrer-freundlich", „🎓 Klassen-freundlich" oder „📦 Streng
