@@ -350,6 +350,40 @@
         "KONTEXT Roh-Fixture: unplaced=4 im Median ist KEIN Regressionssignal — vor dem H8-Fix 'löste' der Solver die Überlast per Doppellage. gapsTotal 13 vs 9 (r2-s3) erklärt sich durch die 4 unplatzierten Stunden + unplaced-dominierte Suche; Klassen-Invarianten no_free=0/min_daily=0/main_aft=0 halten in allen 5 Seeds.",
         "A3-Änderungen selbst sind score-neutral: effectiveSlotCount ist exakt die bisherige units.ts-Formel (Math.max(1, Math.round(count))), nur zentralisiert; Diagnose-Änderungen (Lehrer-Coupling-Dedup, 3 neue warn-Hints) betreffen nur den Pre-Flight, nicht die Suche."
       ]
+    },
+    {
+      "label": "r3-schritt-1-scoped-score-delta",
+      "commit": "(siehe git log: perf(solver) Scoped Score-Delta)",
+      "date": "2026-07-12",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "weightedTotal": 414820,
+          "breakdown.unplaced": 4,
+          "breakdown.no_free": 0,
+          "breakdown.min_daily": 0,
+          "breakdown.main_aft": 0,
+          "breakdown.compact_teacher": 15,
+          "breakdown.main_run": 3,
+          "teacher.gapsTotal": 13,
+          "teacher.gapsMaxPerTeacher": 4
+        },
+        "iterPerSec": "8160-11225 (vorher ~5400-7300 im r2-s3-Sync-Stand)"
+      },
+      "coupled_solvable": {
+        "perSeed_unplaced": [0, 1, 1, 0, 0],
+        "perSeed_no_free": [0, 0, 0, 0, 0],
+        "perSeed_teacherGaps": [12, 10, 11, 10, 5],
+        "iterPerSec": "7776-21550 (vorher 7192-10101; hohe Lauf-zu-Lauf-Varianz im jsdom)",
+        "median": { "unplaced": 0, "no_free": 0, "min_daily": 0 }
+      },
+      "_befund": [
+        "UMBAU: computeScore in Zeilen-Beiträge zerlegt (scanClassRow 9 Komponenten pro Tag×Stufe, scanTeacherWeek 6 pro Lehrer, unitSlotContrib 5 pro Unit, global spec_spread+unplaced). evaluateDelta bewertet Moves jetzt über Rescans NUR der berührten Zeilen (Scoped-Delta mit persistenten Footprint-Zählern occ/tocc/mainCnt/rowStart/specDay); Full-Scan bleibt als Referenzpfad (state.scoreCache undefined / LocalSearchOptions.fullScanDelta).",
+        "KORREKTHEIT bewiesen: Property-Test 500 Random-States × 8 Moves (Kopplungen, Blöcke, Multi-Grade, G/U, unplaced-insert, kempe) — Breakdown FELDGENAU identisch zum Voll-Scan, kein Cache-Drift über Accept-Ketten (commitMove). Alle 76 score.test.ts-Fälle unverändert grün (Zerlegung ist semantik-treu).",
+        "EHRLICH: Durchsatz-Gate ×2 NICHT erreicht — real ×1.35-1.4 (Median Rohfixture ~6300→~10000, coupled ~9100→~12000 iter/s). Der Loop wird jetzt von der MOVE-GENERIERUNG dominiert (wouldViolate-Sampling bis 12 Versuche/Move — R2-S2-Diagnose bestätigt). Zusätzliche Mikro-Opts in diesem Schritt: numerische Tabu-Keys (unitIdx*64+slot statt Template-String) und Uhr-Lesen nur alle 32 Iterationen.",
+        "QUALITÄT unverändert: Rohfixture-Median byte-gleich (weightedTotal 414820, unplaced 4, gaps 13), coupled-solvable-Gates grün (unplaced/no_free/min_daily Median 0, per-Seed identisch zur A3-Baseline).",
+        "SCOPED BLEIBT AN (Default): beweisbar exakt + strikt schneller. ANSATZPUNKT für weiteren Durchsatz notiert: genMove-Feasibility-Sampling (Kandidaten-Slots vorfiltern statt 12× wouldViolate) — bewusst NICHT in diesem Schritt (eigenes Risiko-Profil)."
+      ]
     }
   ]
 }

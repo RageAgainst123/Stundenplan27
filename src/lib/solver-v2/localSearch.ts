@@ -18,8 +18,8 @@
 // Walk-Punkt (statt Best zu restaurieren), damit der nächste Chunk den Walk
 // fortsetzt; die Best-Restauration übernimmt der Caller am ECHTEN Ende.
 
-import { applyMove, genMove, movableUnits, Rng, type Move } from './moves';
-import { evaluateDelta } from './scoreDelta';
+import { genMove, movableUnits, Rng, type Move } from './moves';
+import { commitMove, dropScoreCache, evaluateDelta, rebuildScoreCache } from './scoreDelta';
 import { SLOT_UNPLACED, type ScoreBreakdown, type ScoreWeights, type SolverState } from './types';
 
 /**
@@ -34,8 +34,12 @@ export interface LsResumeState {
 	T: number;
 	/** Globaler Iterationszähler über alle Chunks — treibt Tabu-Expiry. */
 	iterations: number;
-	/** Tabu-Liste (Map<`${unitIdx}:${slot}`, expiryIteration>). */
-	tabu: Map<string, number>;
+	/**
+	 * Tabu-Liste (Map<unitIdx*64+slotIdx, expiryIteration>). R3-S1: numerische
+	 * Keys statt `${unitIdx}:${slot}`-Strings — die Template-Strings waren
+	 * eine Allokation pro Check/Push im heißesten Loop.
+	 */
+	tabu: Map<number, number>;
 	/** Score-Breakdown des aktuellen WALK-Punkts (== state.placement). */
 	curBreakdown: ScoreBreakdown;
 	/** Bestes bisher gesehenes Placement (kumulativ über Chunks). */
@@ -101,6 +105,11 @@ export interface LocalSearchOptions {
 	 * Used by `startSolve.abort()`.
 	 */
 	shouldAbort?: () => boolean;
+	/**
+	 * R3-S1: true = Full-Scan-Delta statt Scoped-Cache (Referenzpfad für
+	 * Bench-A/B und Debugging). Default false = Scoped-Delta.
+	 */
+	fullScanDelta?: boolean;
 }
 
 export interface LocalSearchResult {
@@ -149,10 +158,10 @@ export function localSearch(
 	let bestPlacement = resume ? resume.bestPlacement : new Int32Array(state.placement);
 	let bestBreakdown = resume ? resume.bestBreakdown : { ...curBreakdown };
 
-	// Tabu: map<key, iteration-when-expires>. Key = `${unitIdx}:${oldSlot}`.
-	// Expiry läuft über den GLOBALEN Zähler, damit Einträge Chunk-Grenzen
-	// korrekt überleben.
-	const tabu = resume ? resume.tabu : new Map<string, number>();
+	// Tabu: map<key, iteration-when-expires>. Key = unitIdx*64 + slot
+	// (numerisch, siehe LsResumeState). Expiry läuft über den GLOBALEN
+	// Zähler, damit Einträge Chunk-Grenzen korrekt überleben.
+	const tabu = resume ? resume.tabu : new Map<number, number>();
 	let globalIter = resume ? resume.iterations : 0;
 
 	let localIter = 0;
@@ -165,10 +174,26 @@ export function localSearch(
 	// Move-Strom bleibt bei gleichem Seed byte-identisch.
 	const movable = movableUnits(state);
 
+	// R3-S1: Scoped-Delta-Cache frisch aus dem aktuellen Placement bauen —
+	// EINMAL pro Aufruf/Chunk (~2 Voll-Scans, vernachlässigbar). Innerhalb
+	// der Schleife mutiert das Placement nur über commitMove, das den Cache
+	// synchron hält. Perturbation/Restore zwischen Chunks braucht dadurch
+	// kein Invalidierungs-Protokoll.
+	if (opts.fullScanDelta) dropScoreCache(state);
+	else rebuildScoreCache(state, opts.weights);
+
+	// R3-S1: Uhr nur alle 32 Iterationen lesen — Date.now() pro Iteration
+	// war messbarer Overhead im heißesten Loop. Kostet maximal 31
+	// Iterationen Budget-Überschreitung (~3 ms), ändert sonst nichts.
+	// shouldAbort bleibt pro Iteration (billiger Funktionsaufruf; Tests
+	// und UI-Abort verlassen sich auf sofortige Reaktion).
+	let elapsed = 0;
 	while (localIter < maxIter) {
 		if (opts.shouldAbort?.()) break;
-		const elapsed = Date.now() - tStart;
-		if (elapsed > timeBudgetMs) break;
+		if ((localIter & 31) === 0) {
+			elapsed = Date.now() - tStart;
+			if (elapsed > timeBudgetMs) break;
+		}
 
 		const move = genMove(state, rng, kempeBoost, movable);
 		if (!move) {
@@ -191,7 +216,8 @@ export function localSearch(
 			(T > tMin && rng.next() < Math.exp(-delta / T));
 
 		if (accept) {
-			applyMove(state, move);
+			// R3-S1: commitMove = applyMove + Score-Cache mitführen.
+			commitMove(state, move, nextBreakdown);
 			acceptedMoves++;
 			curBreakdown = nextBreakdown;
 			pushTabu(move, tabu, globalIter + tabuTenure);
@@ -252,16 +278,24 @@ export function localSearch(
 // BACK to s_from for `tabuTenure` iterations. So pushTabu writes the slot
 // that was just vacated as forbidden, and isTabu checks whether the move's
 // proposed destination slot is currently tabu for that unit.
-function isTabu(move: Move, tabu: Map<string, number>, iter: number): boolean {
+//
+// R3-S1: numerischer Key unitIdx*64 + slot (Slots sind 0..39 < 64; UNPLACED
+// = -1 kommt in Tabu-Keys nie vor — unplaced-insert-Moves haben fromSlot
+// UNPLACED und werden via +1-Offset kollisionsfrei kodiert).
+function tabuKey(unitIdx: number, slot: number): number {
+	return unitIdx * 64 + slot + 1;
+}
+
+function isTabu(move: Move, tabu: Map<number, number>, iter: number): boolean {
 	switch (move.kind) {
 		case 'slot-move':
-			return checkTabu(`${move.unitIdx}:${move.toSlot}`, tabu, iter);
+			return checkTabu(tabuKey(move.unitIdx, move.toSlot), tabu, iter);
 		case 'slot-swap':
 			// A swap moves a → b's slot, b → a's slot. We block re-occupying
 			// the slot each unit just left.
 			return (
-				checkTabu(`${move.aIdx}:${move.bSlot}`, tabu, iter) ||
-				checkTabu(`${move.bIdx}:${move.aSlot}`, tabu, iter)
+				checkTabu(tabuKey(move.aIdx, move.bSlot), tabu, iter) ||
+				checkTabu(tabuKey(move.bIdx, move.aSlot), tabu, iter)
 			);
 		case 'kempe-chain':
 			// Don't bother with tabu for kempe — they're rare and hard to oscillate
@@ -269,7 +303,7 @@ function isTabu(move: Move, tabu: Map<string, number>, iter: number): boolean {
 	}
 }
 
-function checkTabu(key: string, tabu: Map<string, number>, iter: number): boolean {
+function checkTabu(key: number, tabu: Map<number, number>, iter: number): boolean {
 	const expiry = tabu.get(key);
 	if (expiry === undefined) return false;
 	if (expiry <= iter) {
@@ -279,15 +313,15 @@ function checkTabu(key: string, tabu: Map<string, number>, iter: number): boolea
 	return true;
 }
 
-function pushTabu(move: Move, tabu: Map<string, number>, expiry: number): void {
+function pushTabu(move: Move, tabu: Map<number, number>, expiry: number): void {
 	switch (move.kind) {
 		case 'slot-move':
 			// Block returning to the slot we just left.
-			tabu.set(`${move.unitIdx}:${move.fromSlot}`, expiry);
+			tabu.set(tabuKey(move.unitIdx, move.fromSlot), expiry);
 			return;
 		case 'slot-swap':
-			tabu.set(`${move.aIdx}:${move.aSlot}`, expiry);
-			tabu.set(`${move.bIdx}:${move.bSlot}`, expiry);
+			tabu.set(tabuKey(move.aIdx, move.aSlot), expiry);
+			tabu.set(tabuKey(move.bIdx, move.bSlot), expiry);
 			return;
 		case 'kempe-chain':
 			return;

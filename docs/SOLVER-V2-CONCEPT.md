@@ -215,6 +215,18 @@ ist genug.
 
 ### Inkrementelle Score-Berechnung
 
+> **Stand der Umsetzung (R3-S1, 2026-07-12):** Lange Zeit war das Delta
+> pragmatisch ein Voll-Scan (apply → computeScore → revert, ~50-100 µs —
+> Begründung im alten scoreDelta.ts-Header). Seit R3-S1 ist das
+> **Scoped-Delta** umgesetzt — nicht als per-Komponente-O(1)-Formeln wie
+> unten skizziert, sondern als Zeilen-Zerlegung: computeScore ist in
+> Beiträge pro (Tag×Stufe), pro Lehrer-Woche und pro Unit zerlegt;
+> evaluateDelta rescannt nur die von einem Move berührten Zeilen mit
+> DENSELBEN Scan-Funktionen. Weniger Bug-Fläche als 22 handgeschriebene
+> Delta-Formeln, per Property-Test feldgenau gegen den Voll-Scan bewiesen.
+> Messung: ×1,35–1,4 Gesamt-Durchsatz (der Loop wird danach von der
+> Move-Generierung dominiert, nicht mehr vom Score).
+
 **Kritisch für Performance.** Bei jedem Move müssen wir den Delta-Score
 in O(1) oder O(log n) berechnen, nicht durch Vollscan aller Lessons.
 Konkret: pro Soft-Constraint-Komponente eine Delta-Update-Formel.

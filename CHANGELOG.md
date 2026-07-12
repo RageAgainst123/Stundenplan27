@@ -79,6 +79,28 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 1 — Scoped Score-Delta (Bewertung beschleunigen)
+- `computeScore` in wiederverwendbare Zeilen-Beiträge zerlegt: 9
+  Komponenten pro (Tag × Stufe), 6 pro Lehrer-Woche, 5 pro Unit, plus
+  `spec_spread`/`unplaced` global — Voll-Scan und Move-Bewertung teilen
+  jetzt EXAKT dieselben Scan-Funktionen.
+- `evaluateDelta` bewertet Moves über Rescans nur der berührten Zeilen
+  (persistente Footprint-Zähler statt Komplett-Neubau pro Move);
+  `commitMove` führt den Cache im Accept-Pfad mit. Der Full-Scan bleibt
+  als Referenzpfad erhalten (Fallback ohne Cache).
+- **Korrektheit bewiesen:** Property-Test — 500 Random-States × 8 Moves
+  (Kopplungen, Blöcke, Multi-Grade, G/U, unplaced-insert, Kempe):
+  Breakdown feldgenau identisch zum Voll-Scan, kein Drift über
+  Accept-Ketten. Alle 76 bestehenden Score-Tests unverändert grün.
+- Mikro-Optimierungen im heißesten Loop: numerische Tabu-Keys statt
+  Template-Strings, Uhr-Lesen nur alle 32 Iterationen (Abort-Check
+  bleibt pro Iteration).
+- **Ehrliches Ergebnis:** ×1,35–1,4 Durchsatz (Median ~6300→~10000
+  bzw. ~9100→~12000 Iterationen/s) — das ×2-Ziel wurde NICHT erreicht;
+  der Loop wird jetzt von der Move-Generierung dominiert (Ansatzpunkt
+  in bench-baseline.json notiert). Qualitäts-Metriken byte-gleich,
+  alle Bench-Gates grün.
+
 ### Audit-Paket A1–A3 — Korrektheit, Datenintegrität, Halbstunden
 Komplett-Audit der Codebase (3 parallele Tiefen-Audits, alle Befunde mit
 Datei:Zeile). Rückfall-Anker: Tag `savepoint-pre-audit-fixes`.

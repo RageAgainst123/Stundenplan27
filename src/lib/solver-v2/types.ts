@@ -154,6 +154,13 @@ export interface SolverState {
 	 */
 	scoreScratch?: ScoreScratch;
 	/**
+	 * R3-S1: Scoped-Delta-Cache (scoreDelta.ts). Wenn gesetzt, bewertet
+	 * evaluateDelta Moves über Zeilen-Rescans statt Voll-Scan. Wird von
+	 * localSearch() zu Chunk-Beginn frisch gebaut; undefined = Full-Scan-
+	 * Referenzpfad (Tests, direkte evaluateDelta-Aufrufe).
+	 */
+	scoreCache?: ScoreCache;
+	/**
 	 * Solver-Opt Runde 2, Schritt 3: lazy-gebauter Index für scoped
 	 * Hard-Checks. `wouldViolate` scannte vorher ALLE nUnits pro Prüfung
 	 * (bis 12×/Move) — ein Konflikt erfordert aber gemeinsamen Lehrer ODER
@@ -180,7 +187,7 @@ export interface HardCheckIndex {
 
 /** Scratch-Puffer für computeScore — siehe SolverState.scoreScratch. */
 export interface ScoreScratch {
-	/** Anzahl distinkter Fach-Codes (Index-Raum von subjCount/occ*-Arrays). */
+	/** Anzahl distinkter Fach-Codes (Index-Raum der Fach-Indizes). */
 	S: number;
 	/** Anzahl distinkter Spec-Ids (Index-Raum von specDay). */
 	NS: number;
@@ -189,21 +196,23 @@ export interface ScoreScratch {
 	teacherIdxById: Map<string, number>;
 	/** isMain pro Fach-Index (statisch). */
 	subjIsMain: Uint8Array;
-	/** Klassen-Occupancy: occ[d*G*P + g*P + p] — pro Aufruf resettet. */
+	// --- Footprint-Arrays (R3-S1): von applyUnitFootprint (score.ts) gepflegt.
+	// Der Voll-Scan füllt sie via fillFootprints komplett neu; das Scoped-
+	// Delta (scoreDelta.ts) hält sie per add/remove synchron zum Placement.
+	/** Klassen-Occupancy: occ[d*G*P + g*P + p] (Instanzen-Zähler). */
 	occ: Int32Array;
-	/** Lehrer-Occupancy: tocc[t*D*P + d*P + p] — pro Aufruf resettet. */
+	/** Lehrer-Occupancy: tocc[t*D*P + d*P + p]. */
 	tocc: Int32Array;
-	/** Hauptfach-Maske analog occ — pro Aufruf resettet. */
-	mainMask: Int32Array;
-	/** Vorkommen pro (Tag, Stufe, Fach): subjCount[(d*G+g)*S + s]. */
-	subjCount: Int32Array;
-	/** Erste zwei Vorkommen pro (Tag, Stufe, Fach) für main_block_split. */
-	occAStart: Int32Array;
-	occASize: Int32Array;
-	occBStart: Int32Array;
-	occBSize: Int32Array;
+	/** Hauptfach-Instanzen pro Zelle analog occ (Zähler, >0 = Hauptfach da). */
+	mainCnt: Int32Array;
+	/** Fach-Index+1 der an (d,g,p) STARTENDEN Unit (0 = keine). */
+	rowStartSubj: Int32Array;
+	/** blockSize der an (d,g,p) startenden Unit (0 = keine). */
+	rowStartSize: Int32Array;
 	/** Vorkommen pro (Spec, Tag): specDay[sp*D + d]. */
 	specDay: Int32Array;
+	/** Statisch: 1 wenn Lehrer t an Tag d in P1 gesperrt ist (Index t*D+d). */
+	blockedAtP1: Uint8Array;
 	/** Statisch pro Unit: 0=kein timePref, 1=early, 2=late. */
 	unitTimePref: Int8Array;
 	/** Statisch pro Unit: 1 = exempt von any_aft/main_aft/main_early. */
@@ -214,6 +223,25 @@ export interface ScoreScratch {
 	unitSubjIdx: Int32Array;
 	/** Statisch pro Unit: grades[0] der ersten Spec (time_pref-Dedup), -1 wenn Spec fehlt. */
 	unitFirstGrade: Int32Array;
+}
+
+/**
+ * R3-S1: Scoped-Delta-Cache — siehe scoreDelta.ts. Hält die aktuellen
+ * Komponenten-Zählerstände plus die Beitrags-Vektoren jeder Zeile, damit
+ * ein Move nur die berührten Zeilen neu scannen muss. Wird zu Beginn
+ * jedes localSearch-Aufrufs frisch aus dem Placement gebaut (kein
+ * Invalidierungs-Protokoll nötig — außerhalb der LS-Schleife mutieren
+ * Construction/Perturbation das Placement direkt).
+ */
+export interface ScoreCache {
+	/** Aufgelöste Score-Parameter (identisch für Voll- und Delta-Pfad). */
+	cfg: import('./score').ScoreCfg;
+	/** Aktuelle Komponenten-Zählerstände (total wird bei Bedarf gewichtet). */
+	counts: ScoreBreakdown;
+	/** Beitrags-Vektor jeder Klassen-Zeile: classRow[(d*4+g)*9 + c]. */
+	classRow: Int32Array;
+	/** Beitrags-Vektor jedes Lehrers: teacherRow[t*6 + c]. */
+	teacherRow: Int32Array;
 }
 
 /** Placement constant for "not placed yet". */
