@@ -103,7 +103,8 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 **Solver-v2-Algorithmus:**
 - Siehe `docs/SOLVER-V2-CONCEPT.md` §6–§9 für Details.
 - Phase 1: Construction (greedy + ejection chain) in <5 s.
-- Phase 2: Local Search (Hill-Climbing + Simulated Annealing + Tabu) ~50k Iter/sec.
+- Phase 2: Local Search (Hill-Climbing + **LAHC**-Akzeptanz + Tabu; SA als
+  Referenz-Arm `acceptance:'sa'`), Scoped Score-Delta, ~10-14k Iter/sec (jsdom).
 - Phase 3: Iterated LS mit adaptiver Perturbation, SA-Reheat (Cap 500), Kempe-Boost.
 - 2-Phase-Solve: bei `noFreePeriodsForClass.strict=true` läuft nach Phase 2 eine Auto-Lockerung mit normalem Soft-Gewicht falls Lücken übrig.
 - 16 Score-Komponenten, alle in `solver-v2/score.ts`. Konfigurierbar im `RulesPanel`.

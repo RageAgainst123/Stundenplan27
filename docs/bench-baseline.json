@@ -397,6 +397,36 @@
         "NEBENBEFUND (gefixt): GenerateButton-Log-Liste war mit tElapsedMs+message gekeyed — Key-Kollision crasht den keyed each und reißt die komplette Svelte-Reaktivität still ab (exakt so im E2E beobachtet: Toggle-Text flippte, {#if}-Block erschien nie mehr). Jetzt monotone Sequenz-ID.",
         "METHODIK-NOTIZ Preview-Pane: window.confirm/alert-Overrides aus javascript_tool-Evals erreichen die Seite NICHT zuverlässig — UI-Flows mit nativen Dialogen (CSV-Import-Zusammenfassung, Reset) können die Pane blockieren; Workaround: neuen Tab erstellen, localStorage direkt editieren, Reload."
       ]
+    },
+    {
+      "label": "r3-schritt-3-lahc-akzeptanz",
+      "commit": "(siehe git log: feat(solver) LAHC-Akzeptanz)",
+      "date": "2026-07-12",
+      "machine": "Geo-Windows-Dev",
+      "_experiment": {
+        "setup": "A/B über BENCH_ACCEPT-Env: identische 5 Seeds × 10s, beide Fixtures. SA-Referenz = drei konsistente Läufe vom selben Tag (a3/r3s1a/r3s1b); LAHC = zwei Läufe (Bestätigung).",
+        "sa_referenz": {
+          "coupled_perSeed_unplaced": [0, 1, 1, 0, 0],
+          "roh_median_unplaced": 4,
+          "roh_median_weightedTotal": 414820,
+          "roh_median_gapsTotal": 13,
+          "coupled_median_gaps": "10-11"
+        },
+        "lahc": {
+          "coupled_perSeed_unplaced": [0, 0, 0, 0, 0],
+          "coupled_perSeed_gaps": [7, 16, 12, 18, 11],
+          "roh_median_unplaced": 2,
+          "roh_median_weightedTotal": 215695,
+          "roh_median_gapsTotal": 17,
+          "roh_median_lateStarts": "73 (SA: 82-84)"
+        }
+      },
+      "_befund": [
+        "ÜBERNOMMEN — LAHC ist neuer Default. Late Acceptance Hill Climbing (Ring-Puffer L=1000: akzeptiere wenn Kandidat ≤ Walk-Total von vor L Iterationen; Fonseca et al. 2015) schlägt SA klar auf der PFLICHT-Metrik Vollständigkeit: coupled-solvable 5/5 Seeds komplett platziert (SA konsistent nur 3/5 über drei Läufe — deterministische Seeds, kein Rauschen), Roh-Fixture unplaced-Median 4→2 (weightedTotal 414820→215695).",
+        "TRADE-OFF ehrlich: Springstunden-Median +2 bis +4 (coupled 10-11→12, roh 13→17 — roh aber mit 2 MEHR platzierten Stunden, also nicht direkt vergleichbar). Späteinstiege besser (82→73). Nach der User-Priorität seit R2 ('ungeplante Stunden dürfen keine Lösung sein') gewinnt Vollständigkeit.",
+        "Erster Bench-Experiment-GEWINN nach 7 verworfenen Tuning-Experimenten (R1-S5: 2, R2-S4: 4, Diversify-Strategien) — die Forschungslage (LAHC schlug SA auf HSTT-Instanzen) hat sich auf unseren Daten bestätigt.",
+        "Mechanik: acceptance-Option in localSearch ('sa' bleibt Referenz-Arm via BENCH_ACCEPT=sa), Ring-Puffer chunk-resume-fähig in LsResumeState, ILS-Reheat-Temperatur unter LAHC wirkungslos (kempeBoost bleibt der Eskalations-Hebel)."
+      ]
     }
   ]
 }

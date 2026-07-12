@@ -79,6 +79,24 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 3 — Neues Akzeptanz-Kriterium: LAHC schlägt SA
+- Der Generator akzeptiert „vorübergehend schlechtere" Zwischenschritte
+  jetzt per **Late Acceptance Hill Climbing** (Vergleich mit dem Stand
+  von vor 1000 Schritten, Ring-Puffer) statt per SA-Temperatur —
+  parameterärmer und in Studien auf Schul-Stundenplänen überlegen
+  (Fonseca et al. 2015). SA bleibt als Referenz-Arm erhalten
+  (`acceptance: 'sa'`, im Bench via `BENCH_ACCEPT=sa`).
+- **Bench-A/B (strenges Gate, beide Fixtures, 5 feste Seeds):**
+  LAHC platziert auf der lösbaren Fixture **5/5 Seeds vollständig**
+  (SA über drei Referenz-Läufe konsistent nur 3/5) und halbiert die
+  unplatzierten Stunden auf der überlasteten Roh-Fixture (4→2;
+  gewichteter Score 414820→215695). Trade-off ehrlich: Springstunden-
+  Median +2 — Vollständigkeit ist seit Runde 2 die Pflicht-Metrik und
+  gewinnt. Erster Experiment-GEWINN nach sieben verworfenen
+  Tuning-Experimenten; Details in bench-baseline.json.
+- Ring-Puffer überlebt Chunk-Grenzen (Resume wie Temperatur/Tabu/RNG);
+  ILS-Reheat wirkt unter LAHC über den Kempe-Boost weiter.
+
 ### Runde 3, Schritt 2 — Island-Optimierung („mehrere Pläne, bester gewinnt")
 - Nach der parallelen Pool-Phase startet nicht mehr EINE Haupt-Session,
   sondern **k unabhängige Optimierungs-Inseln** (k = min(4, Kerne − 2)) —

@@ -215,6 +215,14 @@ ist genug.
 
 ### Inkrementelle Score-Berechnung
 
+> **Stand der Umsetzung (R3-S3, 2026-07-12):** Das Akzeptanz-Kriterium der
+> Local Search ist seit R3-S3 **Late Acceptance Hill Climbing** (Default) —
+> akzeptiert wird, wenn der Kandidat ≤ dem Walk-Score von vor L=1000
+> Iterationen liegt (Ring-Puffer). Das in §7 beschriebene SA-Metropolis
+> bleibt als `acceptance: 'sa'`-Referenzpfad erhalten. Bench-Befund:
+> LAHC platziert 5/5 Seeds vollständig (SA: 3/5) — Details in
+> docs/bench-baseline.json (r3-schritt-3).
+
 > **Stand der Umsetzung (R3-S1, 2026-07-12):** Lange Zeit war das Delta
 > pragmatisch ein Voll-Scan (apply → computeScore → revert, ~50-100 µs —
 > Begründung im alten scoreDelta.ts-Header). Seit R3-S1 ist das

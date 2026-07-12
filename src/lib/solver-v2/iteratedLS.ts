@@ -42,6 +42,12 @@ export interface IteratedLSOptions {
 	shouldAbort?: () => boolean;
 	/** Optional callback fired when a restart is initiated. */
 	onRestart?: (info: { iteration: number; tElapsedMs: number; reason: string }) => void;
+	/**
+	 * R3-S3: Akzeptanz-Kriterium der inneren Local Search ('sa' Default,
+	 * 'lahc' = Late Acceptance Hill Climbing). Bench-A/B-Hook — siehe
+	 * localSearch.ts und docs/bench-baseline.json (r3-schritt-3).
+	 */
+	acceptance?: LocalSearchOptions['acceptance'];
 }
 
 export interface IteratedLSResult {
@@ -91,6 +97,10 @@ function makeImprovementHook(ils: IlsState, ctx: IlsCtx): NonNullable<LocalSearc
  * Compute the SA-temperature and kempe-chain boost for the next LS chunk
  * based on how many recent restarts produced no improvement. Cap at 500
  * so very long stuck sessions don't drift into pure random-walk territory.
+ *
+ * R3-S3-Hinweis: Unter dem neuen LAHC-Default ist tStartLS wirkungslos
+ * (keine Temperatur im Akzeptanz-Kriterium) — der kempeBoost bleibt der
+ * wirksame Eskalations-Hebel; die Perturbation übernimmt den Rest.
  */
 function reheatParams(consecutiveUnproductive: number): { tStartLS: number; kempeBoost: number } {
 	const reheat = consecutiveUnproductive >= 2;
@@ -126,6 +136,7 @@ function runOneChunkSync(ils: IlsState, ctx: IlsCtx): boolean {
 		seed: ctx.rng.int(0, 2147483647),
 		tStart: tStartLS,
 		kempeBoost,
+		acceptance: ctx.opts.acceptance,
 		onImprovement: makeImprovementHook(ils, ctx),
 		shouldAbort: ctx.opts.shouldAbort,
 	});
@@ -295,6 +306,7 @@ export async function iteratedLocalSearchAsync(
 				seed: ctx.rng.int(0, 2147483647), // nur der 1. Chunk nutzt den Seed
 				tStart: tStartLS,
 				kempeBoost,
+				acceptance: ctx.opts.acceptance,
 				resume,
 				restoreBestOnExit: false,
 				onImprovement: makeImprovementHook(ils, ctx),

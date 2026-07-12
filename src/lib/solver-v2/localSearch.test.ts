@@ -28,6 +28,71 @@ function spec(id: string, sub: string, t: string, grades: GradeLevel[], count: n
 	};
 }
 
+describe('localSearch — LAHC-Akzeptanz (R3-S3)', () => {
+	it('acceptance=lahc verbessert den Score und trägt den Ring-Puffer über Resume-Grenzen', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'), teacher('t2', 'L2'));
+		doc.subjects.push(subject('M', { isMain: true }), subject('D'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 4));
+		doc.specs.push(spec('s2', 'D', 't2', [6], 4));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		construct(state, { weights: w, seed: 3 });
+		const before = computeScore(state, w);
+
+		// Chunk 1 mit LAHC — Ring-Puffer entsteht und wandert in den Resume.
+		const chunk1 = localSearch(state, before, {
+			weights: w,
+			maxIterations: 1500,
+			timeBudgetMs: 5000,
+			seed: 42,
+			acceptance: 'lahc',
+			lahcLength: 200,
+			restoreBestOnExit: false,
+		});
+		expect(chunk1.resumeState.lahc).toBeDefined();
+		expect(chunk1.resumeState.lahc!.length).toBe(200);
+
+		// Chunk 2 setzt nahtlos fort (gleicher Puffer, kein Frisch-Fill).
+		const bufferRef = chunk1.resumeState.lahc;
+		const chunk2 = localSearch(state, before, {
+			weights: w,
+			maxIterations: 1500,
+			timeBudgetMs: 5000,
+			acceptance: 'lahc',
+			resume: chunk1.resumeState,
+		});
+		expect(chunk2.resumeState.lahc).toBe(bufferRef);
+		// LAHC darf nie schlechter enden als der Start (Best-Tracking).
+		expect(chunk2.bestBreakdown.total).toBeLessThanOrEqual(before.total);
+	});
+
+	it('Default ist LAHC (Puffer vorhanden); acceptance=sa bleibt als Referenzpfad ohne Puffer', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'L1'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 2));
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		construct(state, { weights: w, seed: 1 });
+		const withDefault = localSearch(state, computeScore(state, w), {
+			weights: w,
+			maxIterations: 500,
+			timeBudgetMs: 5000,
+			seed: 7,
+		});
+		expect(withDefault.resumeState.lahc).toBeDefined();
+		const withSa = localSearch(state, computeScore(state, w), {
+			weights: w,
+			maxIterations: 500,
+			timeBudgetMs: 5000,
+			seed: 7,
+			acceptance: 'sa',
+		});
+		expect(withSa.resumeState.lahc).toBeUndefined();
+	});
+});
+
 describe('localSearch — unplaced-Insertion (Solver-Opt R2)', () => {
 	it('platziert eine ungeplante Unit während der LS (Insertion-Move + dominante unplaced-Penalty)', () => {
 		const doc = emptyDoc();

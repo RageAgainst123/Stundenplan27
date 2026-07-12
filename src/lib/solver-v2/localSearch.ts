@@ -52,6 +52,11 @@ export interface LsResumeState {
 	improvementCount: number;
 	/** RNG-Zustand (Rng.getState()) für deterministische Fortsetzung. */
 	rngState: number;
+	/**
+	 * R3-S3 (LAHC): Ring-Puffer der Walk-Totals der letzten L Iterationen —
+	 * nur belegt wenn acceptance='lahc'. Überlebt Chunk-Grenzen wie Tabu/RNG.
+	 */
+	lahc?: Float64Array;
 }
 
 export interface LocalSearchOptions {
@@ -110,6 +115,20 @@ export interface LocalSearchOptions {
 	 * Bench-A/B und Debugging). Default false = Scoped-Delta.
 	 */
 	fullScanDelta?: boolean;
+	/**
+	 * R3-S3: Akzeptanz-Kriterium. **Default 'lahc'** — Late Acceptance Hill
+	 * Climbing (Burke & Bykov): akzeptiere, wenn der Kandidat besser/gleich
+	 * dem Walk-Total von vor L Iterationen ist. Bench-Befund (r3-schritt-3
+	 * in docs/bench-baseline.json): LAHC platziert auf der lösbaren Fixture
+	 * 5/5 Seeds vollständig (SA: 3/5) und halbiert unplaced auf der
+	 * überlasteten Roh-Fixture (4→2) — klarer Sieg auf der Pflicht-Metrik
+	 * Vollständigkeit, leichter Trade-off bei Springstunden (+2).
+	 * 'sa' = klassisches Metropolis mit Temperatur (Referenz-Arm,
+	 * `BENCH_ACCEPT=sa npm run bench`).
+	 */
+	acceptance?: 'sa' | 'lahc';
+	/** LAHC-Historienlänge L. Default 1000. */
+	lahcLength?: number;
 }
 
 export interface LocalSearchResult {
@@ -164,6 +183,13 @@ export function localSearch(
 	const tabu = resume ? resume.tabu : new Map<number, number>();
 	let globalIter = resume ? resume.iterations : 0;
 
+	// R3-S3: LAHC-Historie — beim Frischstart mit dem Start-Total gefüllt
+	// (Standard-Initialisierung nach Burke & Bykov), beim Resume übernommen.
+	const acceptance = opts.acceptance ?? 'lahc';
+	const lahc = acceptance === 'lahc'
+		? (resume?.lahc ?? new Float64Array(Math.max(2, opts.lahcLength ?? 1000)).fill(curBreakdown.total))
+		: undefined;
+
 	let localIter = 0;
 	let acceptedMoves = 0;
 	let improvementCount = 0;
@@ -211,9 +237,13 @@ export function localSearch(
 
 		const { delta, nextBreakdown } = evaluateDelta(state, move, opts.weights, curBreakdown);
 
-		const accept =
-			delta < 0 ||
-			(T > tMin && rng.next() < Math.exp(-delta / T));
+		// Akzeptanz: SA-Metropolis (Default) oder LAHC (R3-S3).
+		// LAHC akzeptiert Verbesserungen/Seitwärts immer und Verschlechterungen
+		// genau dann, wenn der Kandidat ≤ dem Walk-Total von vor L Iterationen
+		// liegt (Ring-Puffer-Vergleich statt Temperatur).
+		const accept = lahc
+			? (delta <= 0 || nextBreakdown.total <= lahc[globalIter % lahc.length])
+			: (delta < 0 || (T > tMin && rng.next() < Math.exp(-delta / T)));
 
 		if (accept) {
 			// R3-S1: commitMove = applyMove + Score-Cache mitführen.
@@ -241,6 +271,10 @@ export function localSearch(
 				}
 			}
 		}
+
+		// LAHC-Historie NACH der Entscheidung mit dem aktuellen Walk-Total
+		// aktualisieren (klassische Formulierung: history[i mod L] = f(current)).
+		if (lahc) lahc[globalIter % lahc.length] = curBreakdown.total;
 
 		T = Math.max(tMin, T * cooling);
 		localIter++;
@@ -270,6 +304,7 @@ export function localSearch(
 			acceptedMoves: (resume?.acceptedMoves ?? 0) + acceptedMoves,
 			improvementCount: (resume?.improvementCount ?? 0) + improvementCount,
 			rngState: rng.getState(),
+			lahc,
 		},
 	};
 }

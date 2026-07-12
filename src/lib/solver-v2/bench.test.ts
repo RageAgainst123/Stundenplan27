@@ -33,6 +33,13 @@ import { placementToPlacedLessons, startSolve, type SolverOutput } from './index
 
 const benchDescribe = process.env.BENCH === '1' ? describe : describe.skip;
 
+/**
+ * R3-S3: Akzeptanz-A/B über Env — `BENCH_ACCEPT=sa npm run bench` fährt
+ * dieselben Fälle mit dem klassischen SA-Referenzpfad. Default folgt der
+ * Produktion: LAHC (seit r3-schritt-3, siehe bench-baseline.json).
+ */
+const BENCH_ACCEPT: 'sa' | 'lahc' = process.env.BENCH_ACCEPT === 'sa' ? 'sa' : 'lahc';
+
 /** Feste Seeds — NIE ändern, sonst bricht die Baseline-Vergleichbarkeit. */
 const SEEDS = [42, 1337, 7, 2024, 99999] as const;
 /** Budget pro Lauf. 10s ILS wie der etablierte Real-Liste-Test. */
@@ -71,6 +78,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 				innerBudgetMs: INNER_MS,
 				plateauMs: PLATEAU_MS,
 				seed,
+				acceptance: BENCH_ACCEPT,
 			});
 			// state.placement ist nach ILS auf best restauriert (finalize) —
 			// Metriken direkt vom State berechnen.
@@ -168,6 +176,7 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 				innerBudgetMs: INNER_MS,
 				plateauMs: PLATEAU_MS,
 				seed,
+				acceptance: BENCH_ACCEPT,
 			});
 			const metrics = computeBenchMetrics(state, ils.bestBreakdown);
 			runs.push(metrics);
