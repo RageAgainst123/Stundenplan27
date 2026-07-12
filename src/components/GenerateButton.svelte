@@ -75,7 +75,14 @@
 	let result = $state<SolverOutput | null>(null);
 	let relaxation = $state<RelaxationInfo | null>(null);
 	let plansApplied = $state<number>(0);
-	let logEntries = $state<SolveLogEvent[]>([]);
+	// R3-S2-Fix: Log-Einträge tragen eine monotone Sequenz-ID als each-Key.
+	// Der frühere Key `tElapsedMs + '|' + message` konnte kollidieren (zwei
+	// identische Meldungen im selben Millisekunden-Fenster — mit den
+	// Multi-Quellen-Logs der Island-Phase wahrscheinlich geworden). Ein
+	// doppelter Key crasht den keyed each und reißt die GESAMTE Svelte-
+	// Reaktivität der Seite still ab.
+	let logSeq = 0;
+	let logEntries = $state<(SolveLogEvent & { seq: number })[]>([]);
 	let logOpen = $state<boolean>(false);
 	// Last DZN snapshot (kept after session ends, for debug download)
 	let lastDzn = $state<string>('');
@@ -342,10 +349,11 @@
 				if (m) poolAttempts = parseInt(m[1], 10);
 			}
 			// Cap log to avoid runaway memory; keep first 50 + last 950 if needed.
+			const entry = { ...ev, seq: logSeq++ };
 			if (logEntries.length >= 1000) {
-				logEntries = [...logEntries.slice(0, 50), ...logEntries.slice(-949), ev];
+				logEntries = [...logEntries.slice(0, 50), ...logEntries.slice(-949), entry];
 			} else {
-				logEntries = [...logEntries, ev];
+				logEntries = [...logEntries, entry];
 			}
 		});
 		s.on('done', d => {
@@ -833,7 +841,7 @@
 				</div>
 			</div>
 			{#if logOpen}
-				<pre class="log-view">{#each logEntries as e (e.tElapsedMs + '|' + e.message)}<span class="log-line log-{e.level}">[{fmtMs(e.tElapsedMs).padStart(7)}] {e.level.toUpperCase().padEnd(5)} {e.message}{#if e.data && Object.keys(e.data).length > 0} {Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}{/if}</span>
+				<pre class="log-view">{#each logEntries as e (e.seq)}<span class="log-line log-{e.level}">[{fmtMs(e.tElapsedMs).padStart(7)}] {e.level.toUpperCase().padEnd(5)} {e.message}{#if e.data && Object.keys(e.data).length > 0} {Object.entries(e.data).map(([k, v]) => `${k}=${v}`).join(' ')}{/if}</span>
 {/each}</pre>
 			{/if}
 		</div>

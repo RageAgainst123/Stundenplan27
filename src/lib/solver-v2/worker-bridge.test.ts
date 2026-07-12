@@ -158,7 +158,7 @@ describe('startSolveSession — Worker-Protokoll (Fake-Worker)', () => {
 		payload: { placed: poolPlaced, score, unplacedCount: 0, attempts },
 	});
 
-	it('Parallel-Pool: k Worker mit distinkten Seeds, Best-Aggregation, Übergang zur Haupt-Session', async () => {
+	it('Parallel-Pool: k Worker mit distinkten Seeds, Best-Aggregation, Übergang zu k Inseln (R3-S2)', async () => {
 		withFakeWorker();
 		withCores(8); // → k = min(4, 8-2) = 4
 		const session = startSolveSession(tinyDoc(), { poolBudgetMs: 5_000, totalBudgetMs: 60_000, seed: 7 });
@@ -180,32 +180,97 @@ describe('startSolveSession — Worker-Protokoll (Fake-Worker)', () => {
 		expect(solutions.map(s => s.score)).toEqual([5000, 4000]);
 		expect(logs.some(m => /Pool: neuer Best #\d+.*Score 4000/.test(m))).toBe(true);
 
-		// Alle 4 melden poolDone → Haupt-Session startet mit Best als Hot-Start.
+		// Alle 4 melden poolDone → R3-S2: k ISLAND-Worker starten, jeder mit
+		// Best als Hot-Start und eigenem Seed.
 		for (const w of FakeWorker.instances.slice(0, 4)) {
 			w.receive({ kind: 'poolDone', payload: { attempts: 5, best: null } });
 		}
-		expect(FakeWorker.instances).toHaveLength(5);
-		const main = FakeWorker.instances[4];
-		const startMsg = main.sent[0] as { type: 'start'; doc: { placed: unknown[] }; opts: Record<string, unknown> };
-		expect(startMsg.type).toBe('start');
-		expect(startMsg.opts.hotStart).toBe(true);
-		expect(startMsg.opts.poolBudgetMs).toBe(0);
-		expect(startMsg.doc.placed).toEqual(poolPlaced);
-		expect(startMsg.opts.totalBudgetMs as number).toBeLessThanOrEqual(60_000);
+		expect(FakeWorker.instances).toHaveLength(8);
+		const islands = FakeWorker.instances.slice(4);
+		const islandSeeds: number[] = [];
+		for (const isl of islands) {
+			const startMsg = isl.sent[0] as { type: 'start'; doc: { placed: unknown[] }; opts: Record<string, unknown> };
+			expect(startMsg.type).toBe('start');
+			expect(startMsg.opts.hotStart).toBe(true);
+			expect(startMsg.opts.poolBudgetMs).toBe(0);
+			expect(startMsg.doc.placed).toEqual(poolPlaced);
+			expect(startMsg.opts.totalBudgetMs as number).toBeLessThanOrEqual(60_000);
+			islandSeeds.push(startMsg.opts.seed as number);
+		}
+		expect(new Set(islandSeeds).size).toBe(4); // Inseln suchen unabhängig
 		expect(logs.some(m => /Pool abgeschlossen: 20 Versuche/.test(m))).toBe(true);
+		expect(logs.some(m => /Island-Optimierung — 4 unabhängige Läufe/.test(m))).toBe(true);
 		// Pool-Worker sind terminiert.
 		expect(FakeWorker.instances.slice(0, 4).every(w => w.terminated)).toBe(true);
 
-		// done der Haupt-Session wird durchgereicht.
-		const dones: unknown[] = [];
-		session.on('done', d => dones.push(d));
-		main.receive({
-			kind: 'done',
-			payload: { final: { status: 'SAT', placed: [], unplaced: [] }, totalElapsedMs: 1 },
-			dzn: 'x',
+		// Live-Verbesserungen: nur echte Bests erreichen das UI, Führungs-
+		// wechsel wird geloggt.
+		islands[1].receive({ kind: 'solution', payload: { placed: poolPlaced, score: 3000, tElapsedMs: 5, phase: 'optimize' } });
+		islands[2].receive({ kind: 'solution', payload: { placed: poolPlaced, score: 3500, tElapsedMs: 6, phase: 'optimize' } }); // schlechter → ignoriert
+		expect(solutions.map(s => s.score)).toEqual([5000, 4000, 3000]);
+		expect(logs.some(m => /Insel 2\/4 übernimmt die Führung/.test(m))).toBe(true);
+
+		// Alle Inseln melden done — die beste (weniger unplaced, dann
+		// weniger no_free, dann Total) gewinnt; genau EIN done an die UI.
+		const dones: Array<{ final: { status: string; message?: string } }> = [];
+		session.on('done', d => dones.push(d as never));
+		const islandDone = (unplaced: number, noFree: number, total: number, dzn: string) => ({
+			kind: 'done' as const,
+			payload: {
+				final: {
+					status: 'SAT', placed: poolPlaced,
+					unplaced: new Array(unplaced).fill({}),
+					penalties: { no_free: noFree, total },
+				},
+				totalElapsedMs: 1,
+			},
+			dzn,
 		});
+		islands[0].receive(islandDone(1, 0, 2000, 'dzn0')); // 1 unplaced → raus
+		islands[1].receive(islandDone(0, 1, 2500, 'dzn1')); // no_free 1 → raus
+		islands[2].receive(islandDone(0, 0, 3100, 'dzn2')); // Kandidat
+		expect(dones).toHaveLength(0); // erst wenn ALLE fertig sind
+		islands[3].receive(islandDone(0, 0, 2900, 'dzn3')); // gewinnt (Total)
 		expect(dones).toHaveLength(1);
-		expect(session.getDzn()).toBe('x');
+		expect(session.getDzn()).toBe('dzn3');
+		expect(logs.some(m => /Insel 4 gewinnt/.test(m))).toBe(true);
+		expect(islands.every(w => w.terminated)).toBe(true);
+	});
+
+	it('Abort während der Island-Phase: alle Inseln bekommen abort, beste Antwort gewinnt', async () => {
+		vi.useFakeTimers();
+		withFakeWorker();
+		withCores(8);
+		const session = startSolveSession(tinyDoc(), { poolBudgetMs: 5_000, totalBudgetMs: 60_000, seed: 7 });
+		const dones: Array<{ final: { status: string } }> = [];
+		session.on('done', d => dones.push(d as never));
+		await Promise.resolve();
+		FakeWorker.instances[0].receive(poolBest(5000, 1));
+		for (const w of FakeWorker.instances.slice(0, 4)) {
+			w.receive({ kind: 'poolDone', payload: { attempts: 2, best: null } });
+		}
+		const islands = FakeWorker.instances.slice(4);
+		expect(islands).toHaveLength(4);
+
+		session.abort();
+		expect(islands.every(w => w.sent.some(m => m.type === 'abort'))).toBe(true);
+		// Nur 2 Inseln antworten auf den Abort — der Terminate-Fallback
+		// schließt nach 3 s mit der besten Antwort ab.
+		islands[0].receive({
+			kind: 'done',
+			payload: { final: { status: 'TIMEOUT', placed: poolPlaced, unplaced: [], penalties: { no_free: 0, total: 4200 } }, totalElapsedMs: 1 },
+			dzn: 'a',
+		});
+		islands[1].receive({
+			kind: 'done',
+			payload: { final: { status: 'TIMEOUT', placed: poolPlaced, unplaced: [], penalties: { no_free: 0, total: 3900 } }, totalElapsedMs: 1 },
+			dzn: 'b',
+		});
+		expect(dones).toHaveLength(0);
+		vi.advanceTimersByTime(3_100);
+		expect(dones).toHaveLength(1);
+		expect(session.getDzn()).toBe('b'); // Insel 2 hatte den besseren Total
+		expect(islands.every(w => w.terminated)).toBe(true);
 	});
 
 	it('Abort während der Pool-Phase: Worker terminiert, beste Pool-Lösung übernommen', async () => {

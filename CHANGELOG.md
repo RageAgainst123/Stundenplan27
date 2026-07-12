@@ -79,6 +79,32 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 2 — Island-Optimierung („mehrere Pläne, bester gewinnt")
+- Nach der parallelen Pool-Phase startet nicht mehr EINE Haupt-Session,
+  sondern **k unabhängige Optimierungs-Inseln** (k = min(4, Kerne − 2)) —
+  jede fährt die komplette Optimierung mit eigenem Zufalls-Seed vom
+  selben Pool-Best. Am Ende gewinnt die beste Insel (weniger
+  unplatzierte Stunden, dann weniger Klassen-Lücken als Roh-Zähler —
+  frame-unabhängig gegenüber der Auto-Lockerung —, dann Score).
+  Das ist das Untis-Prinzip „mehrere Pläne rechnen, besten behalten".
+- Live-Anzeige: nur echte Verbesserungen über alle Inseln erreichen das
+  UI; Führungswechsel werden geloggt („Insel 2/4 übernimmt die Führung").
+  Abort stoppt alle Inseln, jede antwortet mit ihrem besten Stand,
+  Terminate-Fallback nach 3 s.
+- „Weiter optimieren", Diversify und der Fall ohne Worker-Support
+  bleiben unverändert Single-Worker.
+- **Browser-E2E (echte Liste.csv + Kopplungen):** Pool 1297 Versuche/5 s,
+  danach 4 Inseln parallel; Endstand nach ~60 s: Insel 1: 10098 ·
+  Insel 2: 9486 · Insel 3: 9987 · Insel 4: 9686 → Insel 2 gewinnt.
+  Die ~6 % Spannweite zwischen den Inseln ist genau der Mehrwert:
+  jede Insel entspricht einem Einzel-Lauf, der beste von vier schlägt
+  drei von vier.
+- **Nebenbei gefundener & gefixter UI-Bug:** die Solver-Log-Liste war
+  mit `tElapsedMs + message` gekeyed — kollidierende Einträge (durch
+  Multi-Quellen-Logs der Inseln wahrscheinlich geworden) crashten den
+  keyed each und rissen die GESAMTE Svelte-Reaktivität der Seite still
+  ab. Jetzt: monotone Sequenz-ID als Key.
+
 ### Runde 3, Schritt 1 — Scoped Score-Delta (Bewertung beschleunigen)
 - `computeScore` in wiederverwendbare Zeilen-Beiträge zerlegt: 9
   Komponenten pro (Tag × Stufe), 6 pro Lehrer-Woche, 5 pro Unit, plus

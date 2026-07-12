@@ -10,9 +10,17 @@
 // k = min(4, hardwareConcurrency - 2) Pool-Worker GLEICHZEITIG
 // Constructions mit verschiedenen Seeds; die Bridge sammelt das global
 // beste Ergebnis (weniger unplaced, dann Score — identisches Kriterium
-// wie die Session-interne Pool-Phase) und startet damit die Haupt-Session
-// als Hot-Start. Auf einem 8-Kern-Rechner probiert der Pool damit ~4×
-// so viele Startlösungen im selben Budget.
+// wie die Session-interne Pool-Phase).
+//
+// R3 Schritt 2 — Island-ILS („mehrere Pläne, bester gewinnt", Untis-
+// Prinzip): Nach dem Pool startet NICHT mehr eine einzelne Haupt-Session,
+// sondern k unabhängige Optimierungs-Inseln — jede fährt die komplette
+// ILS mit eigenem Seed vom selben Pool-Best als Hot-Start. Die Bridge
+// spiegelt live nur echte Verbesserungen über alle Inseln (solution),
+// UI-Rauschen (phase/progress/log) kommt von Insel 1. Am Ende gewinnt
+// die beste Insel: weniger unplatzierte Stunden, dann weniger
+// Klassen-Lücken (Roh-Zähler, frame-unabhängig — Auto-Relax misst den
+// Total im relaxed-Frame!), dann niedrigerer Total.
 //
 // Fallback-Kaskade: ohne Worker-Support (jsdom/Tests) läuft startSolve
 // inline; mit nur 1 nutzbarem Kern läuft der Pool wie bisher IN der
@@ -235,11 +243,19 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 
 	let aborted = false;
 	let done = false;
-	let inner: SolveSession | null = null;
 	const poolWorkers: Worker[] = [];
 	let poolDoneCount = 0;
 	let totalAttempts = 0;
 	let globalBest: PoolBestPayload | null = null;
+
+	// R3-S2: Island-Phase-Zustand.
+	const islandWorkers: Worker[] = [];
+	let islandsStarted = false;
+	let islandDoneCount = 0;
+	let islandFinals: (SolveDoneEvent | null)[] = [];
+	let islandDzns: string[] = [];
+	let lastDzn = '';
+	let abortTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function emitLog(level: SolveLogEvent['level'], message: string): void {
 		emitter.emit('log', { tElapsedMs: Date.now() - tStart, level, message } satisfies SolveLogEvent);
@@ -248,10 +264,16 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		for (const w of poolWorkers) w.terminate();
 		poolWorkers.length = 0;
 	}
+	function terminateIslands(): void {
+		for (const w of islandWorkers) w.terminate();
+		islandWorkers.length = 0;
+	}
 	function finish(doneEvent: SolveDoneEvent): void {
 		if (done) return;
 		done = true;
+		if (abortTimer !== null) { clearTimeout(abortTimer); abortTimer = null; }
 		terminatePool();
+		terminateIslands();
 		emitter.emit('done', doneEvent);
 	}
 
@@ -272,29 +294,149 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		emitLog('phase', `Phase 1: Parallel-Pool über ${k} Worker (${Math.round(poolBudget / 1000)}s Budget)`);
 	});
 
-	function startMainSession(): void {
+	/**
+	 * R3-S2: Rangfolge einer Insel — weniger unplatzierte Stunden, dann
+	 * weniger Klassen-Lücken (Roh-ZÄHLER, frame-unabhängig: die Auto-
+	 * Lockerung misst den Total im relaxed-Gewichts-Frame), dann Total.
+	 * Kleiner = besser.
+	 */
+	function islandBeats(a: SolveDoneEvent, b: SolveDoneEvent): boolean {
+		const ua = a.final.unplaced?.length ?? 0;
+		const ub = b.final.unplaced?.length ?? 0;
+		if (ua !== ub) return ua < ub;
+		const na = a.final.penalties?.no_free ?? 0;
+		const nb = b.final.penalties?.no_free ?? 0;
+		if (na !== nb) return na < nb;
+		const ta = a.final.penalties?.total ?? Number.POSITIVE_INFINITY;
+		const tb = b.final.penalties?.total ?? Number.POSITIVE_INFINITY;
+		return ta < tb;
+	}
+
+	function finishIslands(): void {
+		if (done) return;
+		let bestIdx = -1;
+		for (let i = 0; i < islandFinals.length; i++) {
+			const f = islandFinals[i];
+			if (!f) continue;
+			if (bestIdx === -1 || islandBeats(f, islandFinals[bestIdx]!)) bestIdx = i;
+		}
+		if (bestIdx === -1) {
+			// Alle Inseln gescheitert — beste Pool-Lösung als Notergebnis
+			// (Resilienz vor Eleganz, wie der Pool-Abort-Pfad).
+			finish({
+				final: {
+					status: 'TIMEOUT',
+					placed: globalBest?.placed ?? [],
+					unplaced: [],
+					message: globalBest
+						? `Alle ${k} Optimierungs-Inseln gescheitert — beste Pool-Lösung übernommen (Score ${Math.round(globalBest.score)}).`
+						: `Alle ${k} Optimierungs-Inseln gescheitert — keine Lösung gefunden.`,
+				},
+				totalElapsedMs: Date.now() - tStart,
+			});
+			return;
+		}
+		const scores = islandFinals
+			.map((f, i) => f ? `Insel ${i + 1}: ${Math.round(f.final.penalties?.total ?? 0)}` : `Insel ${i + 1}: ✗`)
+			.join(' · ');
+		emitLog('stat', `Island-Ergebnis — ${scores} → Insel ${bestIdx + 1} gewinnt`);
+		lastDzn = islandDzns[bestIdx];
+		const winner = islandFinals[bestIdx]!;
+		finish({ final: winner.final, totalElapsedMs: Date.now() - tStart });
+	}
+
+	/**
+	 * R3-S2: Nach dem Pool starten k unabhängige Optimierungs-Inseln —
+	 * jede eine komplette startSolve-Session mit eigenem Seed vom selben
+	 * Pool-Best als Hot-Start („mehrere Pläne, bester gewinnt").
+	 */
+	function startIslandPhase(): void {
 		if (done || aborted) return;
+		islandsStarted = true;
 		const poolElapsed = Date.now() - tStart;
 		emitLog('phase', `Pool abgeschlossen: ${totalAttempts} Versuche, bester Score ${globalBest ? Math.round(globalBest.score) : '–'}`);
+		// Pool-Zeit zählt gegen das Gesamtbudget — wie in der Session-
+		// internen Pool-Phase (Autopilot verlässt sich darauf).
+		const islandBudget = Math.max(1_000, totalBudget - poolElapsed);
 		// Beste Pool-Lösung als Hot-Start-Basis. Ohne Pool-Ergebnis (z. B.
-		// alle Worker gescheitert) läuft die Session mit normaler
-		// Einzel-Construction weiter — Resilienz vor Eleganz.
+		// alle Worker gescheitert) constructen die Inseln selbst —
+		// Resilienz vor Eleganz.
 		const docForMain: ScheduleDoc = globalBest
 			? { ...doc, placed: globalBest.placed }
 			: doc;
-		inner = startSolveInWorker(docForMain, {
-			...opts,
-			poolBudgetMs: 0,
-			hotStart: globalBest !== null,
-			// Pool-Zeit zählt gegen das Gesamtbudget — wie in der
-			// Session-internen Pool-Phase (Autopilot verlässt sich darauf).
-			totalBudgetMs: Math.max(1_000, totalBudget - poolElapsed),
-		});
-		for (const ev of ['phase', 'progress', 'solution', 'relaxation', 'log', 'error'] as const) {
-			inner.on(ev as never, ((e: unknown) => emitter.emit(ev, e)) as never);
+		emitLog('phase', `Phase 2: Island-Optimierung — ${k} unabhängige Läufe parallel (${Math.round(islandBudget / 1000)}s Budget)`);
+
+		islandFinals = new Array(k).fill(null);
+		islandDzns = new Array(k).fill('');
+		// Live-Best über alle Inseln: nur echte Verbesserungen erreichen das
+		// UI (der Score gewichtet unplaced dominant — Vergleich per Total
+		// reicht). phase/progress/log/relaxation kommen nur von Insel 1,
+		// sonst überschreiben sich die Anzeigen gegenseitig.
+		let liveBest = globalBest ? globalBest.score : Number.POSITIVE_INFINITY;
+		let leadIsland = -1;
+
+		for (let i = 0; i < k; i++) {
+			const w = newWorker();
+			islandWorkers.push(w);
+			w.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
+				if (done) return;
+				const m = e.data;
+				switch (m.kind) {
+					case 'solution': {
+						const s = m.payload.score;
+						if (s !== null && s < liveBest) {
+							liveBest = s;
+							if (leadIsland !== i) {
+								leadIsland = i;
+								emitLog('stat', `Insel ${i + 1}/${k} übernimmt die Führung (Score ${Math.round(s)})`);
+							}
+							emitter.emit('solution', { ...m.payload, tElapsedMs: Date.now() - tStart } satisfies SolveSolutionEvent);
+						}
+						break;
+					}
+					case 'phase':
+						if (i === 0) emitter.emit('phase', m.payload);
+						break;
+					case 'progress':
+						if (i === 0) emitter.emit('progress', m.payload);
+						break;
+					case 'log':
+						if (i === 0) emitter.emit('log', m.payload);
+						break;
+					case 'relaxation':
+						if (i === 0) emitter.emit('relaxation', m.payload);
+						break;
+					case 'error':
+						if (i === 0) emitter.emit('error', new Error(m.message));
+						break;
+					case 'done':
+						islandDzns[i] = m.dzn;
+						islandFinals[i] = m.payload;
+						islandDoneCount++;
+						if (islandDoneCount === k) finishIslands();
+						break;
+				}
+			};
+			w.onerror = () => {
+				if (done) return;
+				emitLog('warn', `Insel ${i + 1} abgestürzt — die übrigen laufen weiter`);
+				islandDoneCount++;
+				if (islandDoneCount === k) finishIslands();
+			};
+			w.postMessage({
+				type: 'start',
+				doc: docForMain,
+				opts: {
+					...opts,
+					poolBudgetMs: 0,
+					hotStart: globalBest !== null,
+					totalBudgetMs: islandBudget,
+					// Eigener Seed pro Insel (anderer Mixer als die Pool-Seeds,
+					// damit Insel i nicht mit Pool-Worker i korreliert).
+					seed: ((baseSeed ^ ((i + 1) * 0x85ebca6b)) & 0x7fffffff) || 1,
+				},
+			} satisfies WorkerInMsg);
 		}
-		inner.on('done', d => finish(d));
-		if (aborted) inner.abort();
 	}
 
 	for (let i = 0; i < k; i++) {
@@ -326,18 +468,18 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 				poolDoneCount++;
 				if (poolDoneCount === k) {
 					terminatePool();
-					startMainSession();
+					startIslandPhase();
 				}
 			}
 		};
 		w.onerror = () => {
 			// Ein gescheiterter Pool-Worker bricht den Pool nicht ab — die
-			// übrigen liefern weiter; zur Not startet die Haupt-Session ohne
+			// übrigen liefern weiter; zur Not starten die Inseln ohne
 			// Pool-Ergebnis.
 			poolDoneCount++;
 			if (poolDoneCount === k && !done) {
 				terminatePool();
-				startMainSession();
+				startIslandPhase();
 			}
 		};
 		w.postMessage({
@@ -352,8 +494,20 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		abort(): void {
 			if (done) return;
 			aborted = true;
-			if (inner) {
-				inner.abort();
+			if (islandsStarted) {
+				// Abort während der Island-Phase: alle Inseln stoppen; jede
+				// antwortet mit ihrem eigenen done (TIMEOUT + bester Stand) →
+				// finishIslands wählt das beste. Antwortet nicht jede binnen
+				// ABORT_TERMINATE_MS, schließt der Timer mit dem bis dahin
+				// Gesammelten ab (finish terminiert die Nachzügler hart).
+				emitLog('phase', 'Benutzer hat abgebrochen — Inseln werden gestoppt');
+				for (const w of islandWorkers) {
+					w.postMessage({ type: 'abort' } satisfies WorkerInMsg);
+				}
+				abortTimer = setTimeout(() => {
+					abortTimer = null;
+					finishIslands();
+				}, ABORT_TERMINATE_MS);
 				return;
 			}
 			// Abort während der Pool-Phase: Worker stoppen, beste bisherige
@@ -375,7 +529,9 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 			return emitter.on(event as string, cb as (e: unknown) => void);
 		},
 		getDzn(): string {
-			return inner?.getDzn() ?? '';
+			// DZN der Gewinner-Insel — verfügbar nach Session-Ende (wie beim
+			// Single-Worker-Pfad kommt der Snapshot mit dem done-Event).
+			return lastDzn;
 		},
 	};
 }

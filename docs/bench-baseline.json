@@ -384,6 +384,19 @@
         "QUALITÄT unverändert: Rohfixture-Median byte-gleich (weightedTotal 414820, unplaced 4, gaps 13), coupled-solvable-Gates grün (unplaced/no_free/min_daily Median 0, per-Seed identisch zur A3-Baseline).",
         "SCOPED BLEIBT AN (Default): beweisbar exakt + strikt schneller. ANSATZPUNKT für weiteren Durchsatz notiert: genMove-Feasibility-Sampling (Kandidaten-Slots vorfiltern statt 12× wouldViolate) — bewusst NICHT in diesem Schritt (eigenes Risiko-Profil)."
       ]
+    },
+    {
+      "label": "r3-schritt-2-island-ils",
+      "commit": "(siehe git log: feat(solver) Island-Optimierung)",
+      "date": "2026-07-12",
+      "machine": "Geo-Windows-Dev (Browser-E2E, 8 Kerne)",
+      "_hinweis": "Kein jsdom-Bench-Eintrag — Island läuft nur im Browser (Worker). Kern-Algorithmen unverändert seit r3-s1. Zahlen aus dem Preview-E2E auf der echten Liste.csv + BSP/REL-Kopplungen:",
+      "_befund": [
+        "ISLAND-E2E: Pool 1297 Versuche in 5s über 4 Worker (Best 33666), danach 4 unabhängige ILS-Inseln parallel. Endstand nach ~60s Abbruch: Insel 1: 10098 / Insel 2: 9486 / Insel 3: 9987 / Insel 4: 9686 → Insel 2 gewinnt. Spannweite ~6% = der Mehrwert des Prinzips: jede Insel ist ein Einzel-Lauf, Min-von-4 schlägt 3 von 4 Einzel-Läufen.",
+        "Führungswechsel live geloggt (Insel 1→2→4→2→1→4→1 in den ersten Sekunden), Abort stoppt alle Inseln sauber (jede liefert Best-Stand, Ranking frame-unabhängig über unplaced→no_free→total), Gewinner-Plan mit 155 Placements übernommen, 0 Konsolen-Fehler.",
+        "NEBENBEFUND (gefixt): GenerateButton-Log-Liste war mit tElapsedMs+message gekeyed — Key-Kollision crasht den keyed each und reißt die komplette Svelte-Reaktivität still ab (exakt so im E2E beobachtet: Toggle-Text flippte, {#if}-Block erschien nie mehr). Jetzt monotone Sequenz-ID.",
+        "METHODIK-NOTIZ Preview-Pane: window.confirm/alert-Overrides aus javascript_tool-Evals erreichen die Seite NICHT zuverlässig — UI-Flows mit nativen Dialogen (CSV-Import-Zusammenfassung, Reset) können die Pane blockieren; Workaround: neuen Tab erstellen, localStorage direkt editieren, Reload."
+      ]
     }
   ]
 }
