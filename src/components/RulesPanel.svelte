@@ -1,11 +1,72 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
-	import { DEFAULT_CONSTRAINTS } from '../lib/types';
+	import { DEFAULT_CONSTRAINTS, type ConstraintConfig } from '../lib/types';
 
 	function reset() {
 		if (!confirm('Alle Regeln auf die Standard-Werte zurücksetzen? Deine angepassten Gewichte gehen verloren.')) return;
 		store.doc.constraints = structuredClone(DEFAULT_CONSTRAINTS);
+	}
+
+	// R3-S6: Gewichts-Presets — ein Klick stellt alle Regler auf ein
+	// stimmiges Profil (Basis: DEFAULT_CONSTRAINTS, dann gezielte
+	// Verschiebungen). Feintuning danach jederzeit möglich.
+	const PRESETS: { id: string; label: string; hint: string; tweak: (c: ConstraintConfig) => void }[] = [
+		{
+			id: 'ausgewogen',
+			label: '⚖ Ausgewogen',
+			hint: 'Die Standard-Gewichte — Klassen-Qualität ist Pflicht, Lehrer-Komfort moderat. Identisch mit „Zurücksetzen".',
+			tweak: () => { /* Defaults unverändert */ },
+		},
+		{
+			id: 'lehrer',
+			label: '👩‍🏫 Lehrer-freundlich',
+			hint: 'Weniger Springstunden, kompaktere Lehrer-Tage, weniger Anwesenheitstage, Mittagspause aktiv — auf Kosten von etwas Klassen-Feinschliff.',
+			tweak: (c) => {
+				c.compactTeacherDays.weight = 160;
+				c.teacherGapFairness.weight = 40;
+				c.teacherDaysPresent.weight = 240;
+				c.teacherEarlyStartBalance.weight = 60;
+				c.teacherMinLessonsPerDay.weight = 250;
+				c.teacherMiddayBreak = { enabled: true, weight: 100 };
+			},
+		},
+		{
+			id: 'klassen',
+			label: '🎓 Klassen-freundlich',
+			hint: 'Strenge Tagesstruktur für die Schüler: Zieltagespensum, gleichmäßige Wochen, keine Hauptfach-Häufung — Lehrer-Komfort zählt weniger.',
+			tweak: (c) => {
+				c.minDailyWeight = 800;
+				c.targetDailyLessons.weight = 150;
+				c.unevenDaysWeight = 250;
+				c.maxConsecutiveMain.weight = 80;
+				c.subjectMaxConsecutive.weight = 80;
+				c.subjectMaxOncePerDay.weight = 100;
+				c.noMainSubjectAfternoon.weight = 300;
+				c.compactTeacherDays.weight = 40;
+				c.teacherDaysPresent.weight = 60;
+			},
+		},
+		{
+			id: 'kompakt',
+			label: '📦 Streng kompakt',
+			hint: 'Alles dicht gepackt: keine Lücken irgendwo, früher Schluss — maximaler Druck auf Kompaktheit für Klassen UND Lehrer.',
+			tweak: (c) => {
+				c.compactTeacherDays.weight = 200;
+				c.teacherGapFairness.weight = 50;
+				c.mustStartFirstPeriod.weight = 500;
+				c.teacherEarlyStartBalance.weight = 80;
+				c.unevenDaysWeight = 250;
+				c.teacherMinLessonsPerDay.weight = 300;
+			},
+		},
+	];
+
+	function applyPreset(preset: (typeof PRESETS)[number]): void {
+		if (!confirm(`Preset „${preset.label.replace(/^\S+\s/, '')}" anwenden? Deine aktuellen Gewichte werden überschrieben (Feintuning danach möglich).`)) return;
+		const next = structuredClone(DEFAULT_CONSTRAINTS);
+		preset.tweak(next);
+		store.doc.constraints = next;
 	}
 
 	const c = $derived(store.doc.constraints);
@@ -13,7 +74,12 @@
 
 <div class="head">
 	<h2>Regeln (weiche Constraints)</h2>
-	<button class="btn" onclick={reset} title="Alle Regeln auf den Stift-Default zurücksetzen">Zurücksetzen</button>
+	<div class="head-actions">
+		{#each PRESETS as p (p.id)}
+			<button class="btn small" onclick={() => applyPreset(p)} title={p.hint}>{p.label}</button>
+		{/each}
+		<button class="btn" onclick={reset} title="Alle Regeln auf den Stift-Default zurücksetzen">Zurücksetzen</button>
+	</div>
 </div>
 <p class="muted">
 	Diese Regeln führt der Solver beim Generieren als Penalty-Funktion an. Höheres Gewicht = stärker
@@ -315,6 +381,13 @@
 		justify-content: space-between;
 		align-items: center;
 		margin-bottom: 6px;
+		flex-wrap: wrap;
+		gap: 8px;
+	}
+	.head-actions {
+		display: flex;
+		gap: 6px;
+		flex-wrap: wrap;
 	}
 	.head h2 {
 		font-size: 18px;

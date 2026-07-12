@@ -79,6 +79,30 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 6 — Bedienung: Presets, Schwierigkeits-Report, Qualitäts-Note
+- **Gewichts-Presets im Regeln-Reiter:** Ein Klick auf „⚖ Ausgewogen",
+  „👩‍🏫 Lehrer-freundlich", „🎓 Klassen-freundlich" oder „📦 Streng
+  kompakt" stellt alle 23 Regler auf ein stimmiges Profil (mit
+  Bestätigung; Feintuning danach jederzeit möglich).
+- **🧩 Schwierigkeits-Report** (aSc-Vorbild „Analyze by generation"):
+  Nach jedem Lauf zeigt eine aufklappbare Top-10-Liste, welche
+  Lehreinheiten den Generator am stärksten einschränken (Kopplung,
+  Mehrstufigkeit, Blöcke, Team, Lehrer-Sperren, G/U, Nachmittags-
+  Regeln) — tatsächlich ungeplante Stunden stehen rot markiert oben.
+  Neuer Helper `spec-difficulty.ts` (statische Heuristik, spiegelt die
+  Construction-Reihenfolge des Solvers).
+- **Qualitäts-Note:** Neben dem Roh-Score steht jetzt „N % Qualität"
+  (100 % bei Score 0, asymptotisch fallend; Formel im Tooltip) — zum
+  intuitiven Vergleichen von Plänen. Der Roh-Score bleibt maßgeblich.
+- **Nebenbei behoben:** Ein per „Abbrechen" übernommener Plan (Status
+  TIMEOUT mit Lösung — der Normalfall!) zeigte nur eine Warnbox statt
+  des Ergebnisblocks. Jetzt bekommt er dieselbe volle Ansicht wie ein
+  regulär fertiger Lauf (Badge, Score-Aufschlüsselung, Report).
+- Browser-E2E: Presets schreiben korrekt bis in localStorage durch
+  (Lehrer-freundlich: compact 80→160, Mittagspause an), Badge zeigt
+  „63 % Qualität" bei Score 8886, Report listet die BSP-Kopplungen
+  als schwierigste Einheiten — fachlich exakt richtig.
+
 ### Runde 3, Schritt 5 — „Max in Folge" pro Fach wirkt jetzt wirklich
 - Das Fächer-Tabellen-Feld „Max in Folge" ist an den Generator
   angebunden: neue Score-Komponente **`subject_run`** (23. Komponente,

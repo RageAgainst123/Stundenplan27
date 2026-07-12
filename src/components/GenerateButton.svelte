@@ -7,6 +7,8 @@
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { PlacedLesson } from '../lib/types';
 	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
+	import { computeSpecDifficulties } from '../lib/spec-difficulty';
+	import { teacherName } from '../lib/teacher-helpers';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
 	const store = useStore();
@@ -551,6 +553,31 @@
 		)
 	);
 
+	// ---- R3-S6: Plan-Qualitäts-Prozent + Schwierigkeits-Report ----
+	// Qualitäts-Note: 100 % bei Score 0, asymptotisch fallend — grobe
+	// Vergleichs-Note zwischen Plänen/Snapshots (Untis-Vorbild). Der
+	// Roh-Score bleibt maßgeblich und sichtbar; K=15000 kalibriert so,
+	// dass ein typischer guter Liste.csv-Plan (~10000) bei ~60 % liegt
+	// und jede ungeplante Stunde (100000) die Note unter 15 % drückt.
+	function qualityPercent(total: number): number {
+		const K = 15_000;
+		return Math.max(0, Math.round((100 * K) / (K + Math.max(0, total))));
+	}
+
+	// Schwierigkeits-Report (aSc „Analyze by generation"): Top-10 der am
+	// schwersten platzierbaren Lehreinheiten aus der statischen Heuristik,
+	// tatsächlich ungeplante Specs zuerst und markiert.
+	const difficultyReport = $derived.by(() => {
+		if (!result || (result.status !== 'SAT' && result.status !== 'TIMEOUT')) return [];
+		const unplacedSet = new Set(result.unplaced);
+		const all = computeSpecDifficulties(store.doc).map(d => ({
+			...d,
+			isUnplaced: unplacedSet.has(d.spec.id),
+		}));
+		all.sort((a, b) => Number(b.isUnplaced) - Number(a.isUnplaced) || b.score - a.score);
+		return all.slice(0, 10);
+	});
+
 	// ---- Score-history mini-graph ----
 	function buildPath(history: { t: number; score: number | null }[], w: number, h: number): string {
 		const pts = history.filter(p => p.score !== null) as { t: number; score: number }[];
@@ -716,10 +743,19 @@
 	{/if}
 
 	{#if !busy && result}
-		{#if result.status === 'SAT'}
+		<!-- R3-S6: TIMEOUT MIT Lösung (der Normalfall nach „Abbrechen") bekommt
+		     dieselbe volle Ergebnis-Ansicht wie SAT — inkl. Qualitäts-Badge,
+		     Score-Aufschlüsselung und Schwierigkeits-Report. -->
+		{#if result.status === 'SAT' || (result.status === 'TIMEOUT' && result.placed.length > 0)}
 			<div class="result-block">
 				<span class="ok">
-					✓ Plan gefunden ({result.placed.length} Stunden platziert{#if result.unplaced.length}, {result.unplaced.length} nicht{/if}{#if result.penalties}, Score {result.penalties.total}{/if})
+					✓ Plan {result.status === 'TIMEOUT' ? 'übernommen' : 'gefunden'} ({result.placed.length} Stunden platziert{#if result.unplaced.length}, {result.unplaced.length} nicht{/if}{#if result.penalties}, Score {result.penalties.total}{/if})
+					{#if result.penalties}
+						<span
+							class="quality-badge"
+							title="Plan-Qualität: 100 % bei Score 0, fallend mit steigender gewichteter Rest-Penalty (Formel: 100·15000/(15000+Score)). Grobe Vergleichs-Note zwischen Plänen — der Roh-Score bleibt maßgeblich."
+						>{qualityPercent(result.penalties.total)} % Qualität</span>
+					{/if}
 				</span>
 				{#if showRelaxBanner && relaxation}
 					<div class="warn">
@@ -813,6 +849,27 @@
 						</ul>
 					</details>
 				{/if}
+				{#if difficultyReport.length > 0}
+					<details class="difficulty-report">
+						<summary>🧩 Schwierigste Lehreinheiten (Top {difficultyReport.length})</summary>
+						<p class="muted small">
+							Diese Lehreinheiten schränken den Generator am stärksten ein — wenn der Plan
+							klemmt, hier zuerst nach lockerbaren Vorgaben suchen (Kopplung, Sperren, Blöcke).
+						</p>
+						<ul class="diff-list">
+							{#each difficultyReport as d (d.spec.id)}
+								<li class:unplaced={d.isUnplaced}>
+									<span class="diff-subj">{d.spec.subject}</span>
+									<span class="diff-meta">{teacherName(store.doc, d.spec.teachers[0] ?? '')} · {d.spec.grades.join('+')}. SSt.</span>
+									{#if d.isUnplaced}<span class="diff-flag">⚠ ungeplant</span>{/if}
+									{#each d.reasons as r (r)}
+										<span class="diff-chip">{r}</span>
+									{/each}
+								</li>
+							{/each}
+						</ul>
+					</details>
+				{/if}
 				{#if result.message}
 					<span class="muted small">{result.message}</span>
 				{/if}
@@ -820,6 +877,7 @@
 		{:else if result.status === 'UNSAT'}
 			<span class="err">✗ Keine Lösung – {result.message}</span>
 		{:else if result.status === 'TIMEOUT'}
+			<!-- TIMEOUT OHNE Lösung (mit Lösung → Ergebnis-Block oben). -->
 			<div class="warn">
 				<strong>⏱ Solver-Zeit erreicht ohne Lösung</strong>
 				<div style="margin-top:4px; white-space:pre-line;">{result.message ?? 'Time-Limit erreicht.'}</div>
@@ -1297,6 +1355,65 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 6px;
+	}
+	/* R3-S6: Qualitäts-Badge + Schwierigkeits-Report */
+	.quality-badge {
+		display: inline-block;
+		margin-left: 8px;
+		padding: 1px 8px;
+		border-radius: 999px;
+		background: var(--accent-bg, #eef4ff);
+		color: var(--accent);
+		font-size: 12px;
+		font-weight: 700;
+		cursor: help;
+	}
+	.difficulty-report {
+		margin-top: 6px;
+		font-size: 12px;
+	}
+	.difficulty-report summary {
+		cursor: pointer;
+		font-weight: 600;
+	}
+	.diff-list {
+		list-style: none;
+		padding: 0;
+		margin: 6px 0 0;
+		display: flex;
+		flex-direction: column;
+		gap: 3px;
+	}
+	.diff-list li {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+		flex-wrap: wrap;
+		padding: 3px 6px;
+		background: var(--bg-soft);
+		border-radius: 4px;
+	}
+	.diff-list li.unplaced {
+		background: #fef2f2;
+		border: 1px solid #fca5a5;
+	}
+	.diff-subj {
+		font-weight: 700;
+	}
+	.diff-meta {
+		color: var(--text-muted);
+	}
+	.diff-flag {
+		color: #b91c1c;
+		font-weight: 700;
+	}
+	.diff-chip {
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+		border-radius: 999px;
+		padding: 0 6px;
+		font-size: 11px;
+		color: var(--text-muted);
 	}
 	.snap-name-input input {
 		padding: 4px 8px;
