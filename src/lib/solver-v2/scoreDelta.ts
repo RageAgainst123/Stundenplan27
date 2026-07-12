@@ -57,12 +57,20 @@ const CLASS_KEYS = [
 /** Stride von cache.classRow — MUSS CLASS_ROW_COMPONENTS (score.ts) entsprechen. */
 const NC = CLASS_KEYS.length;
 
+const TEACHER_KEYS = [
+	'compact_teacher', 'teacher_late_start', 'teacher_under_min',
+	'teacher_lunch', 'teacher_gap_fairness', 'teacher_days_present',
+	'teacher_presence',
+] as const;
+/** Stride von cache.teacherRow — MUSS TEACHER_ROW_COMPONENTS (score.ts) entsprechen. */
+const NT = TEACHER_KEYS.length;
+
 // Wiederverwendete Puffer (single-threaded, wie die Scan-Puffer in score.ts).
 const pairBuf: MovedPair[] = [];
 const affectedRows: number[] = []; // Zeilen-Index d*G+g
 const affectedTeachers: number[] = [];
 const tmpClass = new Int32Array(NC);
-const tmp6 = new Int32Array(6);
+const tmpTeacher = new Int32Array(NT);
 const tmp5 = new Int32Array(5);
 
 function collectPairs(move: Move): MovedPair[] {
@@ -105,10 +113,6 @@ function collectTeachers(state: SolverState, scratch: ScoreScratch, unitIdx: num
 	}
 }
 
-const TEACHER_KEYS = [
-	'compact_teacher', 'teacher_late_start', 'teacher_under_min',
-	'teacher_lunch', 'teacher_gap_fairness', 'teacher_days_present',
-] as const;
 const UNIT_KEYS = ['any_aft', 'main_aft', 'afternoon_preferred', 'main_early', 'time_pref'] as const;
 
 /**
@@ -123,13 +127,13 @@ export function rebuildScoreCache(state: SolverState, weights: ScoreWeights): Sc
 	const cfg = resolveScoreCfg(state);
 	const T = Math.max(1, state.doc.teachers.length);
 
-	const cache: ScoreCache = state.scoreCache && state.scoreCache.teacherRow.length === T * 6
+	const cache: ScoreCache = state.scoreCache && state.scoreCache.teacherRow.length === T * NT
 		? state.scoreCache
 		: {
 			cfg,
 			counts,
 			classRow: new Int32Array(D * G * NC),
-			teacherRow: new Int32Array(T * 6),
+			teacherRow: new Int32Array(T * NT),
 		};
 	cache.cfg = cfg;
 	cache.counts = counts;
@@ -141,8 +145,8 @@ export function rebuildScoreCache(state: SolverState, weights: ScoreWeights): Sc
 		}
 	}
 	for (let t = 0; t < state.doc.teachers.length; t++) {
-		scanTeacherWeek(scratch, cfg, t, tmp6);
-		cache.teacherRow.set(tmp6, t * 6);
+		scanTeacherWeek(scratch, cfg, t, tmpTeacher);
+		cache.teacherRow.set(tmpTeacher, t * NT);
 	}
 	state.scoreCache = cache;
 	return counts;
@@ -215,14 +219,15 @@ function applyPairsToCounts(
 		}
 		if (store) cache.classRow.set(tmpClass, base);
 	}
-	// Berührte Lehrer (ganze Woche — gap_fairness/days_present sind Aggregate).
+	// Berührte Lehrer (ganze Woche — gap_fairness/days_present/presence
+	// sind Wochen-Aggregate).
 	for (const t of affectedTeachers) {
-		scanTeacherWeek(scratch, cache.cfg, t, tmp6);
-		const base = t * 6;
-		for (let c = 0; c < 6; c++) {
-			next[TEACHER_KEYS[c]] += tmp6[c] - cache.teacherRow[base + c];
+		scanTeacherWeek(scratch, cache.cfg, t, tmpTeacher);
+		const base = t * NT;
+		for (let c = 0; c < NT; c++) {
+			next[TEACHER_KEYS[c]] += tmpTeacher[c] - cache.teacherRow[base + c];
 		}
-		if (store) cache.teacherRow.set(tmp6, base);
+		if (store) cache.teacherRow.set(tmpTeacher, base);
 	}
 }
 

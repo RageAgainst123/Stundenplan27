@@ -93,6 +93,17 @@ describe('migrateDoc — Phase 10 ConstraintConfig additions', () => {
 		migrateDoc(doc);
 		expect(doc.constraints.mustStartFirstPeriod.enabled).toBe(false);
 	});
+
+	it('Anwesenheitspflicht (2026-07): teacherPresence wird additiv ergänzt, explizite Werte bleiben', () => {
+		const doc = emptyDoc();
+		delete (doc.constraints as any).teacherPresence;
+		migrateDoc(doc);
+		expect(doc.constraints.teacherPresence).toEqual({ enabled: true, weight: 400 });
+		// Explizit gesetzter Wert übersteht die Migration.
+		doc.constraints.teacherPresence = { enabled: false, weight: 250 };
+		migrateDoc(doc);
+		expect(doc.constraints.teacherPresence).toEqual({ enabled: false, weight: 250 });
+	});
 });
 
 describe('migrateDoc — v2 → v3 groupKey split (Option A)', () => {

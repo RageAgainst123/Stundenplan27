@@ -1244,5 +1244,78 @@ describe('computeScore — subject_run (Max-in-Folge pro Fach, R3-S5)', () => {
 	});
 });
 
+describe('computeScore — teacher_presence (Anwesenheitspflicht, 2026-07)', () => {
+	function presenceDoc(minDaysPresent?: number) {
+		const doc = emptyDoc();
+		doc.teachers.push({ ...teacher('t', 'L'), minDaysPresent });
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('s', 'D', 't', [5], 5));
+		return doc;
+	}
+
+	it('unter dem Minimum: fehlende Tage zählen, Default-Gewicht 400', () => {
+		const doc = presenceDoc(5);
+		const state = buildState(doc);
+		// 5 Stunden auf nur 2 Tagen → daysPresent 2, gefordert 5 → 3 fehlen.
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Mo', 2);
+		place(state, 's', 'Mo', 3);
+		place(state, 's', 'Di', 1);
+		place(state, 's', 'Di', 2);
+		const w = defaultWeights(doc);
+		const b = computeScore(state, w);
+		expect(b.teacher_presence).toBe(3);
+		expect(w.teacher_presence).toBe(400);
+	});
+
+	it('Minimum erfüllt → 0; Pflicht-Tage werden NICHT mehr als Überhang bestraft', () => {
+		const doc = presenceDoc(5);
+		const state = buildState(doc);
+		// 5 Stunden auf 5 Tagen: Pflicht erfüllt. Ohne die Ideal-Anhebung
+		// würde teacher_days_present hier 4 kosten (Ideal ceil(5/6)=1).
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Di', 1);
+		place(state, 's', 'Mi', 1);
+		place(state, 's', 'Do', 1);
+		place(state, 's', 'Fr', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_presence).toBe(0);
+		expect(b.teacher_days_present).toBe(0);
+	});
+
+	it('OHNE Pflicht bleibt das Kompakt-Verhalten unverändert (Referenz)', () => {
+		const doc = presenceDoc(undefined);
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		place(state, 's', 'Di', 1);
+		place(state, 's', 'Mi', 1);
+		place(state, 's', 'Do', 1);
+		place(state, 's', 'Fr', 1);
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_presence).toBe(0);
+		// Ideal ceil(5/6)=1 → 4 Tage Überhang wie bisher.
+		expect(b.teacher_days_present).toBe(4);
+	});
+
+	it('Lehrer ohne platzierte Stunden ist exempt (Platzhalter/unbesetzt)', () => {
+		const doc = presenceDoc(5);
+		const state = buildState(doc);
+		// Nichts platziert → weekLessons 0 → keine Presence-Strafe.
+		const b = computeScore(state, defaultWeights(doc));
+		expect(b.teacher_presence).toBe(0);
+	});
+
+	it('deaktivierte Regel (teacherPresence.enabled=false) → Gewicht 0, Zähler zählt', () => {
+		const doc = presenceDoc(4);
+		doc.constraints.teacherPresence.enabled = false;
+		const state = buildState(doc);
+		place(state, 's', 'Mo', 1);
+		const w = defaultWeights(doc);
+		expect(w.teacher_presence).toBe(0);
+		const b = computeScore(state, w);
+		expect(b.teacher_presence).toBe(3); // 4 gefordert, 1 anwesend
+	});
+});
+
 void (null as unknown as ScheduleDoc);
 void (null as unknown as PlacedLesson);

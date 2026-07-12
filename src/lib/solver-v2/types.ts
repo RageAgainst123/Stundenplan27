@@ -215,6 +215,8 @@ export interface ScoreScratch {
 	specDay: Int32Array;
 	/** Statisch: 1 wenn Lehrer t an Tag d in P1 gesperrt ist (Index t*D+d). */
 	blockedAtP1: Uint8Array;
+	/** Statisch: Mindest-Anwesenheitstage pro Lehrer (0 = keine Pflicht). */
+	teacherMinDays: Int32Array;
 	/** Statisch pro Unit: 0=kein timePref, 1=early, 2=late. */
 	unitTimePref: Int8Array;
 	/** Statisch pro Unit: 1 = exempt von any_aft/main_aft/main_early. */
@@ -387,6 +389,15 @@ export interface ScoreBreakdown {
 	 */
 	teacher_days_present: number;
 	/**
+	 * Anwesenheitspflicht (2026-07): FEHLENDE Anwesenheitstage pro Lehrer
+	 * mit `Teacher.minDaysPresent`. Σ pro Lehrer max(0, minDaysPresent −
+	 * anwesendeTage), nur wenn der Lehrer überhaupt Stunden hat.
+	 * Gegenstück zu teacher_days_present (das Kompakt-Ideal wird für
+	 * diese Lehrer auf max(ceil(h/6), minDaysPresent) angehoben, damit
+	 * die beiden Komponenten nicht gegeneinander arbeiten).
+	 */
+	teacher_presence: number;
+	/**
 	 * Solver-Opt Schritt 3: fehlende Mittagspause. Pro (Lehrer, Tag) +1 wenn
 	 * der Lehrer ≥6 Stunden hat, sowohl im Vormittag (P1-P4) als auch im
 	 * Nachmittag (P7-P8) unterrichtet UND P5 und P6 beide belegt sind.
@@ -432,6 +443,8 @@ export interface ScoreWeights {
 	unplaced: number;
 	/** R3-S5: Gewicht für Max-in-Folge pro Fach (subject_run). */
 	subject_run: number;
+	/** Anwesenheitspflicht: Gewicht pro fehlendem Anwesenheitstag. */
+	teacher_presence: number;
 }
 
 /**
@@ -515,6 +528,10 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// R3-S5: Max-in-Folge pro Fach (Subject.maxConsecutive → subject_run).
 	const subjRun = (c as unknown as { subjectMaxConsecutive?: { enabled?: boolean; weight?: number } }).subjectMaxConsecutive;
 	const subjectRunWeight = subjRun?.enabled === false ? 0 : (subjRun?.weight ?? 40);
+	// Anwesenheitspflicht: Strafe pro fehlendem Anwesenheitstag bei
+	// Lehrern mit Teacher.minDaysPresent (Komponente teacher_presence).
+	const presence = (c as unknown as { teacherPresence?: { enabled?: boolean; weight?: number } }).teacherPresence;
+	const presenceWeight = presence?.enabled === false ? 0 : (presence?.weight ?? 400);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -544,6 +561,7 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		teacher_lunch: lunchWeight,
 		unplaced: unplacedWeight,
 		subject_run: subjectRunWeight,
+		teacher_presence: presenceWeight,
 	};
 }
 

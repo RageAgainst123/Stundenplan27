@@ -29,6 +29,9 @@
 				c.teacherEarlyStartBalance.weight = 60;
 				c.teacherMinLessonsPerDay.weight = 250;
 				c.teacherMiddayBreak = { enabled: true, weight: 100 };
+				// Pflicht-Tage bleiben verbindlich, nur etwas sanfter —
+				// das Preset priorisiert kompakte Lehrer-Wochen.
+				c.teacherPresence.weight = 300;
 			},
 		},
 		{
@@ -58,6 +61,7 @@
 				c.teacherEarlyStartBalance.weight = 80;
 				c.unevenDaysWeight = 250;
 				c.teacherMinLessonsPerDay.weight = 300;
+				c.teacherPresence.weight = 500;
 			},
 		},
 	];
@@ -349,6 +353,18 @@
 				</span>
 			</label>
 			<input type="number" min="0" step="10" bind:value={c.teacherDaysPresent.weight} disabled={!c.teacherDaysPresent.enabled} class="weight" />
+		</div>
+
+		<!-- Anwesenheitspflicht (2026-07): Gegenstück zu "minimieren" -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.teacherPresence.enabled} />
+				<span>
+					Anwesenheitspflicht durchsetzen
+					<span class="hint" title="Strafe pro FEHLENDEM Anwesenheitstag bei Lehrern mit gesetzter Pflicht (Spalte ‚Anwesenheit' in der Lehrer-Tabelle: mind. 2/3/4 Tage oder ‚Jeden Tag'). Für Vollzeitlehrer und Supplierungs-Reserven. Für diese Lehrer wird ‚Anwesenheitstage minimieren' automatisch ausgesetzt — die Regeln arbeiten nicht gegeneinander.">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="50" bind:value={c.teacherPresence.weight} disabled={!c.teacherPresence.enabled} class="weight" />
 		</div>
 
 		<!-- Solver-Opt Schritt 3: Mittagspause (Default aus) -->

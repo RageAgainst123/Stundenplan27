@@ -20,8 +20,16 @@ export interface TeacherQualityRow {
 	weekLessons: number;
 	/** Tage mit mindestens 1 Stunde. */
 	daysPresent: number;
-	/** Ideal-Anwesenheitstage: ceil(weekLessons / 6). */
+	/**
+	 * Ideal-Anwesenheitstage: max(ceil(weekLessons / 6), minDaysPresent) —
+	 * dieselbe Formel wie die Score-Komponenten teacher_days_present/
+	 * teacher_presence (score.ts scanTeacherWeek).
+	 */
 	idealDays: number;
+	/** Anwesenheitspflicht des Lehrers (Teacher.minDaysPresent, 0 = keine). */
+	minDaysPresent: number;
+	/** Fehlende Pflicht-Anwesenheitstage: max(0, minDaysPresent − daysPresent). */
+	missingPresenceDays: number;
 	/** Springstunden gesamt (innere Lücken über alle Tage). */
 	gaps: number;
 	/** Schlechtester Tag: meiste Lücken an einem einzelnen Tag. */
@@ -68,6 +76,11 @@ export function computeTeacherQuality(doc: ScheduleDoc): TeacherQualityRow[] {
 	for (const teacher of doc.teachers) {
 		const occ = occByTeacher.get(teacher.id);
 		if (!occ || occ.size === 0) continue; // Lehrer ohne Stunden: kein Report-Eintrag
+
+		// Anwesenheitspflicht (0 = keine) — Clamping wie im Score-Scratch.
+		const minDays = typeof teacher.minDaysPresent === 'number'
+			? Math.max(0, Math.min(DAYS.length, Math.round(teacher.minDaysPresent)))
+			: 0;
 
 		let weekLessons = 0;
 		let daysPresent = 0;
@@ -123,7 +136,10 @@ export function computeTeacherQuality(doc: ScheduleDoc): TeacherQualityRow[] {
 			color: teacher.color,
 			weekLessons,
 			daysPresent,
-			idealDays: Math.ceil(weekLessons / 6),
+			// Anwesenheitspflicht hebt das Ideal an — Formel identisch zum Score.
+			idealDays: Math.max(Math.ceil(weekLessons / 6), minDays),
+			minDaysPresent: minDays,
+			missingPresenceDays: Math.max(0, minDays - daysPresent),
 			gaps,
 			worstDayGaps,
 			lateStarts,

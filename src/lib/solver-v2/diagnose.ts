@@ -54,6 +54,44 @@ export function diagnose(doc: ScheduleDoc): Hint[] {
 				message: `Lehrer "${teacher.name}" ist sehr eng ausgelastet: ${load}/${available} Slots. Bei zusätzlichen Constraints kann es eng werden.`
 			});
 		}
+
+		// Anwesenheitspflicht (2026-07): Erfüllbarkeits-Vorabprüfung.
+		// Die Pflicht ist eine starke WEICHE Regel — unerfüllbar heißt
+		// „Solver zahlt dauerhaft Strafe", darum hier transparent warnen.
+		const minDays = typeof teacher.minDaysPresent === 'number'
+			? Math.max(0, Math.min(D, Math.round(teacher.minDaysPresent)))
+			: 0;
+		if (minDays > 0 && load > 0) {
+			// (a) Ganztägig gesperrte Tage können nie Anwesenheitstage werden.
+			const blockedPerDay = new Map<string, number>();
+			for (const u of teacher.unavailable ?? []) {
+				blockedPerDay.set(u.day, (blockedPerDay.get(u.day) ?? 0) + 1);
+			}
+			let fullyBlockedDays = 0;
+			for (const cnt of blockedPerDay.values()) {
+				if (cnt >= P) fullyBlockedDays++;
+			}
+			const availableDays = D - fullyBlockedDays;
+			if (availableDays < minDays) {
+				hints.push({
+					severity: 'warn',
+					message: `Lehrer "${teacher.name}": Anwesenheitspflicht ${minDays} Tage, aber nur ${availableDays} Tage ohne Ganztages-Sperre. Pflicht senken oder Verfügbarkeit erweitern — sonst bleibt die Regel dauerhaft verletzt.`
+				});
+			}
+			// (b) Zu wenige Wochenstunden für sinnvolle Pflicht-Tage.
+			const minLessonsCfg = (doc.constraints as unknown as {
+				teacherMinLessonsPerDay?: { enabled?: boolean; min?: number };
+			}).teacherMinLessonsPerDay;
+			const minPerDay = minLessonsCfg?.enabled !== false
+				? Math.max(1, Math.round(minLessonsCfg?.min ?? 2))
+				: 1;
+			if (load < minDays * minPerDay) {
+				hints.push({
+					severity: 'warn',
+					message: `Lehrer "${teacher.name}": Anwesenheitspflicht ${minDays} Tage × mind. ${minPerDay} Std./Tag bräuchte ${minDays * minPerDay} Wochenstunden, zugewiesen sind nur ${load}. Die Pflicht erzeugt Mini-Tage oder bleibt unerfüllt — Pflicht senken oder Stunden erhöhen.`
+				});
+			}
+		}
 	}
 
 	// 2) Teacher with 0 slots but specs assigned

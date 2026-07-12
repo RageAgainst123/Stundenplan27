@@ -59,6 +59,8 @@ export interface PenaltyBreakdown {
 	unplaced: number;
 	/** R3-S5: Max-in-Folge pro Fach überschritten (Subject.maxConsecutive). */
 	subject_run: number;
+	/** Anwesenheitspflicht: fehlende Anwesenheitstage (Teacher.minDaysPresent). */
+	teacher_presence: number;
 	total: number;
 }
 
@@ -294,6 +296,7 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		teacher_lunch: b.teacher_lunch,
 		unplaced: b.unplaced,
 		subject_run: b.subject_run,
+		teacher_presence: b.teacher_presence,
 		total: b.total,
 	};
 }

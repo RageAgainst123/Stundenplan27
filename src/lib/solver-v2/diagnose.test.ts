@@ -359,3 +359,49 @@ describe('diagnose — Halbstunden & Kopplungs-Konsistenz (Audit A3)', () => {
 		expect(hints.some(h => h.severity === 'error' && h.message.includes('Schulstufe 5'))).toBe(true);
 	});
 });
+
+describe('diagnose — Anwesenheitspflicht (2026-07)', () => {
+	it('warnt wenn Ganztages-Sperren weniger Tage übrig lassen als gefordert', () => {
+		const doc = emptyDoc();
+		// Mo + Di komplett gesperrt → nur 3 Tage verfügbar, Pflicht 5.
+		const allDay = (d: 'Mo' | 'Di') =>
+			[1, 2, 3, 4, 5, 6, 7, 8].map(p => ({ day: d, period: p as 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 }));
+		doc.teachers.push({ ...teacher('t1', 'Vollzeit', [...allDay('Mo'), ...allDay('Di')]), minDaysPresent: 5 });
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 10));
+		const hints = diagnose(doc);
+		const w = hints.find(h => h.message.includes('Anwesenheitspflicht 5 Tage, aber nur 3 Tage'));
+		expect(w).toBeTruthy();
+		expect(w!.severity).toBe('warn');
+	});
+
+	it('warnt wenn die Wochenstunden für die Pflicht-Tage nicht reichen', () => {
+		const doc = emptyDoc();
+		doc.teachers.push({ ...teacher('t1', 'Wenig'), minDaysPresent: 5 });
+		doc.subjects.push(subject('REL'));
+		// 3 Wochenstunden, Pflicht 5 Tage × min. 2 Std./Tag = 10 → Warnung.
+		doc.specs.push(spec('s1', 'REL', 't1', [5], 3));
+		const hints = diagnose(doc);
+		expect(hints.some(h =>
+			h.severity === 'warn' && h.message.includes('Anwesenheitspflicht 5 Tage ×')
+		)).toBe(true);
+	});
+
+	it('KEINE Warnung wenn die Pflicht erfüllbar ist', () => {
+		const doc = emptyDoc();
+		doc.teachers.push({ ...teacher('t1', 'Vollzeit'), minDaysPresent: 5 });
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 20));
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.message.includes('Anwesenheitspflicht'))).toBe(false);
+	});
+
+	it('ohne minDaysPresent keine Presence-Hinweise (Bestandsverhalten)', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t1', 'Normal'));
+		doc.subjects.push(subject('M'));
+		doc.specs.push(spec('s1', 'M', 't1', [5], 3));
+		const hints = diagnose(doc);
+		expect(hints.some(h => h.message.includes('Anwesenheitspflicht'))).toBe(false);
+	});
+});

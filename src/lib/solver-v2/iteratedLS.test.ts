@@ -47,6 +47,40 @@ describe('iteratedLocalSearch', () => {
 		expect(result.bestBreakdown.total).toBeLessThanOrEqual(before.total);
 	});
 
+	it('Anwesenheitspflicht (2026-07): Solver verteilt Stunden auf die geforderten Tage', () => {
+		const doc = emptyDoc();
+		// Vollzeit-Szenario im Kleinen: 5 Stunden + Pflicht „jeden Tag".
+		// Ohne die Pflicht packt der Solver die 5 Stunden kompakt auf 1 Tag
+		// (teacher_days_present belohnt genau das) — mit Pflicht MUSS er auf
+		// 5 Tage verteilen (Gewicht 400/fehlendem Tag schlägt alles andere).
+		doc.teachers.push({ ...teacher('t', 'Vollzeit'), minDaysPresent: 5 });
+		doc.subjects.push(subject('REL'));
+		doc.specs.push(spec('s', 'REL', 't', [5], 5));
+		// Klassen-Pensum-Regeln neutralisieren: im Mini-Doc hängt der
+		// Stufen-Tag 1:1 am Lehrer-Tag — min_daily/target/uneven würden das
+		// Verteilen bestrafen und den Test verfälschen. (Beim echten
+		// Vollzeitlehrer mit 20+ Stunden über mehrere Stufen existiert
+		// diese Kopplung nicht.) Der Test isoliert die Lehrer-Achse.
+		doc.constraints.minDailySlotsPerGrade = 0;
+		doc.constraints.unevenDaysWeight = 0;
+		doc.constraints.targetDailyLessons.enabled = false;
+		const state = buildState(doc);
+		const w = defaultWeights(doc);
+		construct(state, { weights: w, seed: 7 });
+		const before = computeScore(state, w);
+		const result = iteratedLocalSearch(state, before, {
+			weights: w,
+			totalBudgetMs: 2500,
+			innerBudgetMs: 800,
+			plateauMs: 300,
+			seed: 42,
+		});
+		expect(result.bestBreakdown.teacher_presence).toBe(0);
+		// Und die Pflicht-Tage werden NICHT als Überhang bestraft.
+		expect(result.bestBreakdown.teacher_days_present).toBe(0);
+		expect(result.bestBreakdown.unplaced).toBe(0);
+	});
+
 	it('respects shouldAbort', () => {
 		const doc = emptyDoc();
 		doc.teachers.push(teacher('t', 'L'));

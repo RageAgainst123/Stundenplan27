@@ -42,6 +42,13 @@
 		else t.subjects.push(code);
 	}
 
+	// Anwesenheitspflicht: 0/undefined = Auto (kompakt optimieren),
+	// 2-5 = Mindest-Anwesenheitstage. Für Vollzeit/Supplierungs-Reserve.
+	function setMinDays(t: Teacher, raw: string) {
+		const v = parseInt(raw, 10);
+		t.minDaysPresent = Number.isFinite(v) && v > 0 ? v : undefined;
+	}
+
 	function unavailableHas(t: Teacher, day: Day, period: Period): boolean {
 		return t.unavailable.some(u => u.day === day && u.period === period);
 	}
@@ -70,6 +77,7 @@
 				<th>Name</th>
 				<th>Pers.-Nr.</th>
 				<th>Fächer</th>
+				<th title="Anwesenheitspflicht: Muss der Lehrer an einer Mindest-Anzahl von Tagen an der Schule sein? ‚Auto' = der Generator darf kompakt planen (freie Tage möglich). ‚Jeden Tag' für Vollzeitlehrer und Supplierungs-Reserven. Gewicht der Regel im Reiter ‚Regeln'.">Anwesenheit&nbsp;ⓘ</th>
 				<th>Verf.</th>
 				<th></th>
 			</tr>
@@ -100,6 +108,20 @@
 						{/each}
 					</td>
 					<td>
+						<select
+							class="presence-select"
+							class:active={(t.minDaysPresent ?? 0) > 0}
+							value={String(t.minDaysPresent ?? 0)}
+							onchange={e => setMinDays(t, (e.currentTarget as HTMLSelectElement).value)}
+						>
+							<option value="0">Auto</option>
+							<option value="2">mind. 2 Tage</option>
+							<option value="3">mind. 3 Tage</option>
+							<option value="4">mind. 4 Tage</option>
+							<option value="5">Jeden Tag</option>
+						</select>
+					</td>
+					<td>
 						<button
 							class="btn small"
 							onclick={() => (editingId = editingId === t.id ? null : t.id)}
@@ -113,7 +135,7 @@
 				</tr>
 				{#if editingId === t.id}
 					<tr class="expanded-row">
-						<td colspan="7">
+						<td colspan="8">
 							<div class="expanded">
 								<strong>Verfügbarkeit –</strong>
 								<span class="muted">Felder anklicken, um Slots als „nicht verfügbar" zu markieren.</span>
@@ -179,6 +201,18 @@
 	.muted {
 		color: var(--text-muted);
 		font-size: 12px;
+	}
+	/* Anwesenheitspflicht-Dropdown: aktiv (Pflicht gesetzt) hervorheben. */
+	.presence-select {
+		padding: 3px 6px;
+		font-size: 12px;
+		border: 1px solid var(--border);
+		border-radius: 4px;
+		background: var(--bg-panel);
+	}
+	.presence-select.active {
+		border-color: var(--accent);
+		font-weight: 600;
 	}
 	.name-input {
 		border: 0;

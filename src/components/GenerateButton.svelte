@@ -845,6 +845,9 @@
 							{#if result.penalties.teacher_lunch > 0}
 								<li>Fehlende Mittagspausen: <strong>{result.penalties.teacher_lunch}</strong></li>
 							{/if}
+							{#if result.penalties.teacher_presence > 0}
+								<li>Fehlende Pflicht-Anwesenheitstage: <strong>{result.penalties.teacher_presence}</strong></li>
+							{/if}
 							<li class="total">Total (gewichtet): <strong>{result.penalties.total}</strong></li>
 						</ul>
 					</details>

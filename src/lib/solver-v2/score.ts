@@ -21,11 +21,12 @@
 //
 // Canonical reference for ALL 22 score components (Stand Solver-Opt R2):
 //   docs/MODEL.md §3 "Score-Komponenten"
-// Komponenten (23): min_daily, no_p1_start, time_pref, main_aft, any_aft,
+// Komponenten (24): min_daily, no_p1_start, time_pref, main_aft, any_aft,
 // no_free, uneven_days, main_run, compact_teacher, main_early, subject_twice,
 // spec_spread, teacher_late_start, teacher_under_min, target_daily,
 // afternoon_preferred, main_twice, main_block_split, teacher_gap_fairness,
-// teacher_days_present, teacher_lunch, unplaced, subject_run (R3-S5).
+// teacher_days_present, teacher_lunch, unplaced, subject_run (R3-S5),
+// teacher_presence (Anwesenheitspflicht 2026-07).
 // Wenn hier eine Komponente geändert/hinzugefügt wird → MODEL.md §3 nachziehen
 // UND defaultWeights() in types.ts + UI in GenerateButton.svelte (Score-
 // Aufschlüsselung) UND PenaltyBreakdown in index.ts erweitern — UND die
@@ -145,6 +146,16 @@ export function ensureScratch(state: SolverState): ScoreScratch {
 		}
 	}
 
+	// Anwesenheitspflicht: Mindest-Anwesenheitstage pro Lehrer (statisch).
+	// 0 = keine Pflicht (Auto/kompakt), 2-5 = gefordertes Minimum.
+	const teacherMinDays = new Int32Array(T);
+	for (let t = 0; t < state.doc.teachers.length; t++) {
+		const raw = state.doc.teachers[t].minDaysPresent;
+		teacherMinDays[t] = typeof raw === 'number'
+			? Math.max(0, Math.min(D, Math.round(raw)))
+			: 0;
+	}
+
 	const scratch: ScoreScratch = {
 		S,
 		NS,
@@ -160,6 +171,7 @@ export function ensureScratch(state: SolverState): ScoreScratch {
 		rowStartSize: new Int32Array(D * G * P),
 		specDay: new Int32Array(NS * D),
 		blockedAtP1,
+		teacherMinDays,
 		unitTimePref,
 		unitAfternoonExempt,
 		unitIsMain,
@@ -332,10 +344,11 @@ export const CLASS_ROW_COMPONENTS = [
 	'subject_run',
 ] as const;
 
-/** Indizes ins 6er-Ergebnis von scanTeacherWeek. */
+/** Indizes ins 7er-Ergebnis von scanTeacherWeek. */
 export const TEACHER_ROW_COMPONENTS = [
 	'compact_teacher', 'teacher_late_start', 'teacher_under_min',
 	'teacher_lunch', 'teacher_gap_fairness', 'teacher_days_present',
+	'teacher_presence',
 ] as const;
 
 /** Indizes ins 5er-Ergebnis von unitSlotContrib. */
@@ -500,7 +513,7 @@ export function scanClassRow(
 /**
  * Wochen-Beitrag von Lehrer t: compact_teacher, teacher_late_start,
  * teacher_under_min, teacher_lunch, teacher_gap_fairness,
- * teacher_days_present. Ergebnis in `out` (Länge 6).
+ * teacher_days_present, teacher_presence. Ergebnis in `out` (Länge 7).
  *
  * Ganze Woche pro Lehrer, weil gap_fairness/days_present Wochen-Aggregate
  * sind — ändert ein Move einen Tag, muss der Lehrer komplett neu.
@@ -578,10 +591,19 @@ export function scanTeacherWeek(
 	out[4] = weekGaps * weekGaps;
 	// teacher_days_present: Anwesenheitstage über dem Ideal
 	// ceil(wochenstunden / 6). Lehrer ohne Stunden sind exempt.
+	// Anwesenheitspflicht: für Lehrer mit minDaysPresent wird das Ideal
+	// ANGEHOBEN — sonst würde der geforderte 5. Tag hier gleichzeitig
+	// bestraft (days_present) und unten gefordert (teacher_presence).
+	const minDays = scratch.teacherMinDays[t];
 	if (weekLessons > 0) {
-		const idealDays = Math.ceil(weekLessons / 6);
+		const idealDays = Math.max(Math.ceil(weekLessons / 6), minDays);
 		if (daysPresent > idealDays) {
 			out[5] = daysPresent - idealDays;
+		}
+		// teacher_presence: fehlende geforderte Anwesenheitstage. Lehrer
+		// ohne Stunden sind exempt (Platzhalter/unbesetzte Stellen).
+		if (minDays > 0 && daysPresent < minDays) {
+			out[6] = minDays - daysPresent;
 		}
 	}
 }
@@ -656,11 +678,12 @@ export function weightedTotal(b: ScoreBreakdown, weights: ScoreWeights): number 
 		weights.teacher_days_present * b.teacher_days_present +
 		weights.teacher_lunch * b.teacher_lunch +
 		weights.unplaced * b.unplaced +
-		weights.subject_run * b.subject_run
+		weights.subject_run * b.subject_run +
+		weights.teacher_presence * b.teacher_presence
 	);
 }
 
-/** Leerer Breakdown (alle 22 Komponenten + total auf 0). */
+/** Leerer Breakdown (alle 24 Komponenten + total auf 0). */
 export function emptyBreakdown(): ScoreBreakdown {
 	return {
 		min_daily: 0,
@@ -686,13 +709,14 @@ export function emptyBreakdown(): ScoreBreakdown {
 		teacher_lunch: 0,
 		unplaced: 0,
 		subject_run: 0,
+		teacher_presence: 0,
 		total: 0,
 	};
 }
 
 // Scan-Ausgabepuffer für computeScore (wiederverwendet, single-threaded).
 const classOut = new Int32Array(CLASS_ROW_COMPONENTS.length);
-const teacherOut = new Int32Array(6);
+const teacherOut = new Int32Array(TEACHER_ROW_COMPONENTS.length);
 const unitOut = new Int32Array(5);
 
 /**
@@ -738,6 +762,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 		breakdown.teacher_lunch += teacherOut[3];
 		breakdown.teacher_gap_fairness += teacherOut[4];
 		breakdown.teacher_days_present += teacherOut[5];
+		breakdown.teacher_presence += teacherOut[6];
 	}
 
 	// Slot-abhängige Unit-Beiträge.

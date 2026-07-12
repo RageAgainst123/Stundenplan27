@@ -12,6 +12,30 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Anwesenheitspflicht pro Lehrer (2026-07)
+User-Anlass: Der Generator optimiert Lehrer-Wochen bewusst kompakt —
+auch Vollzeitlehrer bekamen freie Tage. Für Vollzeitkräfte und
+Supplierungs-Reserven soll pro Lehrer erzwingbar sein, dass er (fast)
+jeden Tag an der Schule ist.
+- **Neues Feld `Teacher.minDaysPresent`** (additiv, kein Schema-Bump):
+  Dropdown „Anwesenheit" in der Lehrer-Tabelle — Auto (Standard,
+  kompakt) / mind. 2 / 3 / 4 Tage / Jeden Tag.
+- **Neue Score-Komponente `teacher_presence`** (24. Komponente,
+  Default-Gewicht 400 pro fehlendem Pflicht-Tag, Regler + Checkbox im
+  Regeln-Reiter, Preset-Werte angepasst). Bewusst starke WEICHE Regel:
+  Unerfüllbares lässt den Plan nicht platzen.
+- **Konflikt-Auflösung:** Für Lehrer mit Pflicht wird das Kompakt-Ideal
+  von „Anwesenheitstage minimieren" auf max(ceil(h/6), Pflicht-Tage)
+  angehoben — die beiden Regeln arbeiten nicht gegeneinander. Der
+  Qualitäts-Report zeigt die Pflicht (📌/⚠) und nutzt dieselbe Formel.
+- **Pre-Flight-Diagnose warnt** bei Unerfüllbarkeit: Ganztages-Sperren
+  lassen weniger Tage übrig als gefordert, oder die Wochenstunden
+  reichen nicht für die Pflicht-Tage (Mini-Tage-Falle).
+- Scoped-Delta automatisch abgedeckt (Lehrer-Wochen-Achse); Property-
+  Test um Zufalls-Pflichten erweitert. 392 Tests grün (+10); Bench:
+  Default-Verhalten unverändert (Komponente 0 ohne gesetzte Pflicht),
+  beide Gates grün.
+
 ### Ergebnis (Bench Liste.csv, Sync-Mediane Baseline → Schritt 4)
 - Springstunden gesamt: **14 → 10 (−29%)**
 - Max. Lücken pro Lehrer: **5 → 2 (−60%)**

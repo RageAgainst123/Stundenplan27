@@ -19,11 +19,14 @@
 ScheduleDoc                         ← localStorage / JSON-Backup
 ├── schoolYear: string
 ├── teachers: Teacher[]
-│   └── unavailable: AvailabilityCell[]      (hart: Solver darf nicht hin)
+│   ├── unavailable: AvailabilityCell[]      (hart: Solver darf nicht hin)
+│   └── minDaysPresent?: number             (Anwesenheitspflicht 2026-07: 2-5 =
+│                                            Mindest-Anwesenheitstage, „5" = jeden Tag;
+│                                            undefined = Auto/kompakt → teacher_presence)
 ├── subjects: Subject[]
-│   └── maxConsecutive: number              (⚠ derzeit NICHT im Solver v2 angebunden —
-│                                            main_run nutzt nur das GLOBALE Limit aus
-│                                            ConstraintConfig.maxConsecutiveMain; Backlog)
+│   └── maxConsecutive: number              (seit R3-S5 angebunden: Komponente
+│                                            subject_run bestraft Fach-Läufe über
+│                                            dem individuellen Limit)
 ├── specs: LessonSpec[]                      ← die "Lerneinheiten"
 │   ├── teachers: TeacherId[]               (1, 2, 3+ — Team-Teaching)
 │   ├── grades: GradeLevel[]                (1 oder mehrere — Multi-Grade)
@@ -155,7 +158,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 23)
+## 3. Score-Komponenten (alle 24)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -182,7 +185,8 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `main_twice`       | (day,grade,Hauptfach) mit ≥3 Vorkommen — je Vorkommen über 2 hinaus +1     | 800 (fix) | — (hardcoded in defaultWeights)                  | keine 3×-Häufung |
 | `main_block_split` | Hauptfach genau 2× am (day,grade): Anzahl Leerslots zwischen den Blöcken  | 60 (fix)  | — (hardcoded in defaultWeights)                  | konsekutiv oder ≠2 Vorkommen |
 | `teacher_gap_fairness` | Σ pro Lehrer (Wochen-Springstunden)² — Lücken sollen nicht bei einem Lehrer klumpen. 1×5 Lücken = 25 vs 5×1 = 5. | 15 | `teacherGapFairness.{enabled, weight}` (Solver-Opt S3) | enabled=false oder keine Lücken |
-| `teacher_days_present` | Σ pro Lehrer max(0, Anwesenheitstage − ceil(Wochenstunden/6)) — Teilzeit-Konzentration | 120 | `teacherDaysPresent.{enabled, weight}` (Solver-Opt S3) | enabled=false oder alle im Ideal |
+| `teacher_days_present` | Σ pro Lehrer max(0, Anwesenheitstage − Ideal). Ideal = ceil(Wochenstunden/6), bei Anwesenheitspflicht angehoben auf max(…, `Teacher.minDaysPresent`) — Teilzeit-Konzentration | 120 | `teacherDaysPresent.{enabled, weight}` (Solver-Opt S3) | enabled=false oder alle im Ideal |
+| `teacher_presence` | Anwesenheitspflicht (2026-07): Σ pro Lehrer max(0, `Teacher.minDaysPresent` − Anwesenheitstage). Nur Lehrer mit gesetzter Pflicht (Lehrer-Tabelle: mind. 2/3/4 Tage oder „Jeden Tag"); Lehrer ohne Stunden exempt. Starke weiche Regel — Diagnose warnt vorab bei Unerfüllbarkeit. | 400 | `teacherPresence.{enabled, weight}` | kein minDaysPresent gesetzt, Pflicht erfüllt oder enabled=false |
 | `teacher_lunch`    | (teacher,day) mit ≥6h, Vormittag+Nachmittag-Unterricht UND P5+P6 beide belegt | 100, **Default AUS** | `teacherMiddayBreak.{enabled, weight}` (Solver-Opt S3) | enabled=false (Default!) |
 | `unplaced`         | NICHT platzierte Units (placement == -1). **DOMINANT** — vorher kostete eine weggelassene Stunde nichts (sparte sogar Penalties), Best-Tracking/Diversify konnten unvollständige Pläne bevorzugen. Zusammen mit dem unplaced-insert-Move in `moves.ts`. | 100000 | `unplacedPenalty.{enabled, weight}` (Solver-Opt R2) | enabled=false oder alles platziert |
 | `subject_run`      | R3-S5: Max-in-Folge PRO FACH — pro (Tag, Stufe) jede Periode, um die ein Fach-Lauf dessen `Subject.maxConsecutive` (Fächer-Tabelle) überschreitet. Beispiel max=2: M-M-M = +1. Ergänzt `main_run` (globales Limit über verschiedene Hauptfächer hinweg) um das individuelle Fach-Limit. | 40 | `subjectMaxConsecutive.{enabled, weight}` | Limit ≥ P (Default 99) oder enabled=false |

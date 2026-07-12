@@ -120,7 +120,12 @@ function randomFeasibleState(rng: Rng): SolverState {
 				period: (rng.int(0, P) + 1) as Period,
 			});
 		}
-		doc.teachers.push(teacher(`t${t}`, `L${t}`, unavailable));
+		const tch = teacher(`t${t}`, `L${t}`, unavailable);
+		// Anwesenheitspflicht (2026-07): ~ jeder dritte Lehrer bekommt ein
+		// zufälliges Minimum — deckt teacher_presence + die Ideal-Anhebung
+		// von teacher_days_present über den Delta-Pfad ab.
+		if (rng.int(0, 3) === 0) tch.minDaysPresent = 2 + rng.int(0, 4);
+		doc.teachers.push(tch);
 	}
 	const codes = ['M', 'D', 'E', 'BSP', 'REL', 'PH'];
 	// Hauptfächer mit echtem Max-in-Folge-Limit (R3-S5) — damit der
@@ -165,7 +170,7 @@ const BREAKDOWN_KEYS: (keyof ScoreBreakdown)[] = [
 	'spec_spread', 'teacher_late_start', 'teacher_under_min', 'target_daily',
 	'afternoon_preferred', 'main_twice', 'main_block_split',
 	'teacher_gap_fairness', 'teacher_days_present', 'teacher_lunch',
-	'unplaced', 'subject_run', 'total',
+	'unplaced', 'subject_run', 'teacher_presence', 'total',
 ];
 
 describe('Scoped Score-Delta == Full-Scan-Referenz (R3-S1)', () => {

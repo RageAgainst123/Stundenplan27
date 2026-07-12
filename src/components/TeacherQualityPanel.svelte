@@ -66,7 +66,7 @@
 					<tr>
 						<th>Lehrer</th>
 						<th title="Unterrichtsstunden pro Woche">h/Woche</th>
-						<th title="Anwesenheitstage (Ideal: Wochenstunden ÷ 6, aufgerundet)">Tage</th>
+						<th title="Anwesenheitstage / Ideal. Ideal = Wochenstunden ÷ 6 aufgerundet; bei Anwesenheitspflicht (Lehrer-Tabelle) mindestens die geforderten Tage. 📌 = Pflicht gesetzt, ⚠ = Pflicht verletzt.">Tage</th>
 						<th title="Springstunden = innere Lücken im Tagesplan, ganze Woche">Lücken</th>
 						<th title="Schlimmster Einzeltag">max/Tag</th>
 						<th title="Summe der Späteinstiege (P1-Start = 0)">Spätstart</th>
@@ -82,7 +82,14 @@
 								{r.name}
 							</td>
 							<td>{r.weekLessons}</td>
-							<td class:warn-cell={r.daysPresent > r.idealDays + 1}>{r.daysPresent}<span class="muted small">/{r.idealDays}</span></td>
+							<td
+								class:warn-cell={r.daysPresent > r.idealDays + 1 || r.missingPresenceDays > 0}
+								title={r.minDaysPresent > 0
+									? (r.missingPresenceDays > 0
+										? `Anwesenheitspflicht verletzt: nur ${r.daysPresent} von ${r.minDaysPresent} geforderten Tagen`
+										: `Anwesenheitspflicht erfüllt (mind. ${r.minDaysPresent} Tage)`)
+									: undefined}
+							>{r.daysPresent}<span class="muted small">/{r.idealDays}</span>{#if r.minDaysPresent > 0}<span class="presence-flag">{r.missingPresenceDays > 0 ? ' ⚠' : ' 📌'}</span>{/if}</td>
 							<td><span class="chip {gapClass(r.gaps)}">{r.gaps}</span></td>
 							<td>{r.worstDayGaps}</td>
 							<td>{r.lateStarts}</td>

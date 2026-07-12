@@ -47,6 +47,14 @@ export interface Teacher {
 	placeholder?: boolean;        // "Zz_Planung_…" or "N. N." — vacant role
 	subjects: SubjectCode[];      // subjects this teacher can teach
 	unavailable: AvailabilityCell[]; // hard constraint: solver may not place here
+	/**
+	 * Anwesenheitspflicht: Mindest-Anzahl Anwesenheitstage pro Woche
+	 * (2–5; 5 = „jeden Tag"). undefined/0 = Auto — der Solver darf den
+	 * Plan kompakt optimieren (freie Tage erlauben, teacher_days_present).
+	 * Für Vollzeitlehrer und Supplierungs-Reserven, die (fast) täglich an
+	 * der Schule sein sollen. Additives optionales Feld — kein Schema-Bump.
+	 */
+	minDaysPresent?: number;
 }
 
 export interface Subject {
@@ -337,6 +345,16 @@ export interface ConstraintConfig {
 	 */
 	teacherDaysPresent: { enabled: boolean; weight: number };
 	/**
+	 * Anwesenheitspflicht (Feature 2026-07): Strafe pro FEHLENDEM
+	 * Anwesenheitstag bei Lehrern mit `Teacher.minDaysPresent`. Gegenspieler
+	 * zu teacherDaysPresent — für Lehrer MIT Pflicht wird deren Kompakt-
+	 * Ideal auf max(ceil(h/6), minDaysPresent) angehoben, damit die beiden
+	 * Regeln nicht gegeneinander arbeiten. Bewusst starke WEICHE Regel
+	 * (Default 400/Tag): Unerfüllbares lässt den Plan nicht platzen, die
+	 * Pre-Flight-Diagnose warnt vorher.
+	 */
+	teacherPresence: { enabled: boolean; weight: number };
+	/**
 	 * Solver-Opt Schritt 3: Mittagspause. +1 pro (Lehrer, Tag) mit ≥6
 	 * Stunden, Vormittags- UND Nachmittags-Unterricht, aber P5 und P6 beide
 	 * belegt. Default DEAKTIVIERT (bewusst — User-Priorität liegt auf
@@ -405,6 +423,8 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	// Solver-Opt Schritt 3: Lehrer-Qualität (User-Priorität: Springstunden).
 	teacherGapFairness: { enabled: true, weight: 15 },
 	teacherDaysPresent: { enabled: true, weight: 120 },
+	// Anwesenheitspflicht: wirkt nur bei Lehrern mit minDaysPresent > 0.
+	teacherPresence: { enabled: true, weight: 400 },
 	teacherMiddayBreak: { enabled: false, weight: 100 }
 };
 

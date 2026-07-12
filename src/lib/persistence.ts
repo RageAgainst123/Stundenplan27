@@ -210,6 +210,12 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.subjectMaxConsecutive !== 'object' || c12.subjectMaxConsecutive === null) {
 			c12.subjectMaxConsecutive = { enabled: true, weight: 40 };
 		}
+		// Anwesenheitspflicht (2026-07): Strafe pro fehlendem Anwesenheitstag
+		// bei Lehrern mit Teacher.minDaysPresent (Komponente teacher_presence).
+		// Wirkt nur, wo das Feld am Lehrer gesetzt ist.
+		if (typeof c12.teacherPresence !== 'object' || c12.teacherPresence === null) {
+			c12.teacherPresence = { enabled: true, weight: 400 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.
