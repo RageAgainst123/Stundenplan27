@@ -155,7 +155,7 @@ Unit.kind ∈ {'solo', 'multigrade', 'block', 'coupling'}
 
 ---
 
-## 3. Score-Komponenten (alle 22)
+## 3. Score-Komponenten (alle 23)
 
 Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 **Default-Gewichte stammen aus `DEFAULT_CONSTRAINTS` in `src/lib/types.ts`**;
@@ -185,6 +185,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `teacher_days_present` | Σ pro Lehrer max(0, Anwesenheitstage − ceil(Wochenstunden/6)) — Teilzeit-Konzentration | 120 | `teacherDaysPresent.{enabled, weight}` (Solver-Opt S3) | enabled=false oder alle im Ideal |
 | `teacher_lunch`    | (teacher,day) mit ≥6h, Vormittag+Nachmittag-Unterricht UND P5+P6 beide belegt | 100, **Default AUS** | `teacherMiddayBreak.{enabled, weight}` (Solver-Opt S3) | enabled=false (Default!) |
 | `unplaced`         | NICHT platzierte Units (placement == -1). **DOMINANT** — vorher kostete eine weggelassene Stunde nichts (sparte sogar Penalties), Best-Tracking/Diversify konnten unvollständige Pläne bevorzugen. Zusammen mit dem unplaced-insert-Move in `moves.ts`. | 100000 | `unplacedPenalty.{enabled, weight}` (Solver-Opt R2) | enabled=false oder alles platziert |
+| `subject_run`      | R3-S5: Max-in-Folge PRO FACH — pro (Tag, Stufe) jede Periode, um die ein Fach-Lauf dessen `Subject.maxConsecutive` (Fächer-Tabelle) überschreitet. Beispiel max=2: M-M-M = +1. Ergänzt `main_run` (globales Limit über verschiedene Hauptfächer hinweg) um das individuelle Fach-Limit. | 40 | `subjectMaxConsecutive.{enabled, weight}` | Limit ≥ P (Default 99) oder enabled=false |
 **Ausnahmen / Spezialfälle:**
 - `time_pref='late'`-Specs sind exempt von `main_aft`, `any_aft`, `main_early`
   (User hat explizit Nachmittag gewünscht — kein Widerspruch). Gleiches gilt

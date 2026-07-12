@@ -205,6 +205,11 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		if (typeof c12.unplacedPenalty !== 'object' || c12.unplacedPenalty === null) {
 			c12.unplacedPenalty = { enabled: true, weight: 100000 };
 		}
+		// R3-S5: Max-in-Folge pro FACH — bindet Subject.maxConsecutive aus
+		// der Fächer-Tabelle an den Score an (Komponente subject_run).
+		if (typeof c12.subjectMaxConsecutive !== 'object' || c12.subjectMaxConsecutive === null) {
+			c12.subjectMaxConsecutive = { enabled: true, weight: 40 };
+		}
 		// Phase 12 follow-up: teacherDailyLoad + teacherLunchBreak entfernt
 		// (Constraints hießen "Lehrer-Tageslast begrenzen" und "Mittagspause").
 		// Wenn ein altes Doc diese Felder noch hat, strippen.

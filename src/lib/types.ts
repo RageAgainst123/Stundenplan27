@@ -275,6 +275,15 @@ export interface ConstraintConfig {
 	 */
 	subjectMaxOncePerDay: { enabled: boolean; weight: number };
 	/**
+	 * R3-S5: Max-in-Folge PRO FACH — bindet `Subject.maxConsecutive` aus der
+	 * Fächer-Tabelle an den Score an (Komponente `subject_run`): mehr als
+	 * `maxConsecutive` Stunden desselben Fachs in Folge an einem (Tag, Stufe)
+	 * werden pro Zusatz-Stunde bestraft. Das Limit steht pro Fach in der
+	 * Fächer-Tabelle; hier nur Ein/Aus + Gewicht. Ergänzt das GLOBALE
+	 * Hauptfach-Limit `maxConsecutiveMain` (Komponente main_run).
+	 */
+	subjectMaxConsecutive: { enabled: boolean; weight: number };
+	/**
 	 * Phase 12 follow-up: fairness across teachers — penalize teachers that
 	 * regularly start later than P1 across the week. Cumulative penalty per
 	 * (teacher, day): late-start-index (0=P1-Start, 1=P2-Start, …). Days
@@ -379,6 +388,7 @@ export const DEFAULT_CONSTRAINTS: ConstraintConfig = {
 	unevenDaysWeight: 150,
 	timePrefWeight: 100,
 	subjectMaxOncePerDay: { enabled: true, weight: 60 },
+	subjectMaxConsecutive: { enabled: true, weight: 40 },
 	teacherEarlyStartBalance: { enabled: true, weight: 30 },
 	teacherMinLessonsPerDay: { enabled: true, weight: 150, min: 2 },
 	// Phase 13: Zieltagespensum 6 ±1, quadratische Penalty. Gewicht moderat

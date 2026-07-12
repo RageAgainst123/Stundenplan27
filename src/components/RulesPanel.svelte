@@ -182,6 +182,18 @@
 			<input type="number" min="0" step="5" bind:value={c.maxConsecutiveMain.weight} disabled={!c.maxConsecutiveMain.enabled} class="weight" />
 		</div>
 
+		<!-- R3-S5: Max in Folge PRO FACH (Limit steht in der Fächer-Tabelle) -->
+		<div class="rule">
+			<label class="lbl">
+				<input type="checkbox" bind:checked={c.subjectMaxConsecutive.enabled} />
+				<span>
+					Max. gleiches Fach in Folge (Limit pro Fach)
+					<span class="hint" title="Nutzt das Feld ‚Max in Folge' aus der Fächer-Tabelle: mehr als N Stunden DESSELBEN Fachs hintereinander werden pro Zusatz-Stunde bestraft. Ergänzt das globale Hauptfach-Limit oben (das über verschiedene Hauptfächer hinweg zählt).">ℹ</span>
+				</span>
+			</label>
+			<input type="number" min="0" step="5" bind:value={c.subjectMaxConsecutive.weight} disabled={!c.subjectMaxConsecutive.enabled} class="weight" />
+		</div>
+
 		<!-- Hauptfächer früh -->
 		<div class="rule">
 			<label class="lbl">

@@ -42,6 +42,8 @@ export interface SnapshotScoreBreakdown {
 	afternoon_preferred?: number;
 	main_twice?: number;
 	main_block_split?: number;
+	/** R3-S5: Max-in-Folge pro Fach überschritten. */
+	subject_run?: number;
 	total: number;
 }
 

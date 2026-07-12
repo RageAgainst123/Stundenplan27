@@ -57,6 +57,8 @@ export interface PenaltyBreakdown {
 	teacher_lunch: number;
 	/** Solver-Opt R2: ungeplante Units — dominant bestraft (siehe score.ts). */
 	unplaced: number;
+	/** R3-S5: Max-in-Folge pro Fach überschritten (Subject.maxConsecutive). */
+	subject_run: number;
 	total: number;
 }
 
@@ -291,6 +293,7 @@ function toPenaltyBreakdown(b: ScoreBreakdown): PenaltyBreakdown {
 		teacher_days_present: b.teacher_days_present,
 		teacher_lunch: b.teacher_lunch,
 		unplaced: b.unplaced,
+		subject_run: b.subject_run,
 		total: b.total,
 	};
 }

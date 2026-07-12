@@ -196,6 +196,8 @@ export interface ScoreScratch {
 	teacherIdxById: Map<string, number>;
 	/** isMain pro Fach-Index (statisch). */
 	subjIsMain: Uint8Array;
+	/** R3-S5: Max-in-Folge pro Fach-Index (statisch, aus Subject.maxConsecutive). */
+	subjMaxRun: Int32Array;
 	// --- Footprint-Arrays (R3-S1): von applyUnitFootprint (score.ts) gepflegt.
 	// Der Voll-Scan füllt sie via fillFootprints komplett neu; das Scoped-
 	// Delta (scoreDelta.ts) hält sie per add/remove synchron zum Placement.
@@ -238,7 +240,7 @@ export interface ScoreCache {
 	cfg: import('./score').ScoreCfg;
 	/** Aktuelle Komponenten-Zählerstände (total wird bei Bedarf gewichtet). */
 	counts: ScoreBreakdown;
-	/** Beitrags-Vektor jeder Klassen-Zeile: classRow[(d*4+g)*9 + c]. */
+	/** Beitrags-Vektor jeder Klassen-Zeile: classRow[(d*4+g)*10 + c] (Stride = CLASS_ROW_COMPONENTS.length). */
 	classRow: Int32Array;
 	/** Beitrags-Vektor jedes Lehrers: teacherRow[t*6 + c]. */
 	teacherRow: Int32Array;
@@ -343,6 +345,15 @@ export interface ScoreBreakdown {
 	 */
 	afternoon_preferred: number;
 	/**
+	 * R3-S5: Max-in-Folge PRO FACH — pro (Tag, Stufe) und Fach: Anzahl
+	 * Perioden, um die ein Fach-Lauf dessen `Subject.maxConsecutive`
+	 * überschreitet. Beispiel maxConsecutive=2: M-M-M am selben Tag = +1,
+	 * M-M-M-M = +2. Ergänzt main_run (GLOBALES Hauptfach-Limit über
+	 * verschiedene Hauptfächer hinweg) um das individuelle Fach-Limit
+	 * aus der Fächer-Tabelle.
+	 */
+	subject_run: number;
+	/**
 	 * Phase 13.3: pro (Tag, Stufe, Hauptfach) Vorkommen über 2 hinaus.
 	 * Beispiel: Mathe 3× an Mo-Stufe-7 = +1; Mathe 4× = +2. Doppelstunde
 	 * zählt als 1 Vorkommen (eine Block-Unit). Ergänzt subject_twice das
@@ -419,6 +430,8 @@ export interface ScoreWeights {
 	teacher_days_present: number;
 	teacher_lunch: number;
 	unplaced: number;
+	/** R3-S5: Gewicht für Max-in-Folge pro Fach (subject_run). */
+	subject_run: number;
 }
 
 /**
@@ -499,6 +512,9 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 	// Best-Tracking/Diversify nie eine unvollständigere Lösung bevorzugen.
 	const unplacedCfg = (c as unknown as { unplacedPenalty?: { enabled?: boolean; weight?: number } }).unplacedPenalty;
 	const unplacedWeight = unplacedCfg?.enabled === false ? 0 : (unplacedCfg?.weight ?? 100000);
+	// R3-S5: Max-in-Folge pro Fach (Subject.maxConsecutive → subject_run).
+	const subjRun = (c as unknown as { subjectMaxConsecutive?: { enabled?: boolean; weight?: number } }).subjectMaxConsecutive;
+	const subjectRunWeight = subjRun?.enabled === false ? 0 : (subjRun?.weight ?? 40);
 	return {
 		min_daily: minDailyWeight,
 		no_p1_start: p1Weight,
@@ -527,6 +543,7 @@ export function defaultWeights(doc: ScheduleDoc, strictNoFree = true): ScoreWeig
 		teacher_days_present: daysPresentWeight,
 		teacher_lunch: lunchWeight,
 		unplaced: unplacedWeight,
+		subject_run: subjectRunWeight,
 	};
 }
 

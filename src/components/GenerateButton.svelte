@@ -788,6 +788,9 @@
 							{#if result.penalties.main_block_split > 0}
 								<li>Hauptfach 2× am Tag mit Lücke: <strong>{result.penalties.main_block_split}</strong></li>
 							{/if}
+							{#if result.penalties.subject_run > 0}
+								<li>Fach über „Max in Folge"-Limit: <strong>{result.penalties.subject_run}</strong></li>
+							{/if}
 							{#if result.penalties.spec_spread > 0}
 								<li>Lerneinheit-Spreizung über Wochentage: <strong>{result.penalties.spec_spread}</strong></li>
 							{/if}

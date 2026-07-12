@@ -49,11 +49,19 @@ interface MovedPair {
 	to: number;
 }
 
+const CLASS_KEYS = [
+	'min_daily', 'no_p1_start', 'no_free', 'uneven_days', 'target_daily',
+	'main_run', 'subject_twice', 'main_twice', 'main_block_split',
+	'subject_run',
+] as const;
+/** Stride von cache.classRow — MUSS CLASS_ROW_COMPONENTS (score.ts) entsprechen. */
+const NC = CLASS_KEYS.length;
+
 // Wiederverwendete Puffer (single-threaded, wie die Scan-Puffer in score.ts).
 const pairBuf: MovedPair[] = [];
 const affectedRows: number[] = []; // Zeilen-Index d*G+g
 const affectedTeachers: number[] = [];
-const tmp9 = new Int32Array(9);
+const tmpClass = new Int32Array(NC);
 const tmp6 = new Int32Array(6);
 const tmp5 = new Int32Array(5);
 
@@ -97,10 +105,6 @@ function collectTeachers(state: SolverState, scratch: ScoreScratch, unitIdx: num
 	}
 }
 
-const CLASS_KEYS = [
-	'min_daily', 'no_p1_start', 'no_free', 'uneven_days', 'target_daily',
-	'main_run', 'subject_twice', 'main_twice', 'main_block_split',
-] as const;
 const TEACHER_KEYS = [
 	'compact_teacher', 'teacher_late_start', 'teacher_under_min',
 	'teacher_lunch', 'teacher_gap_fairness', 'teacher_days_present',
@@ -124,7 +128,7 @@ export function rebuildScoreCache(state: SolverState, weights: ScoreWeights): Sc
 		: {
 			cfg,
 			counts,
-			classRow: new Int32Array(D * G * 9),
+			classRow: new Int32Array(D * G * NC),
 			teacherRow: new Int32Array(T * 6),
 		};
 	cache.cfg = cfg;
@@ -132,8 +136,8 @@ export function rebuildScoreCache(state: SolverState, weights: ScoreWeights): Sc
 
 	for (let d = 0; d < D; d++) {
 		for (let g = 0; g < G; g++) {
-			scanClassRow(scratch, cfg, d, g, tmp9);
-			cache.classRow.set(tmp9, (d * G + g) * 9);
+			scanClassRow(scratch, cfg, d, g, tmpClass);
+			cache.classRow.set(tmpClass, (d * G + g) * NC);
 		}
 	}
 	for (let t = 0; t < state.doc.teachers.length; t++) {
@@ -204,12 +208,12 @@ function applyPairsToCounts(
 	for (const row of affectedRows) {
 		const d = Math.floor(row / G);
 		const g = row % G;
-		scanClassRow(scratch, cache.cfg, d, g, tmp9);
-		const base = row * 9;
-		for (let c = 0; c < 9; c++) {
-			next[CLASS_KEYS[c]] += tmp9[c] - cache.classRow[base + c];
+		scanClassRow(scratch, cache.cfg, d, g, tmpClass);
+		const base = row * NC;
+		for (let c = 0; c < NC; c++) {
+			next[CLASS_KEYS[c]] += tmpClass[c] - cache.classRow[base + c];
 		}
-		if (store) cache.classRow.set(tmp9, base);
+		if (store) cache.classRow.set(tmpClass, base);
 	}
 	// Berührte Lehrer (ganze Woche — gap_fairness/days_present sind Aggregate).
 	for (const t of affectedTeachers) {

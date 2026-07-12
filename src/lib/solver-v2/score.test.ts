@@ -414,7 +414,9 @@ describe('computeScore — score is non-negative and weighted total matches', ()
 			w.main_block_split * b.main_block_split +
 			w.teacher_gap_fairness * b.teacher_gap_fairness +
 			w.teacher_days_present * b.teacher_days_present +
-			w.teacher_lunch * b.teacher_lunch;
+			w.teacher_lunch * b.teacher_lunch +
+			w.unplaced * b.unplaced +
+			w.subject_run * b.subject_run;
 		expect(b.total).toBe(expected);
 	});
 });
@@ -1163,6 +1165,82 @@ describe('computeScore — teacher_lunch (Mittagspause bei langen Tagen)', () =>
 		doc.constraints.teacherMiddayBreak.enabled = true;
 		const w2 = defaultWeights(doc);
 		expect(w2.teacher_lunch).toBe(100);
+	});
+});
+
+describe('computeScore — subject_run (Max-in-Folge pro Fach, R3-S5)', () => {
+	function docWithMax(maxConsecutive: number) {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push({ ...subject('M', { isMain: true }), maxConsecutive });
+		doc.subjects.push(subject('D'));
+		doc.specs.push(spec('sM', 'M', 't', [5], 4));
+		return doc;
+	}
+
+	it('maxConsecutive=2: drei M in Folge = +1, vier = +2', () => {
+		const doc = docWithMax(2);
+		const state = buildState(doc);
+		place(state, 'sM', 'Mo', 1);
+		place(state, 'sM', 'Mo', 2);
+		place(state, 'sM', 'Mo', 3);
+		const w = defaultWeights(doc);
+		expect(computeScore(state, w).subject_run).toBe(1);
+		place(state, 'sM', 'Mo', 4);
+		expect(computeScore(state, w).subject_run).toBe(2);
+	});
+
+	it('Lücke bricht den Lauf: M-M-Pause-M-M bei max=2 → 0', () => {
+		const doc = docWithMax(2);
+		const state = buildState(doc);
+		place(state, 'sM', 'Mo', 1);
+		place(state, 'sM', 'Mo', 2);
+		place(state, 'sM', 'Mo', 4);
+		place(state, 'sM', 'Mo', 5);
+		const w = defaultWeights(doc);
+		expect(computeScore(state, w).subject_run).toBe(0);
+	});
+
+	it('anderes Fach dazwischen bricht den Lauf ebenfalls', () => {
+		const doc = docWithMax(2);
+		doc.specs.push(spec('sD', 'D', 't', [6], 1)); // andere Stufe — stört nicht
+		const state = buildState(doc);
+		place(state, 'sM', 'Mo', 1);
+		place(state, 'sM', 'Mo', 2);
+		place(state, 'sM', 'Mo', 3);
+		const w = defaultWeights(doc);
+		// Stufe 6-Belegung ändert nichts an Stufe 5-Läufen.
+		place(state, 'sD', 'Mo', 2);
+		expect(computeScore(state, w).subject_run).toBe(1);
+	});
+
+	it('Block-Unit zählt als konsekutive Belegung: Doppelstunde + Einzel bei max=2 → +1', () => {
+		const doc = emptyDoc();
+		doc.teachers.push(teacher('t', 'L'));
+		doc.subjects.push({ ...subject('M', { isMain: true }), maxConsecutive: 2 });
+		doc.specs.push(spec('sB', 'M', 't', [5], 3, { blocks: [2, 1] }));
+		const state = buildState(doc);
+		// Block-Unit (Doppelstunde) auf Mo P1-P2, Einzel auf Mo P3.
+		const blockUnit = state.units.find(u => u.blockSize === 2)!;
+		const soloUnit = state.units.find(u => u.blockSize === 1)!;
+		state.placement[blockUnit.idx] = slotFromDP(0, 1);
+		state.placement[soloUnit.idx] = slotFromDP(0, 3);
+		const w = defaultWeights(doc);
+		expect(computeScore(state, w).subject_run).toBe(1);
+	});
+
+	it('Default 99 triggert nie; Regler-Disable setzt das Gewicht auf 0', () => {
+		const doc = docWithMax(99);
+		const state = buildState(doc);
+		place(state, 'sM', 'Mo', 1);
+		place(state, 'sM', 'Mo', 2);
+		place(state, 'sM', 'Mo', 3);
+		place(state, 'sM', 'Mo', 4);
+		const w = defaultWeights(doc);
+		expect(computeScore(state, w).subject_run).toBe(0);
+		expect(w.subject_run).toBe(40);
+		doc.constraints.subjectMaxConsecutive.enabled = false;
+		expect(defaultWeights(doc).subject_run).toBe(0);
 	});
 });
 

@@ -79,6 +79,24 @@ in `docs/bench-baseline.json`.
   Move-Diversität, nicht Kosten-Frage). Diversify-Strategien-Wiedervorlage:
   Varianz dominiert, bleibt random (Details bench-baseline.json).
 
+### Runde 3, Schritt 5 — „Max in Folge" pro Fach wirkt jetzt wirklich
+- Das Fächer-Tabellen-Feld „Max in Folge" ist an den Generator
+  angebunden: neue Score-Komponente **`subject_run`** (23. Komponente,
+  Gewicht 40) bestraft jede Stunde, um die ein Lauf DESSELBEN Fachs
+  das individuelle Limit überschreitet (max=2: M-M-M = +1, M-M-M-M
+  = +2; Doppelstunden zählen als konsekutive Belegung; eine Lücke oder
+  ein anderes Fach bricht den Lauf). Ergänzt das globale
+  Hauptfach-Limit (main_run), das über verschiedene Hauptfächer
+  hinweg zählt.
+- Neuer Regler im Regeln-Reiter („Max. gleiches Fach in Folge",
+  Sektion Hauptfächer & Pädagogik); additive Config-Migration;
+  Fächer-Tabellen-Tooltip wieder auf „wirkt im Generator".
+- Bench-Regression grün: `subject_run`-Median 0 (der Generator hält
+  die Limits ein statt sie zu reißen), alle übrigen Metriken
+  unverändert (unplaced 2 / weightedTotal ~215700 / coupled 5/5
+  vollständig). 5 neue Unit-Tests; der Scoped-Delta-Property-Test
+  deckt die neue Komponente automatisch mit ab.
+
 ### Runde 3, Schritt 4 — Experiment lernende Tausch-Auswahl (verworfen)
 Adaptive Move-Generator-Auswahl nach ALNS-Vorbild (erfolgreiche
 Tausch-Arten bekommen mehr Anteil): sauber gebaut, streng gemessen,

@@ -107,7 +107,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
   Referenz-Arm `acceptance:'sa'`), Scoped Score-Delta, ~10-14k Iter/sec (jsdom).
 - Phase 3: Iterated LS mit adaptiver Perturbation, SA-Reheat (Cap 500), Kempe-Boost.
 - 2-Phase-Solve: bei `noFreePeriodsForClass.strict=true` läuft nach Phase 2 eine Auto-Lockerung mit normalem Soft-Gewicht falls Lücken übrig.
-- 16 Score-Komponenten, alle in `solver-v2/score.ts`. Konfigurierbar im `RulesPanel`.
+- 23 Score-Komponenten, alle in `solver-v2/score.ts` (kanonische Liste: MODEL.md §3). Konfigurierbar im `RulesPanel`.
 
 ### Bekannte offene Bugs
 

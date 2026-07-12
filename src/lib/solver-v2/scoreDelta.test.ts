@@ -123,7 +123,9 @@ function randomFeasibleState(rng: Rng): SolverState {
 		doc.teachers.push(teacher(`t${t}`, `L${t}`, unavailable));
 	}
 	const codes = ['M', 'D', 'E', 'BSP', 'REL', 'PH'];
-	codes.forEach((c, i) => doc.subjects.push(subject(c, { isMain: i < 3 })));
+	// Hauptfächer mit echtem Max-in-Folge-Limit (R3-S5) — damit der
+	// Property-Test auch subject_run über den Delta-Pfad abdeckt.
+	codes.forEach((c, i) => doc.subjects.push(subject(c, { isMain: i < 3, maxConsecutive: i < 3 ? 2 : 99 })));
 	const nSpecs = 6 + rng.int(0, 6);
 	for (let s = 0; s < nSpecs; s++) {
 		const gradePick = rng.int(0, 4);
@@ -163,7 +165,7 @@ const BREAKDOWN_KEYS: (keyof ScoreBreakdown)[] = [
 	'spec_spread', 'teacher_late_start', 'teacher_under_min', 'target_daily',
 	'afternoon_preferred', 'main_twice', 'main_block_split',
 	'teacher_gap_fairness', 'teacher_days_present', 'teacher_lunch',
-	'unplaced', 'total',
+	'unplaced', 'subject_run', 'total',
 ];
 
 describe('Scoped Score-Delta == Full-Scan-Referenz (R3-S1)', () => {

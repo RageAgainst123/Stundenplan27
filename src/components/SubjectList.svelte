@@ -49,9 +49,9 @@
 				<th>Name</th>
 				<th>Kat.</th>
 				<th>Hauptfach</th>
-				<!-- Audit A6: ehrlicher Tooltip — das Feld ist im Solver v2 (noch)
-				     nicht angebunden; main_run nutzt nur das globale Regeln-Limit. -->
-				<th title="Maximale Anzahl gleicher Fächer in Folge an einem Tag. ⚠ Wirkt derzeit NICHT im Generator — es gilt nur das globale Limit im Reiter ‚Regeln‘ (max. Hauptfächer in Folge). Pro-Fach-Anbindung ist Backlog.">Max&nbsp;in Folge&nbsp;ⓘ</th>
+				<!-- R3-S5: pro-Fach-Limit ist jetzt im Generator angebunden
+				     (Score-Komponente subject_run, Gewicht im Reiter Regeln). -->
+				<th title="Maximale Anzahl Stunden DESSELBEN Fachs in Folge an einem Tag (pro Stufe). Wirkt im Generator — Gewicht einstellbar im Reiter ‚Regeln‘ unter ‚Max. gleiches Fach in Folge‘. 99 = unbegrenzt.">Max&nbsp;in Folge&nbsp;ⓘ</th>
 				<th>Stunden 5./6./7./8. (informativ)</th>
 				<th></th>
 			</tr>

@@ -21,11 +21,11 @@
 //
 // Canonical reference for ALL 22 score components (Stand Solver-Opt R2):
 //   docs/MODEL.md §3 "Score-Komponenten"
-// Komponenten: min_daily, no_p1_start, time_pref, main_aft, any_aft, no_free,
-// uneven_days, main_run, compact_teacher, main_early, subject_twice,
+// Komponenten (23): min_daily, no_p1_start, time_pref, main_aft, any_aft,
+// no_free, uneven_days, main_run, compact_teacher, main_early, subject_twice,
 // spec_spread, teacher_late_start, teacher_under_min, target_daily,
 // afternoon_preferred, main_twice, main_block_split, teacher_gap_fairness,
-// teacher_days_present, teacher_lunch, unplaced.
+// teacher_days_present, teacher_lunch, unplaced, subject_run (R3-S5).
 // Wenn hier eine Komponente geändert/hinzugefügt wird → MODEL.md §3 nachziehen
 // UND defaultWeights() in types.ts + UI in GenerateButton.svelte (Score-
 // Aufschlüsselung) UND PenaltyBreakdown in index.ts erweitern — UND die
@@ -97,6 +97,14 @@ export function ensureScratch(state: SolverState): ScoreScratch {
 		subjIsMain[idx] = state.subjectsByCode.get(code)?.isMain ? 1 : 0;
 	}
 
+	// R3-S5: Max-in-Folge PRO FACH (Subject.maxConsecutive, Fächer-Tabelle).
+	// 99/unbekannt = praktisch unbegrenzt (P=8 < 99 → nie Penalty).
+	const subjMaxRun = new Int32Array(S);
+	for (const [code, idx] of subjectIdxByCode) {
+		const raw = state.subjectsByCode.get(code)?.maxConsecutive;
+		subjMaxRun[idx] = Math.max(1, Math.round(typeof raw === 'number' ? raw : 99));
+	}
+
 	const unitTimePref = new Int8Array(n);
 	const unitAfternoonExempt = new Uint8Array(n);
 	const unitIsMain = new Uint8Array(n);
@@ -144,6 +152,7 @@ export function ensureScratch(state: SolverState): ScoreScratch {
 		specIdxById,
 		teacherIdxById,
 		subjIsMain,
+		subjMaxRun,
 		occ: new Int32Array(D * G * P),
 		tocc: new Int32Array(T * D * P),
 		mainCnt: new Int32Array(D * G * P),
@@ -316,10 +325,11 @@ export function fillFootprints(state: SolverState, scratch: ScoreScratch): void 
 // Zeilen-Scans — die geteilte Logik von Voll-Scan und Scoped-Delta.
 // ---------------------------------------------------------------------------
 
-/** Indizes ins 9er-Ergebnis von scanClassRow. */
+/** Indizes ins Ergebnis von scanClassRow (Länge = Stride von cache.classRow). */
 export const CLASS_ROW_COMPONENTS = [
 	'min_daily', 'no_p1_start', 'no_free', 'uneven_days', 'target_daily',
 	'main_run', 'subject_twice', 'main_twice', 'main_block_split',
+	'subject_run',
 ] as const;
 
 /** Indizes ins 6er-Ergebnis von scanTeacherWeek. */
@@ -342,8 +352,9 @@ const rowSize = new Int32Array(P);
 /**
  * Beitrag der (Tag d, Stufe g)-Zeile: min_daily, no_p1_start, no_free,
  * uneven_days, target_daily (aus occ), main_run (aus mainCnt),
- * subject_twice, main_twice, main_block_split (aus rowStartSubj/Size).
- * Ergebnis wird in `out` (Länge 9) geschrieben.
+ * subject_twice, main_twice, main_block_split, subject_run
+ * (aus rowStartSubj/Size). Ergebnis wird in `out`
+ * (Länge CLASS_ROW_COMPONENTS.length) geschrieben.
  */
 export function scanClassRow(
 	scratch: ScoreScratch,
@@ -452,6 +463,36 @@ export function scanClassRow(
 		if (isMain && v === 2) {
 			const firstEnd = firstStart + firstSize - 1;
 			out[8] += Math.max(0, secondStart - firstEnd - 1);
+		}
+	}
+	// R3-S5 subject_run: Max-in-Folge PRO FACH (Subject.maxConsecutive).
+	// Belegung pro Periode aus den Block-Starts rekonstruieren (Start p mit
+	// Größe s belegt p..p+s-1), dann Fach-Läufe gegen das individuelle
+	// Limit zählen — jede Periode über dem Limit kostet 1 (analog main_run).
+	// Fächer mit Limit ≥ P (Default 99) können nie triggern.
+	{
+		let runSubj = -1;
+		let run = 0;
+		let occupiedUntil = -1; // letzte von einem Start abgedeckte Periode (0-basiert)
+		let curSubj = -1;
+		for (let p = 0; p < P; p++) {
+			const sv = scratch.rowStartSubj[base + p];
+			if (sv !== 0) {
+				curSubj = sv - 1;
+				occupiedUntil = p + scratch.rowStartSize[base + p] - 1;
+			} else if (p > occupiedUntil) {
+				curSubj = -1;
+			}
+			if (curSubj !== -1 && curSubj === runSubj) {
+				run++;
+			} else if (curSubj !== -1) {
+				runSubj = curSubj;
+				run = 1;
+			} else {
+				runSubj = -1;
+				run = 0;
+			}
+			if (runSubj !== -1 && run > scratch.subjMaxRun[runSubj]) out[9]++;
 		}
 	}
 }
@@ -614,7 +655,8 @@ export function weightedTotal(b: ScoreBreakdown, weights: ScoreWeights): number 
 		weights.teacher_gap_fairness * b.teacher_gap_fairness +
 		weights.teacher_days_present * b.teacher_days_present +
 		weights.teacher_lunch * b.teacher_lunch +
-		weights.unplaced * b.unplaced
+		weights.unplaced * b.unplaced +
+		weights.subject_run * b.subject_run
 	);
 }
 
@@ -643,12 +685,13 @@ export function emptyBreakdown(): ScoreBreakdown {
 		teacher_days_present: 0,
 		teacher_lunch: 0,
 		unplaced: 0,
+		subject_run: 0,
 		total: 0,
 	};
 }
 
 // Scan-Ausgabepuffer für computeScore (wiederverwendet, single-threaded).
-const classOut = new Int32Array(9);
+const classOut = new Int32Array(CLASS_ROW_COMPONENTS.length);
 const teacherOut = new Int32Array(6);
 const unitOut = new Int32Array(5);
 
@@ -681,6 +724,7 @@ export function computeScore(state: SolverState, weights: ScoreWeights): ScoreBr
 			breakdown.subject_twice += classOut[6];
 			breakdown.main_twice += classOut[7];
 			breakdown.main_block_split += classOut[8];
+			breakdown.subject_run += classOut[9];
 		}
 	}
 

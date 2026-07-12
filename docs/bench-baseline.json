@@ -443,6 +443,32 @@
         "INTERPRETATION: Der handgetunte Mix mit den zielgerichteten Domain-Repair-Moves (R1-S4) kodiert bereits, was ALNS erst lernen müsste — und das Akzeptanz-basierte Reward-Signal belohnt unter LAHC billige akzeptierte Moves statt Fortschritt auf der Ziel-Metrik. Deckt sich mit dem R2-S1-Befund (zielgerichtetes Destroy ohne Vorteil).",
         "Der Hook bleibt (moveSelection: 'fixed' | 'alns' in localSearch/ILS, Statistik chunk-resume-fähig, Bench-Arm BENCH_MOVESEL=alns) — als getestete Basis für spätere Reward-Varianten (z. B. Delta-proportional statt Akzeptanz-binär). genMove-Refactor auf Generator-Tabelle ist RNG-verbrauchs-identisch zum alten Kaskaden-Code (ein rng.next pro Auswahl)."
       ]
+    },
+    {
+      "label": "r3-schritt-5-subject-run",
+      "commit": "(siehe git log: feat(solver) subject_run)",
+      "date": "2026-07-12",
+      "machine": "Geo-Windows-Dev",
+      "sync": {
+        "median": {
+          "breakdown.unplaced": 2,
+          "breakdown.no_free": 0,
+          "breakdown.main_run": 3,
+          "breakdown.subject_run": 0,
+          "teacher.gapsTotal": 18,
+          "weightedTotal": 215675
+        }
+      },
+      "coupled_solvable": {
+        "perSeed_unplaced": [0, 0, 0, 0, 0],
+        "perSeed_teacherGaps": [12, 15, 19, 11, 5],
+        "median": { "unplaced": 0, "no_free": 0, "min_daily": 0 }
+      },
+      "_befund": [
+        "23. Score-Komponente subject_run (Max-in-Folge PRO FACH, bindet Subject.maxConsecutive aus der Fächer-Tabelle an — das UI-Feld war seit Phase 11 wirkungslos). Gewicht 40, Regler im RulesPanel, additive Config-Migration subjectMaxConsecutive.",
+        "REGRESSION GRÜN: subject_run-Median 0 — der Generator hält die Fach-Limits ein (Liste.csv-Hauptfächer haben Limit 2 aus dem CSV-Import) statt sie zu reißen. Alle übrigen Metriken auf LAHC-Niveau unverändert (unplaced 2, weightedTotal 215675≈215695, coupled 5/5 vollständig, gaps im Varianzband).",
+        "Delta-Korrektheit: subject_run läuft als 10. Klassen-Zeilen-Komponente durch den Scoped-Delta-Pfad; der Property-Test (500 States × 8 Moves, Hauptfächer mit Limit 2) deckt sie feldgenau mit ab."
+      ]
     }
   ]
 }
