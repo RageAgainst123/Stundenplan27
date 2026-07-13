@@ -24,6 +24,7 @@
 	import { teacherTint } from '../lib/teacher-helpers';
 	import { computeTeacherQuality } from '../lib/teacher-quality';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
+	import { suggestSwaps, type FinetuneSuggestion } from '../lib/finetune-suggest';
 	import { saveSnapshot } from '../lib/snapshots';
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { SolveSession, SolverOutput } from '../lib/solver-v2/index';
@@ -38,6 +39,50 @@
 
 	let selected = $state<Set<string>>(new Set());
 	let moveTargetMode = $state(false);
+
+	// ---- F2-S3: Tauschvorschläge (Untis-Prinzip) ----
+	// Im 💡-Modus liefert ein Klick auf Lehrer-Chip oder Stunde eine nach
+	// Gewinn sortierte Liste konkreter Einzel-Züge (Engine:
+	// lib/finetune-suggest.ts — deterministisch, exakt bewertet).
+	let suggestMode = $state(false);
+	let suggestions = $state<FinetuneSuggestion[] | null>(null);
+	let suggestLabel = $state('');
+	let suggestTarget: { lessonKeys?: string[]; teacherId?: string } | null = null;
+	let hoverSuggestion = $state<FinetuneSuggestion | null>(null);
+	// Backup-Snapshot nur einmal pro Vorschlags-Serie (nicht pro Mikro-Zug).
+	let suggestBackupDone = false;
+
+	function computeSuggestions(target: { lessonKeys?: string[]; teacherId?: string }, label: string): void {
+		suggestTarget = target;
+		suggestLabel = label;
+		hoverSuggestion = null;
+		const snap = $state.snapshot(store.doc) as ScheduleDoc;
+		suggestions = suggestSwaps(snap, target);
+	}
+
+	function closeSuggestions(): void {
+		suggestions = null;
+		suggestTarget = null;
+		hoverSuggestion = null;
+		suggestBackupDone = false;
+	}
+
+	function applySuggestion(s: FinetuneSuggestion): void {
+		if (!suggestBackupDone) {
+			saveSnapshot({
+				name: `Backup vor Tauschvorschlägen ${new Date().toLocaleTimeString('de-AT')}`,
+				score: 0,
+				placed: store.doc.placed.map(p => ({ ...p })),
+				source: 'auto',
+			});
+			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
+			suggestBackupDone = true;
+		}
+		store.doc.placed = s.candidatePlaced.map(p => ({ ...p }));
+		store.persistNow();
+		// Liste auf dem NEUEN Stand nachrechnen (gleicher Fokus).
+		if (suggestTarget) computeSuggestions(suggestTarget, suggestLabel);
+	}
 
 	// ---- Mini-Solve-Zustand ----
 	let phase = $state<'idle' | 'running' | 'review'>('idle');
@@ -120,6 +165,16 @@
 	function toggleLesson(occ: SlotOccupant): void {
 		if (occ.placed.pinned) return; // gepinnte Stunden sind Vorgaben — nicht anfassen
 		const key = lessonKey(occ.placed);
+		// F2-S3: im 💡-Modus fokussiert ein Stunden-Klick die Vorschläge
+		// auf genau diese Stunde.
+		if (suggestMode) {
+			selected = new Set([key]);
+			computeSuggestions(
+				{ lessonKeys: [key] },
+				`${occ.spec.subject} ${occ.placed.day} P${occ.placed.period}`
+			);
+			return;
+		}
 		const next = new Set(selected);
 		if (next.has(key)) next.delete(key);
 		else next.add(key);
@@ -493,6 +548,19 @@
 				>
 					🎯 Dahin verschieben…
 				</button>
+				<button
+					class="btn"
+					class:active={suggestMode}
+					disabled={phase !== 'idle'}
+					onclick={() => {
+						suggestMode = !suggestMode;
+						closeSuggestions();
+						clearSelection();
+					}}
+					title="Untis-Prinzip: Lehrer-Chip oder Stunde anklicken → bewertete Liste konkreter Einzel-Züge (Verschieben/Tauschen), jeder einzeln ausführbar."
+				>
+					💡 Tauschvorschläge
+				</button>
 				<button class="btn small" disabled={selected.size === 0} onclick={clearSelection}>Auswahl leeren</button>
 				<span class="sep"></span>
 				<label class="muted small">
@@ -509,16 +577,22 @@
 			{/if}
 		</section>
 
-		<!-- Lehrer entlasten -->
+		<!-- Lehrer entlasten / Vorschläge -->
 		<section class="ft-teachers">
-			<span class="muted small">Lehrer entlasten (wählt alle beweglichen Stunden des Lehrers und setzt sie neu):</span>
+			<span class="muted small">
+				{suggestMode
+					? '💡 Lehrer anklicken → bewertete Tauschvorschläge für seine Stunden:'
+					: 'Lehrer entlasten (wählt alle beweglichen Stunden des Lehrers und setzt sie neu):'}
+			</span>
 			<div class="ft-teacher-chips">
 				{#each teacherRows as t (t.teacherId)}
 					<button
 						class="chip"
 						style:--c={t.color}
 						disabled={phase !== 'idle'}
-						onclick={() => relieveTeacher(t.teacherId, t.name)}
+						onclick={() => suggestMode
+							? computeSuggestions({ teacherId: t.teacherId }, t.name)
+							: relieveTeacher(t.teacherId, t.name)}
 						title={`${t.name}: ${t.gaps} Springstunden · ${t.daysPresent} Tage (Ideal ${t.idealDays}) · ${t.miniDays} Mini-Tage`}
 					>
 						{t.name.split(' ')[0]}
@@ -527,6 +601,44 @@
 				{/each}
 			</div>
 		</section>
+
+		<!-- F2-S3: Tauschvorschläge-Liste -->
+		{#if suggestMode && suggestions && phase === 'idle'}
+			<section class="ft-suggest">
+				<div class="ft-row">
+					<strong>💡 Tauschvorschläge für {suggestLabel}</strong>
+					<span class="muted small">Gewinn = Score-Änderung (negativ = besser) · Hover zeigt den Zug im Plan</span>
+					<button class="btn small" onclick={closeSuggestions}>✕ Schließen</button>
+				</div>
+				{#if suggestions.length === 0}
+					<p class="muted small">
+						Kein zulässiger Einzel-Zug verbessert den Plan (oder alles Relevante ist gepinnt).
+						Tipp: „Lehrer entlasten" (ohne 💡-Modus) darf mehrere Stunden gleichzeitig umbauen.
+					</p>
+				{:else}
+					<ul class="sg-list">
+						{#each suggestions as s (s.id)}
+							<li
+								onmouseenter={() => (hoverSuggestion = s)}
+								onmouseleave={() => (hoverSuggestion = null)}
+							>
+								<span class="sg-delta" class:good={s.delta < 0} class:bad={s.delta > 0}>
+									{s.delta > 0 ? '+' : ''}{Math.round(s.delta)}
+								</span>
+								<span class="sg-label">{s.label}</span>
+								{#each s.teacherDeltas as td (td.name)}
+									<span class="sg-td" class:good={td.gapsAfter < td.gapsBefore} class:bad={td.gapsAfter > td.gapsBefore}>
+										{td.name.split(' ')[0]} {td.gapsBefore}→{td.gapsAfter}✂
+									</span>
+								{/each}
+								<button class="btn small primary" onclick={() => applySuggestion(s)}>Ausführen</button>
+							</li>
+						{/each}
+					</ul>
+					<p class="muted small">Jeder Zug wirkt sofort im Plan (Backup-Snapshot beim ersten Zug); die Liste rechnet danach neu.</p>
+				{/if}
+			</section>
+		{/if}
 
 		<!-- Lauf-Status -->
 		{#if phase === 'running'}
@@ -658,10 +770,13 @@
 							</th>
 							{#each DAYS as day, di (day)}
 								{#each GRADES as grade (day + grade)}
-									{@const occs = gridOccupancy.get(slotKeyOf(day, period, grade)) ?? []}
-									{@const ghosts = ghostsBySlot.get(slotKeyOf(day, period, grade)) ?? []}
+									{@const slotK = slotKeyOf(day, period, grade)}
+									{@const occs = gridOccupancy.get(slotK) ?? []}
+									{@const ghosts = ghostsBySlot.get(slotK) ?? []}
+									{@const hlSource = hoverSuggestion?.sourceCells.includes(slotK) ?? false}
+									{@const hlTarget = hoverSuggestion?.targetCells.includes(slotK) ?? false}
 									{#if occs.length > 0 || ghosts.length > 0}
-										<td class="cell">
+										<td class="cell" class:hl-source={hlSource} class:hl-target={hlTarget}>
 											{#each occs as occ, idx (occ.placed.specId + '|' + idx)}
 												{@const key = lessonKey(occ.placed)}
 												<button
@@ -694,6 +809,8 @@
 										<td
 											class="cell empty"
 											class:target={moveTargetMode}
+											class:hl-source={hlSource}
+											class:hl-target={hlTarget}
 											onclick={() => moveTargetMode && moveSelectedTo(day, period)}
 										></td>
 									{/if}
@@ -987,5 +1104,66 @@
 		background: var(--accent);
 		color: white;
 		outline: none;
+	}
+	/* F2-S3: Tauschvorschläge */
+	.ft-suggest {
+		background: var(--bg-panel);
+		border: 1px solid var(--accent);
+		border-radius: 8px;
+		padding: 10px 12px;
+	}
+	.sg-list {
+		list-style: none;
+		padding: 0;
+		margin: 8px 0;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+	}
+	.sg-list li {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+		padding: 4px 8px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 6px;
+		font-size: 13px;
+		flex-wrap: wrap;
+	}
+	.sg-list li:hover {
+		border-color: var(--accent);
+	}
+	.sg-delta {
+		font-family: var(--mono);
+		font-weight: 800;
+		min-width: 52px;
+		text-align: right;
+	}
+	.sg-delta.good { color: #16a34a; }
+	.sg-delta.bad { color: #d97706; }
+	.sg-label {
+		font-weight: 600;
+	}
+	.sg-td {
+		font-size: 11px;
+		padding: 1px 6px;
+		border-radius: 999px;
+		background: var(--bg-panel);
+		border: 1px solid var(--border);
+	}
+	.sg-td.good { color: #16a34a; border-color: #16a34a; }
+	.sg-td.bad { color: #dc2626; border-color: #dc2626; }
+	.sg-list li .btn {
+		margin-left: auto;
+	}
+	/* Hover-Highlight des Zugs im Grid: Quelle gelb, Ziel grün */
+	.ft-grid .cell.hl-source {
+		box-shadow: inset 0 0 0 2px #d97706;
+		background: #fef3c7;
+	}
+	.ft-grid .cell.hl-target {
+		box-shadow: inset 0 0 0 2px #16a34a;
+		background: #dcfce7;
 	}
 </style>
