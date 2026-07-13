@@ -12,6 +12,38 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Feinschliff 2.0 — Tauschvorschläge, ehrlicher Vergleich, Zurücktauschen (2026-07)
+User-Anlass: „Lehrer entlasten" änderte auch andere Lehrer, ohne dass man
+es sah; Wunsch nach EINZELNEN Tauschen statt Komplett-Umbau, mit
+Zurücktauschen. Vorbild: Untis' „Tauschvorschläge" (bewertete
+2er/3er/4er-Tausche mit Gewinn-Spalte).
+- **💡 Tauschvorschläge (neu):** Lehrer-Chip oder Stunde anklicken →
+  Top-10-Liste konkreter Einzel-Züge (Verschieben auf freie Slots +
+  2er-Tausche), exakt bewertet über die R3-Delta-Maschine —
+  deterministisch, dieselben Gewichte wie der Generator. Pro Vorschlag:
+  Gewinn-Zahl (grün/rot), Klartext-Label, Springstunden-Änderung der
+  betroffenen Lehrer; Hover zeigt Quelle (gelb) und Ziel (grün) im Plan;
+  „Ausführen" wirkt sofort, die Liste rechnet nach. Engine in
+  `lib/finetune-suggest.ts` — Kopplungen/Blöcke/Multi-Grade als
+  Solver-Units automatisch korrekt; Pins unantastbar. Mit Gegenprobe-Test:
+  jedes Delta == exakter Score-Diff des Kandidaten-Plans.
+- **Ehrlicher Vorher/Nachher-Vergleich im Review:** beide Stände lokal
+  mit denselben Gewichten gescort (`lib/quality.ts`:
+  `scorePlacedPlan` + `qualityPercent` als Shared-Helper) — Karten
+  Vorher/Differenz/Nachher inkl. Qualitäts-%, dazu die **„Wer ist
+  betroffen?"-Tabelle** (pro geändertem Lehrer Springstunden/Tage/
+  Mini-Tage vorher→nachher, grün/rot). Warnung, wenn ein Vorschlag den
+  Gesamt-Plan verschlechtert.
+- **Review-Grid zeigt jetzt den KANDIDATEN** (vorher fälschlich den
+  alten Plan): neue Positionen grün umrandet, alte als blasser „Geist"
+  mit Ziel-Tooltip, Umschalter Vorher|Nachher.
+- **↩ Zurücknehmen:** Session-Undo-Stapel (`lib/undo-stack.ts`, Cap 30)
+  — jeder ausgeführte Tauschvorschlag und jeder übernommene
+  Mini-Solve-Lauf einzeln rückgängig, byte-genau (E2E-verifiziert).
+  Auto-Backup-Snapshot bleibt als zweites Netz.
+- Mini-Solve-Läufe laufen jetzt mit deterministischen Seeds
+  (nachvollziehbar; erneuter Versuch bekommt bewusst den nächsten Seed).
+
 ### Anwesenheitspflicht pro Lehrer (2026-07)
 User-Anlass: Der Generator optimiert Lehrer-Wochen bewusst kompakt —
 auch Vollzeitlehrer bekamen freie Tage. Für Vollzeitkräfte und

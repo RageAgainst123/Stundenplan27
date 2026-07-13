@@ -25,6 +25,7 @@
 	import { computeTeacherQuality } from '../lib/teacher-quality';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { suggestSwaps, type FinetuneSuggestion } from '../lib/finetune-suggest';
+	import { pushUndo, popUndo, type UndoEntry } from '../lib/undo-stack';
 	import { saveSnapshot } from '../lib/snapshots';
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { SolveSession, SolverOutput } from '../lib/solver-v2/index';
@@ -52,6 +53,32 @@
 	// Backup-Snapshot nur einmal pro Vorschlags-Serie (nicht pro Mikro-Zug).
 	let suggestBackupDone = false;
 
+	// ---- F2-S4: Zurücktauschen (Undo-Stapel, Session-lokal) ----
+	// Jeder ausgeführte Tauschvorschlag und jeder übernommene Mini-Solve-
+	// Lauf legt den Vorher-Stand ab — „↩ Zurücknehmen" geht Zug für Zug
+	// zurück. Das Auto-Backup-Snapshot bleibt als zweites Netz.
+	let undoStack = $state<UndoEntry[]>([]);
+
+	function recordUndo(label: string): void {
+		undoStack = pushUndo(undoStack, label, store.doc.placed);
+	}
+
+	function undoLast(): void {
+		const { entry, rest } = popUndo(undoStack);
+		if (!entry) return;
+		undoStack = rest;
+		store.doc.placed = entry.placedBefore;
+		store.persistNow();
+		// Offene Vorschlagsliste auf dem restaurierten Stand nachrechnen.
+		if (suggestions && suggestTarget) computeSuggestions(suggestTarget, suggestLabel);
+	}
+
+	// F2-S4: deterministische Mini-Solve-Seeds — gleiche Session, gleiche
+	// Klick-Folge ⇒ gleiche Ergebnisse (nachvollziehbar); ein erneuter
+	// Versuch bekommt bewusst den NÄCHSTEN Seed (sonst käme identisch
+	// derselbe Vorschlag zurück).
+	let nextSeed = 42;
+
 	function computeSuggestions(target: { lessonKeys?: string[]; teacherId?: string }, label: string): void {
 		suggestTarget = target;
 		suggestLabel = label;
@@ -78,6 +105,7 @@
 			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
 			suggestBackupDone = true;
 		}
+		recordUndo(`Zug: ${s.label}`);
 		store.doc.placed = s.candidatePlaced.map(p => ({ ...p }));
 		store.persistNow();
 		// Liste auf dem NEUEN Stand nachrechnen (gleicher Fokus).
@@ -235,6 +263,7 @@
 			innerBudgetMs: Math.min(10_000, runSeconds * 1000),
 			poolBudgetMs: 0,
 			hotStart: true,
+			seed: nextSeed++,
 		});
 		session = s;
 		s.on('solution', sol => {
@@ -499,6 +528,7 @@
 			source: 'auto',
 		});
 		if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
+		recordUndo(`Lauf: ${runLabel}`);
 		store.doc.placed = candidate;
 		store.persistNow();
 		candidate = null;
@@ -562,6 +592,16 @@
 					💡 Tauschvorschläge
 				</button>
 				<button class="btn small" disabled={selected.size === 0} onclick={clearSelection}>Auswahl leeren</button>
+				<button
+					class="btn small"
+					disabled={undoStack.length === 0 || phase !== 'idle'}
+					onclick={undoLast}
+					title={undoStack.length > 0
+						? 'Zug für Zug zurück — zuletzt: ' + undoStack.slice(-5).reverse().map(e => e.label).join(' · ')
+						: 'Noch nichts zum Zurücknehmen (gilt für ausgeführte Tauschvorschläge und übernommene Läufe dieser Sitzung)'}
+				>
+					↩ Zurücknehmen ({undoStack.length})
+				</button>
 				<span class="sep"></span>
 				<label class="muted small">
 					Feinschliff-Dauer:
@@ -678,7 +718,16 @@
 							<span class="ft-card-quality">Qualität {qualityPercent(reviewStats.after.total)} %</span>
 						</div>
 					</div>
-					{#if reviewStats.deltas.length > 0}
+					{#if reviewStats.after.total > reviewStats.before.total}
+					<!-- F2-S4: ehrliche Warnung — messbar seit dem lokalen Doppel-Scoring -->
+					<div class="ft-warnline">
+						⚠ Dieser Vorschlag macht den Gesamt-Plan SCHLECHTER (z. B. weil die
+						Entlastung eines Lehrers mit Klassen-Nachteilen erkauft wird).
+						Übernehmen ist möglich, wenn dir der Einzeleffekt wichtiger ist —
+						sonst Verwerfen.
+					</div>
+				{/if}
+				{#if reviewStats.deltas.length > 0}
 						<!-- Wer ist betroffen? Kennzahlen vorher → nachher, grün/rot -->
 						<table class="ft-affected">
 							<thead>
@@ -992,6 +1041,14 @@
 	.ft-warn {
 		color: #b91c1c;
 		font-weight: 700;
+	}
+	.ft-warnline {
+		margin: 6px 0;
+		padding: 6px 10px;
+		background: #fef2f2;
+		border: 1px solid #fca5a5;
+		border-radius: 6px;
+		font-size: 13px;
 	}
 	.ft-diff {
 		margin: 8px 0;
