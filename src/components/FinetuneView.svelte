@@ -55,6 +55,61 @@
 		return buildSlotOccupancy(store.doc);
 	});
 
+	// ---- F2-S2: Review-Grid zeigt den KANDIDATEN (nicht den alten Plan) ----
+	// Umschaltbar Vorher|Nachher; geänderte Stunden werden markiert, alte
+	// Positionen erscheinen in der Nachher-Ansicht als „Geister".
+	let reviewView = $state<'after' | 'before'>('after');
+
+	/** Occupancy fürs Grid: im Review wahlweise Kandidat oder Ist-Stand. */
+	const gridOccupancy = $derived.by(() => {
+		if (phase === 'review' && candidate && reviewView === 'after') {
+			return buildSlotOccupancy($state.snapshot(store.doc) as ScheduleDoc, candidate);
+		}
+		return occupancy;
+	});
+
+	/** Diff auf Stunden-Ebene: added = neu im Kandidaten, removed = verschwindet. */
+	const diffKeys = $derived.by(() => {
+		if (!candidate) return null;
+		const beforeKeys = new Set(store.doc.placed.map(lessonKey));
+		const afterKeys = new Set(candidate.map(lessonKey));
+		return {
+			added: new Set([...afterKeys].filter(k => !beforeKeys.has(k))),
+			removed: new Set([...beforeKeys].filter(k => !afterKeys.has(k))),
+		};
+	});
+
+	/** Geister für die Nachher-Ansicht: alte Positionen der verschobenen Stunden. */
+	const ghostsBySlot = $derived.by(() => {
+		const m = new Map<string, { subject: string; title: string }[]>();
+		if (!candidate || !diffKeys || reviewView !== 'after') return m;
+		const specById = new Map(store.doc.specs.map(s => [s.id, s]));
+		// Wohin ist die Spec gewandert? (fürs Geist-Tooltip)
+		const addedBySpec = new Map<string, string[]>();
+		for (const k of diffKeys.added) {
+			const [sid, d, p] = k.split('|');
+			const list = addedBySpec.get(sid) ?? [];
+			list.push(`${d} P${p}`);
+			addedBySpec.set(sid, list);
+		}
+		for (const p of store.doc.placed) {
+			if (!diffKeys.removed.has(lessonKey(p))) continue;
+			const spec = specById.get(p.specId);
+			if (!spec) continue;
+			const to = addedBySpec.get(p.specId);
+			const slotK = slotKeyOf(p.day, p.period, p.grade);
+			const list = m.get(slotK) ?? [];
+			list.push({
+				subject: spec.subject,
+				title: to && to.length > 0
+					? `${spec.subject}: war hier — jetzt ${to.join(' / ')}`
+					: `${spec.subject}: war hier — entfällt im Vorschlag!`,
+			});
+			m.set(slotK, list);
+		}
+		return m;
+	});
+
 	const teacherRows = $derived.by(() => {
 		void store.doc.placed.length;
 		return computeTeacherQuality(store.doc).filter(r => r.weekLessons > 0);
@@ -152,6 +207,7 @@
 				pinned: keepPinned.has(lessonKey(p)),
 			}));
 			candidateResult = d.final;
+			reviewView = 'after';
 			phase = 'review';
 		});
 		s.on('error', err => {
@@ -559,6 +615,17 @@
 						✓ Übernehmen (Backup-Snapshot wird gespeichert)
 					</button>
 					<button class="btn" onclick={rejectCandidate}>↩ Verwerfen</button>
+					<span class="sep"></span>
+					<span class="muted small">Plan-Ansicht unten:</span>
+					<div class="ft-viewtoggle">
+						<button class="btn small" class:active={reviewView === 'before'} onclick={() => (reviewView = 'before')}>Vorher</button>
+						<button class="btn small" class:active={reviewView === 'after'} onclick={() => (reviewView = 'after')}>Nachher</button>
+					</div>
+					{#if reviewView === 'after'}
+						<span class="muted small">🟩 neu platziert · Geist = alte Position</span>
+					{:else}
+						<span class="muted small">🟨 wird verschoben</span>
+					{/if}
 				</div>
 			</section>
 		{/if}
@@ -591,23 +658,36 @@
 							</th>
 							{#each DAYS as day, di (day)}
 								{#each GRADES as grade (day + grade)}
-									{@const occs = occupancy.get(slotKeyOf(day, period, grade)) ?? []}
-									{#if occs.length > 0}
+									{@const occs = gridOccupancy.get(slotKeyOf(day, period, grade)) ?? []}
+									{@const ghosts = ghostsBySlot.get(slotKeyOf(day, period, grade)) ?? []}
+									{#if occs.length > 0 || ghosts.length > 0}
 										<td class="cell">
 											{#each occs as occ, idx (occ.placed.specId + '|' + idx)}
+												{@const key = lessonKey(occ.placed)}
 												<button
 													type="button"
 													class="lesson"
-													class:selected={selected.has(lessonKey(occ.placed))}
+													class:selected={phase !== 'review' && selected.has(key)}
 													class:pinned={occ.placed.pinned}
+													class:added={phase === 'review' && reviewView === 'after' && diffKeys?.added.has(key)}
+													class:willmove={phase === 'review' && reviewView === 'before' && diffKeys?.removed.has(key)}
 													style:background={teacherTint(occ.teachers[0]?.color ?? '#9ca3af')}
-													onclick={() => toggleLesson(occ)}
-													title={occ.placed.pinned
-														? `${occ.spec.subject} (gepinnt — im Feinschliff fix)`
-														: `${occ.spec.subject} · ${occ.teachers.map(t => t.name).join(' + ')} — klicken zum Aus-/Abwählen`}
+													onclick={() => phase !== 'review' && toggleLesson(occ)}
+													title={phase === 'review'
+														? (reviewView === 'after' && diffKeys?.added.has(key)
+															? `${occ.spec.subject} — NEU an dieser Position (Vorschlag)`
+															: reviewView === 'before' && diffKeys?.removed.has(key)
+																? `${occ.spec.subject} — wird im Vorschlag verschoben`
+																: occ.spec.subject)
+														: occ.placed.pinned
+															? `${occ.spec.subject} (gepinnt — im Feinschliff fix)`
+															: `${occ.spec.subject} · ${occ.teachers.map(t => t.name).join(' + ')} — klicken zum Aus-/Abwählen`}
 												>
 													{occ.spec.subject}{#if occ.placed.pinned}&nbsp;🔒{/if}
 												</button>
+											{/each}
+											{#each ghosts as g, gi (g.subject + '|' + gi)}
+												<span class="ghost" title={g.title}>{g.subject}</span>
 											{/each}
 										</td>
 									{:else}
@@ -878,5 +958,34 @@
 	.lesson.pinned {
 		cursor: not-allowed;
 		opacity: 0.75;
+	}
+	/* F2-S2: Diff-Markierung im Review-Grid */
+	.lesson.added {
+		outline: 2px solid #16a34a;
+		outline-offset: -1px;
+	}
+	.lesson.willmove {
+		outline: 2px dashed #d97706;
+		outline-offset: -1px;
+	}
+	.ghost {
+		display: block;
+		border: 1px dashed var(--border-strong);
+		border-radius: 3px;
+		padding: 2px 4px;
+		font-size: 10px;
+		font-style: italic;
+		color: var(--text-muted);
+		opacity: 0.65;
+		margin-bottom: 1px;
+	}
+	.ft-viewtoggle {
+		display: inline-flex;
+		gap: 0;
+	}
+	.ft-viewtoggle .btn.active {
+		background: var(--accent);
+		color: white;
+		outline: none;
 	}
 </style>
