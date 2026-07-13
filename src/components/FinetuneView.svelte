@@ -23,6 +23,7 @@
 	import { buildSlotOccupancy, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { teacherTint } from '../lib/teacher-helpers';
 	import { computeTeacherQuality } from '../lib/teacher-quality';
+	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { saveSnapshot } from '../lib/snapshots';
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { SolveSession, SolverOutput } from '../lib/solver-v2/index';
@@ -322,6 +323,61 @@
 		return { moves, unplacedCount: candidateResult?.unplaced.length ?? 0 };
 	});
 
+	// ---- F2-S1: ehrlicher Vorher/Nachher-Vergleich ----
+	// Beide Stände werden LOKAL mit denselben Gewichten gescort — der
+	// Score aus dem Solver-done kann im relaxed-Gewichts-Frame gemessen
+	// sein und wäre nicht mit dem Ist-Stand vergleichbar. Dazu die
+	// „Wer ist betroffen?"-Tabelle: pro Lehrer mit Änderung die Kennzahlen
+	// vorher → nachher (2× computeTeacherQuality).
+	interface TeacherDelta {
+		teacherId: string;
+		name: string;
+		color: string;
+		gapsBefore: number; gapsAfter: number;
+		daysBefore: number; daysAfter: number;
+		miniBefore: number; miniAfter: number;
+	}
+	const reviewStats = $derived.by(() => {
+		if (!candidate) return null;
+		const snap = $state.snapshot(store.doc) as ScheduleDoc;
+		const before = scorePlacedPlan(snap);
+		const after = scorePlacedPlan(snap, candidate);
+		const beforeQ = computeTeacherQuality(snap);
+		const afterQ = computeTeacherQuality({ ...snap, placed: candidate });
+		const afterById = new Map(afterQ.map(r => [r.teacherId, r]));
+		const deltas: TeacherDelta[] = [];
+		const seen = new Set<string>();
+		for (const b of beforeQ) {
+			seen.add(b.teacherId);
+			const a = afterById.get(b.teacherId);
+			const gapsAfter = a?.gaps ?? 0;
+			const daysAfter = a?.daysPresent ?? 0;
+			const miniAfter = a?.miniDays ?? 0;
+			if (b.gaps !== gapsAfter || b.daysPresent !== daysAfter || b.miniDays !== miniAfter) {
+				deltas.push({
+					teacherId: b.teacherId, name: b.name, color: b.color,
+					gapsBefore: b.gaps, gapsAfter,
+					daysBefore: b.daysPresent, daysAfter,
+					miniBefore: b.miniDays, miniAfter,
+				});
+			}
+		}
+		// Lehrer, die vorher gar keine Stunden hatten (Report-exempt), nachher schon.
+		for (const a of afterQ) {
+			if (seen.has(a.teacherId)) continue;
+			deltas.push({
+				teacherId: a.teacherId, name: a.name, color: a.color,
+				gapsBefore: 0, gapsAfter: a.gaps,
+				daysBefore: 0, daysAfter: a.daysPresent,
+				miniBefore: 0, miniAfter: a.miniDays,
+			});
+		}
+		// Größte Springstunden-Änderung zuerst — das ist die Ziel-Metrik.
+		deltas.sort((x, y) =>
+			Math.abs(y.gapsAfter - y.gapsBefore) - Math.abs(x.gapsAfter - x.gapsBefore));
+		return { before, after, deltas };
+	});
+
 	function acceptCandidate(): void {
 		if (!candidate) return;
 		// Sicherheitsnetz: aktuellen Stand als Backup-Snapshot sichern.
@@ -431,13 +487,61 @@
 			<section class="ft-review">
 				<div class="ft-row">
 					<strong>Vorschlag fertig:</strong>
-					{#if candidateResult?.penalties}
-						<span>Score {candidateResult.penalties.total}</span>
-					{/if}
 					{#if diff.unplacedCount > 0}
 						<span class="ft-warn">⚠ {diff.unplacedCount} Stunde{diff.unplacedCount === 1 ? '' : 'n'} konnte{diff.unplacedCount === 1 ? '' : 'n'} NICHT platziert werden</span>
 					{/if}
 				</div>
+				{#if reviewStats}
+					{@const delta = reviewStats.after.total - reviewStats.before.total}
+					<!-- F2-S1: Vorher/Nachher mit denselben Gewichten gescort -->
+					<div class="ft-compare">
+						<div class="ft-card">
+							<span class="ft-card-label">Vorher</span>
+							<span class="ft-card-score">{Math.round(reviewStats.before.total)}</span>
+							<span class="ft-card-quality">Qualität {qualityPercent(reviewStats.before.total)} %</span>
+						</div>
+						<div class="ft-card ft-card-delta" class:better={delta < 0} class:worse={delta > 0}>
+							<span class="ft-card-label">{delta < 0 ? '✓ besser' : delta > 0 ? '⚠ schlechter' : '± unverändert'}</span>
+							<span class="ft-card-score">{delta > 0 ? '+' : ''}{Math.round(delta)}</span>
+						</div>
+						<div class="ft-card">
+							<span class="ft-card-label">Nachher</span>
+							<span class="ft-card-score">{Math.round(reviewStats.after.total)}</span>
+							<span class="ft-card-quality">Qualität {qualityPercent(reviewStats.after.total)} %</span>
+						</div>
+					</div>
+					{#if reviewStats.deltas.length > 0}
+						<!-- Wer ist betroffen? Kennzahlen vorher → nachher, grün/rot -->
+						<table class="ft-affected">
+							<thead>
+								<tr>
+									<th>Betroffener Lehrer</th>
+									<th title="Springstunden (innere Lücken) pro Woche">Springstunden</th>
+									<th title="Anwesenheitstage">Tage</th>
+									<th title="Tage mit nur 1 Stunde">Mini-Tage</th>
+								</tr>
+							</thead>
+							<tbody>
+								{#each reviewStats.deltas as t (t.teacherId)}
+									<tr>
+										<td><span class="dot" style:background={t.color}></span>{t.name}</td>
+										<td class:good={t.gapsAfter < t.gapsBefore} class:bad={t.gapsAfter > t.gapsBefore}>
+											{t.gapsBefore} → {t.gapsAfter}
+										</td>
+										<td class:good={t.daysAfter < t.daysBefore} class:bad={t.daysAfter > t.daysBefore}>
+											{t.daysBefore} → {t.daysAfter}
+										</td>
+										<td class:good={t.miniAfter < t.miniBefore} class:bad={t.miniAfter > t.miniBefore}>
+											{t.miniBefore} → {t.miniAfter}
+										</td>
+									</tr>
+								{/each}
+							</tbody>
+						</table>
+					{:else}
+						<p class="muted small">Keine Lehrer-Kennzahl ändert sich (nur Umstellungen ohne Effekt auf Springstunden/Tage).</p>
+					{/if}
+				{/if}
 				{#if diff.moves.length === 0}
 					<p class="muted small">Keine Änderung — der Solver hat keine bessere Anordnung gefunden. Verwerfen lässt alles wie es war.</p>
 				{:else}
@@ -622,6 +726,71 @@
 	@keyframes spin { to { transform: rotate(360deg); } }
 	.ft-review {
 		border-color: var(--accent);
+	}
+	/* F2-S1: Vorher/Nachher-Karten + Betroffenen-Tabelle */
+	.ft-compare {
+		display: flex;
+		gap: 10px;
+		margin: 8px 0;
+		flex-wrap: wrap;
+	}
+	.ft-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		padding: 8px 16px;
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		border-radius: 8px;
+		min-width: 110px;
+	}
+	.ft-card-label {
+		font-size: 11px;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--text-muted);
+	}
+	.ft-card-score {
+		font-size: 20px;
+		font-weight: 800;
+		font-family: var(--mono);
+	}
+	.ft-card-quality {
+		font-size: 11px;
+		color: var(--text-muted);
+	}
+	.ft-card-delta.better {
+		border-color: #16a34a;
+		background: #f0fdf4;
+	}
+	.ft-card-delta.better .ft-card-score { color: #16a34a; }
+	.ft-card-delta.worse {
+		border-color: #dc2626;
+		background: #fef2f2;
+	}
+	.ft-card-delta.worse .ft-card-score { color: #dc2626; }
+	.ft-affected {
+		border-collapse: collapse;
+		font-size: 12px;
+		margin: 4px 0 8px;
+	}
+	.ft-affected th, .ft-affected td {
+		border: 1px solid var(--border);
+		padding: 3px 10px;
+		text-align: left;
+	}
+	.ft-affected thead th {
+		background: var(--bg-soft);
+		font-weight: 600;
+	}
+	.ft-affected td.good { color: #16a34a; font-weight: 700; }
+	.ft-affected td.bad { color: #dc2626; font-weight: 700; }
+	.ft-affected .dot {
+		display: inline-block;
+		width: 9px;
+		height: 9px;
+		border-radius: 50%;
+		margin-right: 6px;
 	}
 	.ft-warn {
 		color: #b91c1c;

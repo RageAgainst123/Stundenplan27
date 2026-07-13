@@ -8,6 +8,7 @@
 	import type { PlacedLesson } from '../lib/types';
 	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
 	import { computeSpecDifficulties } from '../lib/spec-difficulty';
+	import { qualityPercent } from '../lib/quality';
 	import { teacherName } from '../lib/teacher-helpers';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
@@ -554,15 +555,8 @@
 	);
 
 	// ---- R3-S6: Plan-Qualitäts-Prozent + Schwierigkeits-Report ----
-	// Qualitäts-Note: 100 % bei Score 0, asymptotisch fallend — grobe
-	// Vergleichs-Note zwischen Plänen/Snapshots (Untis-Vorbild). Der
-	// Roh-Score bleibt maßgeblich und sichtbar; K=15000 kalibriert so,
-	// dass ein typischer guter Liste.csv-Plan (~10000) bei ~60 % liegt
-	// und jede ungeplante Stunde (100000) die Note unter 15 % drückt.
-	function qualityPercent(total: number): number {
-		const K = 15_000;
-		return Math.max(0, Math.round((100 * K) / (K + Math.max(0, total))));
-	}
+	// qualityPercent lebt seit F2-S1 als Shared-Helper in lib/quality.ts
+	// (der Feinschliff-Review vergleicht Vorher/Nachher mit derselben Note).
 
 	// Schwierigkeits-Report (aSc „Analyze by generation"): Top-10 der am
 	// schwersten platzierbaren Lehreinheiten aus der statischen Heuristik,
