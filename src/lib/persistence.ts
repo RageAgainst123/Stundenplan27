@@ -5,6 +5,7 @@
 // SCHEMA_VERSION, add a row there describing what changed.
 
 import { SCHEMA_VERSION, type ConstraintConfig, type GradeLevel, type PlacedLesson, type ScheduleDoc, type LessonSpec, type Subject } from './types';
+import type { Snapshot } from './snapshots';
 
 const STORAGE_KEY = 'stundenplan27.doc';
 
@@ -269,6 +270,13 @@ export function migrateDoc(doc: ScheduleDoc): ScheduleDoc {
 		}
 	}
 
+	// SN2: das optionale `snapshots`-Feld aus JSON-Backups gehört NICHT ins
+	// Doc (eigener localStorage-Key) — readJsonFile extrahiert es VOR diesem
+	// Aufruf; hier defensiv strippen, damit es nie in stundenplan27.doc landet.
+	if ('snapshots' in (doc as unknown as Record<string, unknown>)) {
+		delete (doc as unknown as Record<string, unknown>).snapshots;
+	}
+
 	if (doc.meta) {
 		doc.meta.schemaVersion = SCHEMA_VERSION;
 	}
@@ -312,10 +320,17 @@ export function clearLocalStorage(): void {
 	localStorage.removeItem(STORAGE_KEY);
 }
 
-export function downloadAsJson(doc: ScheduleDoc, filename?: string): void {
+/**
+ * SN2: `snapshots` optional mitsichern — landet als zusätzliches
+ * Top-Level-Feld in der JSON-Datei. Beim Import extrahiert readJsonFile
+ * es wieder; alte App-Versionen ignorieren das Feld (validateDocStructure
+ * prüft nur die Pflichtfelder, migrateDoc strippt es).
+ */
+export function downloadAsJson(doc: ScheduleDoc, filename?: string, snapshots?: Snapshot[]): void {
 	const safeYear = doc.schoolYear.replace(/[/\\: ]/g, '-');
 	const name = filename ?? `stundenplan-${safeYear}.json`;
-	const blob = new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' });
+	const payload = snapshots && snapshots.length > 0 ? { ...doc, snapshots } : doc;
+	const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
 	a.href = url;
@@ -391,7 +406,12 @@ export function validateDocStructure(parsed: unknown): string | null {
 	return null;
 }
 
-export async function readJsonFile(file: File): Promise<ScheduleDoc> {
+/**
+ * SN2: Rückgabe ist { doc, snapshots } — `snapshots` sind die optional
+ * mitgesicherten Plan-Snapshots aus der Datei (leeres Array wenn keine).
+ * Die Extraktion passiert VOR migrateDoc, weil migrateDoc das Feld strippt.
+ */
+export async function readJsonFile(file: File): Promise<{ doc: ScheduleDoc; snapshots: Snapshot[] }> {
 	const text = await file.text();
 	const parsed = JSON.parse(text) as ScheduleDoc;
 	if (!parsed?.meta) {
@@ -411,5 +431,7 @@ export async function readJsonFile(file: File): Promise<ScheduleDoc> {
 	if (structError) {
 		throw new Error(`Backup abgelehnt — Datei ist beschädigt: ${structError}`);
 	}
-	return migrateDoc(parsed);
+	const rawSnapshots = (parsed as unknown as { snapshots?: unknown }).snapshots;
+	const snapshots = Array.isArray(rawSnapshots) ? (rawSnapshots as Snapshot[]) : [];
+	return { doc: migrateDoc(parsed), snapshots };
 }

@@ -2,6 +2,7 @@
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
 	import { downloadAsJson, readJsonFile } from '../lib/persistence';
+	import { loadSnapshots, importSnapshots } from '../lib/snapshots';
 	import { importCsv, type ImportResult } from '../lib/import/csv';
 	import { emptyDoc } from '../lib/types';
 
@@ -124,17 +125,33 @@
 
 	async function handleJsonFile(file: File) {
 		try {
-			const doc = await readJsonFile(file);
-			if (!confirm(`Aktuellen Plan durch "${doc.schoolYear}" ersetzen? Bestehende Daten gehen verloren.`)) return;
+			const { doc, snapshots } = await readJsonFile(file);
+			const snapInfo = snapshots.length > 0 ? `\nEnthält außerdem ${snapshots.length} Plan-Snapshots (werden zur Galerie hinzugefügt).` : '';
+			if (!confirm(`Aktuellen Plan durch "${doc.schoolYear}" ersetzen? Bestehende Daten gehen verloren.${snapInfo}`)) return;
 			store.replace(doc);
-			alert('Backup geladen.');
+			// SN2: mitgesicherte Snapshots in die Galerie mergen (per id,
+			// Duplikate werden übersprungen).
+			let added = 0;
+			if (snapshots.length > 0) {
+				added = importSnapshots(snapshots);
+				window.dispatchEvent(new CustomEvent('snapshots-changed'));
+			}
+			alert(added > 0 ? `Backup geladen. ${added} Snapshots übernommen.` : 'Backup geladen.');
 		} catch (e) {
 			alert(`Laden fehlgeschlagen: ${e}`);
 		}
 	}
 
+	/**
+	 * SN2: Snapshots optional mitsichern (Default an). Damit überleben die
+	 * Plan-Varianten auch Browser-Wechsel/Origin-Probleme — Snapshots leben
+	 * sonst NUR im localStorage dieses Browsers.
+	 */
+	let includeSnapshots = $state<boolean>(true);
+
 	function exportJson() {
-		downloadAsJson($state.snapshot(store.doc) as any);
+		const snaps = includeSnapshots ? loadSnapshots() : [];
+		downloadAsJson($state.snapshot(store.doc) as any, undefined, snaps);
 	}
 
 	function resetAll() {
@@ -299,6 +316,10 @@
 	<div class="card">
 		<h2>JSON Backup</h2>
 		<p class="muted">Kompletten Plan als JSON-Datei sichern oder wiederherstellen.</p>
+		<label class="muted" style="display:flex; align-items:center; gap:6px; font-size:13px; margin-bottom:8px; cursor:pointer" title="Snapshots leben sonst nur im Browser-Speicher dieses Rechners — mitgesichert überleben sie auch Browser-Wechsel und Speicher-Verlust">
+			<input type="checkbox" bind:checked={includeSnapshots} />
+			📸 Plan-Snapshots mitsichern
+		</label>
 		<div class="actions">
 			<button class="btn primary" onclick={exportJson}>Als JSON exportieren</button>
 			<label class="btn" style="cursor:pointer">

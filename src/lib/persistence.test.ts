@@ -341,3 +341,41 @@ describe('validateDocStructure — JSON-Backup-Guard (Audit A2a)', () => {
 		expect(validateDocStructure(doc)).toBeNull();
 	});
 });
+
+describe('readJsonFile — Snapshots im JSON-Backup (SN2)', () => {
+	const snap = {
+		id: 'snap-1',
+		name: 'Bester Plan',
+		score: 4200,
+		placed: [{ specId: 's', day: 'Mo', period: 1, grade: 5, pinned: false }],
+		createdAt: '2026-07-01T10:00:00Z',
+		source: 'manual'
+	};
+
+	function fileFrom(obj: unknown): File {
+		return new File([JSON.stringify(obj)], 'backup.json', { type: 'application/json' });
+	}
+
+	it('extrahiert mitgesicherte Snapshots und strippt das Feld aus dem Doc', async () => {
+		const { readJsonFile } = await import('./persistence');
+		const payload = { ...JSON.parse(JSON.stringify(emptyDoc('2026/27'))), snapshots: [snap] };
+		const { doc, snapshots } = await readJsonFile(fileFrom(payload));
+		expect(snapshots).toHaveLength(1);
+		expect(snapshots[0].id).toBe('snap-1');
+		expect('snapshots' in (doc as unknown as Record<string, unknown>)).toBe(false);
+	});
+
+	it('Backup ohne snapshots-Feld → leeres Array (Alt-Backups kompatibel)', async () => {
+		const { readJsonFile } = await import('./persistence');
+		const { doc, snapshots } = await readJsonFile(fileFrom(emptyDoc('2026/27')));
+		expect(snapshots).toEqual([]);
+		expect(doc.schoolYear).toBe('2026/27');
+	});
+
+	it('migrateDoc strippt ein verirrtes snapshots-Feld aus dem Doc', () => {
+		const doc = JSON.parse(JSON.stringify(emptyDoc('2026/27')));
+		doc.snapshots = [snap];
+		const migrated = migrateDoc(doc);
+		expect('snapshots' in (migrated as unknown as Record<string, unknown>)).toBe(false);
+	});
+});
