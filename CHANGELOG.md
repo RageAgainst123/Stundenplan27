@@ -12,6 +12,35 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Snapshot-Galerie 2.0 — Backups getrennt, Pin, mehr Platz (2026-07)
+User-Anlass: „Warum nur 10 Snapshots? Wie speichere ich den besten Plan
+sicher und springe zu einem anderen zurück?" Kern-Befund: Sicherheits-
+Backups („Backup vor …") und echte Pläne teilten sich EIN 10er-FIFO —
+eine Arbeitssitzung mit ein paar Feinschliff-/Restore-Aktionen konnte
+bewusst gespeicherte Best-Pläne still aus der Galerie verdrängen.
+- **Backup/Plan-Trennung:** Sicherheitsnetze bekommen `source: 'backup'`
+  und einen eigenen 5er-Ring (einklappbare Sektion „🛟 Automatische
+  Backups" unter der Galerie). Pläne (manuell + Auto ≥5 %) haben jetzt
+  **30 Plätze** statt 10 (~15–20 KB pro Snapshot, localStorage lacht
+  darüber). Alt-Bestände migrieren beim Laden automatisch.
+- **📌 Pin:** Gepinnte Snapshots werden NIE automatisch verdrängt —
+  weder vom Gruppen-Limit noch vom Quota-Notfall-Cleanup. Der „beste
+  Plan" ist damit unantastbar.
+- **Galerie-UX:** ✏️ Umbenennen inline, Qualitäts-% neben dem Roh-Score,
+  „= aktuell"-Badge wenn ein Snapshot dem aktuellen Plan entspricht
+  (Wiederherstellen dann deaktiviert). Backups tragen jetzt einen
+  ehrlichen lokalen Score (`scorePlacedPlan`) statt 0.
+- **Snapshots im JSON-Backup:** Export-Checkbox „📸 Plan-Snapshots
+  mitsichern" (Default an) — Snapshots lebten bisher NUR im Browser-
+  Speicher und gingen z. B. beim Port-Wechsel verloren. Import merged
+  sie per id zurück in die Galerie.
+- **Wochenplan-Reiter:** „⤴ Aktivieren"-Button am Vergleichs-Slot macht
+  den angezeigten Snapshot per Klick zum aktuellen Plan (Auto-Backup
+  davor); Dropdown gruppiert Pläne/Backups.
+- 13 neue Tests (Gruppen-Limits, Pin-Schutz, Migration, Import-Merge,
+  samePlacements, JSON-Roundtrip); Browser-E2E für Galerie, Pin,
+  Rename, Aktivieren und Export-Inhalt.
+
 ### HTML-Wochenplan: Export als Single-File-Webseite (2026-07)
 User-Anlass: Den fertigen Plan als EINE HTML-Datei weitergeben können —
 Kolleg:innen öffnen sie direkt im Browser, auch am Handy, ohne Internet.
