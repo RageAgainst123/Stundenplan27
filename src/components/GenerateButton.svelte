@@ -6,9 +6,9 @@
 	// Worker-Support auf das bisherige Inline-startSolve zurück.
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { PlacedLesson } from '../lib/types';
-	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, MAX_SNAPSHOTS, type Snapshot } from '../lib/snapshots';
+	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, setSnapshotPinned, renameSnapshot, samePlacements, MAX_PLANS, MAX_BACKUPS, type Snapshot } from '../lib/snapshots';
 	import { computeSpecDifficulties } from '../lib/spec-difficulty';
-	import { qualityPercent } from '../lib/quality';
+	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { teacherName } from '../lib/teacher-helpers';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
@@ -433,17 +433,31 @@
 			snapshotNameOpen = false;
 			return;
 		}
-		const score = bestScore ?? result?.penalties?.total ?? 0;
+		// SN2: ehrlicher lokaler Score des IST-Stands statt bestScore/result —
+		// die konnten nach manuellen Edits veraltet oder im relaxed-Frame sein.
+		const breakdown = scorePlacedPlan(store.doc);
 		const name = snapshotNameDraft.trim() || `Plan #${nextSnapshotNumber()}`;
 		saveSnapshot({
 			name,
-			score: Math.round(score),
+			score: Math.round(breakdown.total),
 			placed: store.doc.placed.map(p => ({ ...p })),
-			scoreBreakdown: result?.penalties as any,
+			scoreBreakdown: breakdown as any,
 			source: 'manual'
 		});
 		snapshotNameOpen = false;
 		notifySnapshotsChanged();
+	}
+
+	// SN2: Backup-Snapshot des aktuellen Plans (Sicherheitsnetz, eigener Ring).
+	function saveBackupOfCurrent(label: string): void {
+		const breakdown = scorePlacedPlan(store.doc);
+		saveSnapshot({
+			name: `${label} ${new Date().toLocaleTimeString('de-AT')}`,
+			score: Math.round(breakdown.total),
+			placed: store.doc.placed.map(p => ({ ...p })),
+			scoreBreakdown: breakdown as any,
+			source: 'backup'
+		});
 	}
 
 	function restoreSnapshot(snap: Snapshot): void {
@@ -455,13 +469,7 @@
 		if (!ok) return;
 		// Auto-Backup vor Restore (nur wenn aktueller Plan nicht leer)
 		if (store.doc.placed.length > 0) {
-			saveSnapshot({
-				name: `Backup vor Restore ${new Date().toLocaleTimeString('de-AT')}`,
-				score: Math.round(bestScore ?? result?.penalties?.total ?? 0),
-				placed: store.doc.placed.map(p => ({ ...p })),
-				scoreBreakdown: result?.penalties as any,
-				source: 'auto'
-			});
+			saveBackupOfCurrent('Backup vor Restore');
 		}
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
@@ -478,13 +486,7 @@
 		);
 		if (!ok) return;
 		if (store.doc.placed.length > 0) {
-			saveSnapshot({
-				name: `Backup vor Diversify ${new Date().toLocaleTimeString('de-AT')}`,
-				score: Math.round(bestScore ?? result?.penalties?.total ?? 0),
-				placed: store.doc.placed.map(p => ({ ...p })),
-				scoreBreakdown: result?.penalties as any,
-				source: 'auto'
-			});
+			saveBackupOfCurrent('Backup vor Diversify');
 		}
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
@@ -495,20 +497,51 @@
 	}
 
 	function deleteSnap(snap: Snapshot): void {
-		if (!confirm(`Snapshot „${snap.name}" löschen?`)) return;
+		const pinWarn = snap.pinned ? ' Er ist ANGEPINNT.' : '';
+		if (!confirm(`Snapshot „${snap.name}" löschen?${pinWarn}`)) return;
 		deleteSnapshot(snap.id);
 		notifySnapshotsChanged();
 	}
 
 	function clearAllSnapshots(): void {
-		if (!confirm('Wirklich ALLE Snapshots löschen? Das kann nicht rückgängig gemacht werden.')) return;
+		if (!confirm('Wirklich ALLE Snapshots löschen — auch gepinnte und Backups? Das kann nicht rückgängig gemacht werden.')) return;
 		clearSnapshots();
 		notifySnapshotsChanged();
 	}
 
-	// Sortierte Snapshots (bester zuerst, niedrigster Score = best)
-	const sortedSnapshots = $derived([...snapshots].sort((a, b) => a.score - b.score));
-	const bestSnapshotId = $derived(sortedSnapshots[0]?.id ?? null);
+	// ---- SN2: Pin + Rename + „= aktuell" ----
+	function togglePin(snap: Snapshot): void {
+		setSnapshotPinned(snap.id, !snap.pinned);
+		notifySnapshotsChanged();
+	}
+
+	let renamingId = $state<string | null>(null);
+	let renameDraft = $state('');
+
+	function startRename(snap: Snapshot): void {
+		renamingId = snap.id;
+		renameDraft = snap.name;
+	}
+
+	function confirmRename(): void {
+		if (renamingId) renameSnapshot(renamingId, renameDraft);
+		renamingId = null;
+		notifySnapshotsChanged();
+	}
+
+	// Snapshot inhaltlich identisch mit dem aktuellen Plan? (Badge „= aktuell")
+	function isCurrentSnap(snap: Snapshot): boolean {
+		return samePlacements(snap.placed, store.doc.placed);
+	}
+
+	// SN2: Pläne (manual + auto) und Backups getrennt anzeigen.
+	// Pläne: bester zuerst (niedrigster Score). Backups: neuestes zuerst.
+	const planSnapshots = $derived(snapshots.filter(s => s.source !== 'backup'));
+	const backupSnapshots = $derived(
+		[...snapshots.filter(s => s.source === 'backup')].sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+	);
+	const sortedPlanSnapshots = $derived([...planSnapshots].sort((a, b) => a.score - b.score));
+	const bestSnapshotId = $derived(sortedPlanSnapshots[0]?.id ?? null);
 
 	// ---- Convergence status ----
 	// Three states based on how long ago the last score improvement was:
@@ -905,10 +938,10 @@
 		</div>
 	{/if}
 
-	<!-- Phase 15: Snapshot-Galerie -->
+	<!-- Phase 15: Snapshot-Galerie. SN2: Pläne und Backups getrennt. -->
 	<div class="snapshot-gallery">
 		<div class="gallery-header">
-			<h4>📸 Plan-Snapshots ({snapshots.length}/{MAX_SNAPSHOTS})</h4>
+			<h4>📸 Plan-Snapshots ({planSnapshots.length}/{MAX_PLANS})</h4>
 			<div class="gallery-actions">
 				{#if snapshotNameOpen}
 					<span class="snap-name-input">
@@ -938,22 +971,49 @@
 				{/if}
 			</div>
 		</div>
-		{#if snapshots.length === 0}
+		{#if planSnapshots.length === 0}
 			<p class="muted small">
 				Noch keine Snapshots. Bei großen Score-Verbesserungen (≥5%) werden sie automatisch erstellt — oder klicke „Aktuellen Plan speichern".
 			</p>
 		{:else}
 			<ul class="snap-list">
-				{#each sortedSnapshots as s (s.id)}
-					<li class:best={s.id === bestSnapshotId}>
+				{#each sortedPlanSnapshots as s (s.id)}
+					{@const isCur = isCurrentSnap(s)}
+					<li class:best={s.id === bestSnapshotId} class:pinned-snap={s.pinned}>
 						<div class="snap-info">
 							<span class="snap-icon">{s.id === bestSnapshotId ? '⭐' : (s.source === 'auto' ? '🔄' : '💾')}</span>
-							<span class="snap-name">{s.name}</span>
-							<span class="snap-score">Score {s.score}</span>
+							{#if renamingId === s.id}
+								<!-- svelte-ignore a11y_autofocus -->
+								<input
+									class="rename-input"
+									type="text"
+									bind:value={renameDraft}
+									autofocus
+									onkeydown={(e) => {
+										if (e.key === 'Enter') confirmRename();
+										if (e.key === 'Escape') renamingId = null;
+									}}
+								/>
+								<button class="btn small primary" onclick={confirmRename}>OK</button>
+							{:else}
+								<span class="snap-name">{s.name}</span>
+							{/if}
+							<span class="snap-quality" title="Qualitäts-Note (100 % = Score 0) — grobe Vergleichs-Note zwischen Plänen">{qualityPercent(s.score)} %</span>
+							<span class="snap-score" title="Roh-Score (niedriger = besser)">Score {s.score}</span>
+							{#if isCur}
+								<span class="current-badge" title="Dieser Snapshot ist inhaltlich identisch mit dem aktuellen Plan">= aktuell</span>
+							{/if}
 							<span class="muted small">· {new Date(s.createdAt).toLocaleString('de-AT')}</span>
 						</div>
 						<div class="snap-actions">
-							<button class="btn small" onclick={() => restoreSnapshot(s)} disabled={busy} title="Plan-Placements aus diesem Snapshot wiederherstellen">
+							<button
+								class="btn small pin-btn"
+								class:pin-active={s.pinned}
+								onclick={() => togglePin(s)}
+								title={s.pinned ? 'Angepinnt — wird NIE automatisch gelöscht. Klicken zum Lösen.' : 'Anpinnen: Snapshot wird nie automatisch verdrängt'}
+							>📌</button>
+							<button class="btn small" onclick={() => startRename(s)} disabled={renamingId === s.id} title="Snapshot umbenennen">✏️</button>
+							<button class="btn small" onclick={() => restoreSnapshot(s)} disabled={busy || isCur} title={isCur ? 'Ist bereits der aktuelle Plan' : 'Plan-Placements aus diesem Snapshot wiederherstellen'}>
 								↩ Wiederherstellen
 							</button>
 							<button class="btn small" onclick={() => diversifyFromSnapshot(s)} disabled={busy || !diversifyDurationSec} title="Snapshot wiederherstellen und sofort diversifizieren">
@@ -964,6 +1024,37 @@
 					</li>
 				{/each}
 			</ul>
+		{/if}
+		{#if backupSnapshots.length > 0}
+			<details class="backup-section">
+				<summary title="Automatische Sicherheitsnetze vor Wiederherstellen/Diversify/Feinschliff/Plan-Import. Eigener Ring — verdrängt nie deine gespeicherten Pläne.">
+					🛟 Automatische Backups ({backupSnapshots.length}/{MAX_BACKUPS})
+				</summary>
+				<ul class="snap-list backup-list">
+					{#each backupSnapshots as s (s.id)}
+						{@const isCur = isCurrentSnap(s)}
+						<li>
+							<div class="snap-info">
+								<span class="snap-icon">🛟</span>
+								<span class="snap-name">{s.name}</span>
+								{#if s.score > 0}
+									<span class="snap-quality">{qualityPercent(s.score)} %</span>
+								{/if}
+								{#if isCur}
+									<span class="current-badge">= aktuell</span>
+								{/if}
+								<span class="muted small">· {new Date(s.createdAt).toLocaleString('de-AT')}</span>
+							</div>
+							<div class="snap-actions">
+								<button class="btn small" onclick={() => restoreSnapshot(s)} disabled={busy || isCur} title={isCur ? 'Ist bereits der aktuelle Plan' : 'Plan-Stand aus diesem Backup wiederherstellen'}>
+									↩ Wiederherstellen
+								</button>
+								<button class="btn danger small" onclick={() => deleteSnap(s)} disabled={busy} title="Dieses Backup löschen">×</button>
+							</div>
+						</li>
+					{/each}
+				</ul>
+			</details>
 		{/if}
 	</div>
 
@@ -1459,5 +1550,59 @@
 	.snap-actions {
 		display: flex;
 		gap: 4px;
+	}
+	/* ---- SN2: Pin, Rename, Qualitäts-%, „= aktuell", Backup-Sektion ---- */
+	.snap-list li.pinned-snap {
+		box-shadow: inset 0 0 0 1px #d97706;
+	}
+	.pin-btn {
+		opacity: 0.45;
+	}
+	.pin-btn.pin-active {
+		opacity: 1;
+		background: rgba(217, 119, 6, 0.15);
+		border-color: #d97706;
+	}
+	.snap-quality {
+		font-weight: 700;
+		font-size: 12px;
+		color: #2f7d43;
+		background: rgba(79, 152, 88, 0.12);
+		padding: 1px 7px;
+		border-radius: 10px;
+		white-space: nowrap;
+	}
+	.current-badge {
+		font-size: 11px;
+		font-weight: 700;
+		color: #1d4ed8;
+		background: rgba(37, 99, 235, 0.12);
+		padding: 1px 7px;
+		border-radius: 10px;
+		white-space: nowrap;
+	}
+	.rename-input {
+		padding: 3px 8px;
+		font-size: 12px;
+		border: 1px solid var(--border-strong);
+		border-radius: 4px;
+		min-width: 160px;
+	}
+	.backup-section {
+		margin-top: 8px;
+	}
+	.backup-section summary {
+		cursor: pointer;
+		font-size: 12px;
+		font-weight: 600;
+		color: var(--text-muted);
+		padding: 4px 0;
+		user-select: none;
+	}
+	.backup-list {
+		margin-top: 4px;
+	}
+	.backup-list li {
+		opacity: 0.85;
 	}
 </style>

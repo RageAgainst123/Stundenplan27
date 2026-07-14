@@ -8,6 +8,7 @@
 	import { buildScheduleExport } from '../lib/schedule-export';
 	import { mapScheduleImport, parseScheduleExport } from '../lib/schedule-import';
 	import { saveSnapshot } from '../lib/snapshots';
+	import { scorePlacedPlan } from '../lib/quality';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
@@ -170,9 +171,9 @@
 		if (store.doc.placed.length > 0) {
 			saveSnapshot({
 				name: `Backup vor Plan-Import ${new Date().toLocaleTimeString('de-AT')}`,
-				score: 0,
+				score: Math.round(scorePlacedPlan(store.doc).total),
 				placed: store.doc.placed.map(p => ({ ...p })),
-				source: 'auto',
+				source: 'backup',
 			});
 			if (typeof window !== 'undefined') {
 				window.dispatchEvent(new CustomEvent('snapshots-changed'));

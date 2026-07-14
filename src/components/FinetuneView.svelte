@@ -98,9 +98,9 @@
 		if (!suggestBackupDone) {
 			saveSnapshot({
 				name: `Backup vor Tauschvorschlägen ${new Date().toLocaleTimeString('de-AT')}`,
-				score: 0,
+				score: Math.round(scorePlacedPlan(store.doc).total),
 				placed: store.doc.placed.map(p => ({ ...p })),
-				source: 'auto',
+				source: 'backup',
 			});
 			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
 			suggestBackupDone = true;
@@ -523,9 +523,9 @@
 		// Sicherheitsnetz: aktuellen Stand als Backup-Snapshot sichern.
 		saveSnapshot({
 			name: `Backup vor Feinschliff ${new Date().toLocaleTimeString('de-AT')}`,
-			score: 0,
+			score: Math.round(scorePlacedPlan(store.doc).total),
 			placed: store.doc.placed.map(p => ({ ...p })),
-			source: 'auto',
+			source: 'backup',
 		});
 		if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
 		recordUndo(`Lauf: ${runLabel}`);
