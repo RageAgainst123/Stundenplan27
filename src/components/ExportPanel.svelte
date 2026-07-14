@@ -3,6 +3,8 @@
 	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from '../lib/types';
 	import { buildSlotOccupancy } from '../lib/schedule-helpers';
 	import { teacherStripeBackground, teacherTint } from '../lib/teacher-helpers';
+	import { buildHtmlPlan } from '../lib/html-export';
+	import type { ScheduleDoc } from '../lib/types';
 	const store = useStore();
 
 	// Optionen
@@ -48,6 +50,23 @@
 			.filter(t => ids.has(t.id))
 			.sort((a, b) => a.shortNumber - b.shortNumber);
 	});
+
+	/**
+	 * HTML-Export (2026-07): der Plan als EINE eigenständige HTML-Datei —
+	 * mobile-first, Lehrer-Filter, Tabs MO–FR + FULL, App-Lehrerfarben.
+	 * Öffnet überall im Browser, ganz ohne Internet.
+	 */
+	function downloadHtml(): void {
+		const html = buildHtmlPlan($state.snapshot(store.doc) as ScheduleDoc);
+		const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		const ts = new Date().toISOString().slice(0, 10);
+		a.download = `stundenplan-${store.doc.schoolYear.replace('/', '-')}-${ts}.html`;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
 
 	async function downloadExcel(): Promise<void> {
 		busy = true;
@@ -116,6 +135,21 @@
 				{#if lastError}
 					<div class="err">{lastError}</div>
 				{/if}
+			</div>
+		</section>
+
+		<section class="config">
+			<h3>🌐 HTML-Wochenplan (zum Weitergeben)</h3>
+			<p class="muted">
+				Der komplette Plan als <strong>eine einzige HTML-Datei</strong> —
+				zum Verschicken an Kolleg:innen. Öffnet direkt im Browser (auch am
+				Handy, ganz ohne Internet): Lehrer-Filter oben, Reiter Mo–Fr +
+				ganze Woche, Lehrerfarben wie in der App.
+			</p>
+			<div class="actions">
+				<button class="btn primary big" onclick={downloadHtml} disabled={!hasPlan}>
+					🌐 HTML-Plan herunterladen
+				</button>
 			</div>
 		</section>
 
@@ -239,8 +273,11 @@
 		border-radius: 8px;
 		padding: 14px 16px;
 	}
-	.config h2, .colors h3, .preview h3 {
+	.config h2, .config h3, .colors h3, .preview h3 {
 		margin: 0 0 8px;
+	}
+	.config h3 {
+		font-size: 14px;
 	}
 	.config h2 {
 		font-size: 18px;

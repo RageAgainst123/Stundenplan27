@@ -12,6 +12,30 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### HTML-Wochenplan: Export als Single-File-Webseite (2026-07)
+User-Anlass: Den fertigen Plan als EINE HTML-Datei weitergeben können —
+Kolleg:innen öffnen sie direkt im Browser, auch am Handy, ohne Internet.
+- **Neues Modul `lib/html-export.ts`** (`buildHtmlPlan`): komplett
+  eigenständige HTML-Datei — Daten aus `buildScheduleExport`, alles beim
+  Export vor-gerendert, ~50 Zeilen eingebettetes Vanilla-JS (kein
+  Framework, keine externen Referenzen, kein color-mix nötig: die
+  App-Lehrerfarben werden als 40%-Tints in Hex vorgerechnet;
+  Team-Teaching als Streifen-Gradient).
+- **Bedienung der Datei:** Sticky-Header mit Lehrer-Filter-Chips in den
+  App-Farben (antippen = nur dieser Lehrer hervorgehoben, Rest gedimmt),
+  Sticky-Tabs **MO DI MI DO FR | FULL** — beim Öffnen ist automatisch
+  der heutige Wochentag aktiv (Sa/So → FULL). Tages-Ansicht: P1–P8 mit
+  Uhrzeiten × 4 Stufen-Spalten, farbige Stunden-Karten mit L-Kürzeln
+  und G/U-Badges; FULL: am Handy 5 Tage gestapelt, ab 900 px als
+  Wochenmatrix nebeneinander. Legende mit vollen Namen; @media print.
+- **Mobile-first verifiziert** (Browser-E2E, 375 px): kein horizontales
+  Scrollen, Tabs/Filter/Farben live getestet; XSS-sicher (alle
+  Nutzer-Strings escaped, „</script>"-Fachname bricht die Datei nicht,
+  per Test bewiesen).
+- **Einbau:** Reiter „Export 📊" → neue Sektion „🌐 HTML-Wochenplan
+  (zum Weitergeben)" mit Download (`stundenplan-<jahr>-<datum>.html`).
+- 8 neue Tests (DOMParser-Struktur, Self-Containment, Escaping, Tints).
+
 ### Feinschliff 2.0 — Tauschvorschläge, ehrlicher Vergleich, Zurücktauschen (2026-07)
 User-Anlass: „Lehrer entlasten" änderte auch andere Lehrer, ohne dass man
 es sah; Wunsch nach EINZELNEN Tauschen statt Komplett-Umbau, mit
