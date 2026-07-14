@@ -11,7 +11,8 @@
 	import { teacherStripeBackground } from '../lib/teacher-helpers';
 	import { buildSlotOccupancy, couplingBackground, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
-	import { loadSnapshots, type Snapshot } from '../lib/snapshots';
+	import { loadSnapshots, saveSnapshot, samePlacements, type Snapshot } from '../lib/snapshots';
+	import { scorePlacedPlan } from '../lib/quality';
 	import PrintSheets from './PrintSheets.svelte';
 	import type { PrintMode } from '../lib/types-ui';
 
@@ -57,6 +58,39 @@
 		if (sourceId === 'current') return 'Aktueller Plan';
 		const snap = snapshots.find(s => s.id === sourceId);
 		return snap ? `${snap.name} · Score ${snap.score}` : 'Aktueller Plan';
+	}
+
+	// SN2: Dropdown gruppiert Pläne und Backups getrennt.
+	const planSnaps = $derived(snapshots.filter(s => s.source !== 'backup'));
+	const backupSnaps = $derived(snapshots.filter(s => s.source === 'backup'));
+
+	// SN2: Snapshot direkt aus dem Vergleich heraus zum aktuellen Plan machen.
+	function snapFor(sourceId: string): Snapshot | null {
+		return sourceId === 'current' ? null : (snapshots.find(s => s.id === sourceId) ?? null);
+	}
+
+	function isCurrentPlan(snap: Snapshot): boolean {
+		void store.doc.placed.length; // reactive dep
+		return samePlacements(snap.placed, store.doc.placed);
+	}
+
+	function activateSnapshot(snap: Snapshot): void {
+		const ok = confirm(
+			`„${snap.name}" zum aktuellen Plan machen?\n\n` +
+			`Der jetzige Plan wird vorher automatisch als Backup gesichert.`
+		);
+		if (!ok) return;
+		if (store.doc.placed.length > 0) {
+			saveSnapshot({
+				name: `Backup vor Aktivieren ${new Date().toLocaleTimeString('de-AT')}`,
+				score: Math.round(scorePlacedPlan(store.doc).total),
+				placed: store.doc.placed.map(p => ({ ...p })),
+				source: 'backup'
+			});
+		}
+		store.doc.placed = snap.placed.map(p => ({ ...p }));
+		store.persistNow();
+		window.dispatchEvent(new CustomEvent('snapshots-changed'));
 	}
 
 	// ---- Cell-Daten: gemeinsame Slot-Map (Audit A5) ----
@@ -299,14 +333,34 @@
 				<div class="slot-header">
 					<select bind:value={slotIds[slotIdx]} class="slot-select">
 						<option value="current">Aktueller Plan</option>
-						{#if snapshots.length > 0}
-							<optgroup label="📸 Snapshots">
-								{#each snapshots as s (s.id)}
-									<option value={s.id}>{s.name} · Score {s.score}</option>
+						{#if planSnaps.length > 0}
+							<optgroup label="📸 Pläne">
+								{#each planSnaps as s (s.id)}
+									<option value={s.id}>{s.pinned ? '📌 ' : ''}{s.name} · Score {s.score}</option>
+								{/each}
+							</optgroup>
+						{/if}
+						{#if backupSnaps.length > 0}
+							<optgroup label="🛟 Backups">
+								{#each backupSnaps as s (s.id)}
+									<option value={s.id}>{s.name}</option>
 								{/each}
 							</optgroup>
 						{/if}
 					</select>
+					{#if snapFor(slotIds[slotIdx])}
+						{@const snapHere = snapFor(slotIds[slotIdx])!}
+						{#if isCurrentPlan(snapHere)}
+							<span class="current-badge" title="Dieser Snapshot ist inhaltlich identisch mit dem aktuellen Plan">= aktuell</span>
+						{:else}
+							<button
+								type="button"
+								class="btn small activate-btn"
+								onclick={() => activateSnapshot(snapHere)}
+								title="Diesen Snapshot zum aktuellen Plan machen (der jetzige Plan wird vorher als Backup gesichert)"
+							>⤴ Aktivieren</button>
+						{/if}
+					{/if}
 					<span class="slot-stats muted small">{slotStats.total}h · {slotStats.uniqueSpecs} LE</span>
 				</div>
 
@@ -586,6 +640,20 @@
 	}
 	.slot-stats {
 		font-size: 12px;
+		white-space: nowrap;
+	}
+	/* SN2: Snapshot aus dem Vergleich heraus aktivieren */
+	.activate-btn {
+		white-space: nowrap;
+		font-weight: 600;
+	}
+	.current-badge {
+		font-size: 11px;
+		font-weight: 700;
+		color: #1d4ed8;
+		background: rgba(37, 99, 235, 0.12);
+		padding: 2px 8px;
+		border-radius: 10px;
 		white-space: nowrap;
 	}
 
