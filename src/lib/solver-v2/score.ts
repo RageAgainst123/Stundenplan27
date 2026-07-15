@@ -351,11 +351,6 @@ export const TEACHER_ROW_COMPONENTS = [
 	'teacher_presence',
 ] as const;
 
-/** Indizes ins 5er-Ergebnis von unitSlotContrib. */
-export const UNIT_COMPONENTS = [
-	'any_aft', 'main_aft', 'afternoon_preferred', 'main_early', 'time_pref',
-] as const;
-
 // Wiederverwendete Mini-Puffer für den Subjekt-Teil von scanClassRow
 // (max. P=8 Starts pro Zeile). Single-threaded — kein Reentrancy-Problem.
 const rowSubj = new Int32Array(P);

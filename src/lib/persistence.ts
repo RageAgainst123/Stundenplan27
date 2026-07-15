@@ -316,10 +316,6 @@ export function loadFromLocalStorage(): ScheduleDoc | null {
 	}
 }
 
-export function clearLocalStorage(): void {
-	localStorage.removeItem(STORAGE_KEY);
-}
-
 /**
  * SN2: `snapshots` optional mitsichern — landet als zusätzliches
  * Top-Level-Feld in der JSON-Datei. Beim Import extrahiert readJsonFile
