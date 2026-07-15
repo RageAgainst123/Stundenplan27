@@ -46,6 +46,12 @@
 	const AUTO_SNAPSHOT_THRESHOLD = 0.05;
 	// Score VOR diesem Lauf (für Auto-Snapshot-Trigger nach done).
 	let preRunScore = $state<number | null>(null);
+	// Audit D-1: der Seed des letzten Laufs. Die Seed-Infrastruktur existiert
+	// seit R2 bis in die Worker/Inseln — aber das UI würfelte bisher implizit
+	// (Date.now im Solver). Jetzt erzeugt das UI den Seed selbst und zeigt
+	// ihn an: gleicher Plan + gleicher Seed → nachstellbarer Lauf (Bench,
+	// Bug-Reports). Bei Anytime-Budgets bleibt eine kleine Zeit-Restvarianz.
+	let lastSeed = $state<number | null>(null);
 	// Reaktive Snapshot-Liste — refresh via 'snapshots-changed' window-event.
 	let snapshots = $state<Snapshot[]>(loadSnapshots());
 
@@ -298,6 +304,10 @@
 		diversifyActive = !!extra.diversify;
 		preRunScore = scoreBeforeRun;
 		preDiversifyScore = extra.diversify ? scoreBeforeRun : null;
+		// D-1: Seed hier erzeugen statt im Solver — dadurch ist er bekannt
+		// und anzeigbar. Gleiche Entropie wie der bisherige Solver-Default.
+		const seed = Date.now() & 0x7fffffff;
+		lastSeed = seed;
 		startTicker();
 		const s = startSolveSession($state.snapshot(store.doc) as any, {
 			// User-Intent: Qualität geht über Geschwindigkeit. Solver darf
@@ -309,7 +319,8 @@
 			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
 			poolBudgetMs: extra.poolBudgetMs,
 			hotStart: extra.hotStart,
-			diversify: extra.diversify
+			diversify: extra.diversify,
+			seed
 		});
 		session = s;
 
@@ -924,6 +935,9 @@
 				<button class="debug-toggle" onclick={() => (logOpen = !logOpen)} aria-expanded={logOpen}>
 					{logOpen ? '▼' : '▶'} Solver-Log ({logEntries.length})
 				</button>
+				{#if lastSeed !== null}
+					<span class="seed-chip" title="Zufalls-Startwert des letzten Laufs (D-1). Gleicher Plan + gleicher Seed = nachstellbarer Lauf — nützlich für Vergleiche und Bug-Reports.">🌱 Seed {lastSeed}</span>
+				{/if}
 				<div class="debug-actions">
 					<button class="btn small" onclick={copyLog} disabled={logEntries.length === 0} title="Log als Text in die Zwischenablage kopieren">📋 Log kopieren</button>
 					<!-- Audit A5: disabled={!lastDzn} — während eines Worker-Laufs liefert
@@ -1269,6 +1283,19 @@
 		align-items: center;
 		gap: 8px;
 		flex-wrap: wrap;
+	}
+	/* D-1: Seed des letzten Laufs (Reproduzierbarkeit) */
+	.seed-chip {
+		font-size: 11px;
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-muted);
+		background: var(--bg-soft);
+		border: 1px solid var(--border);
+		padding: 2px 8px;
+		border-radius: 10px;
+		white-space: nowrap;
+		cursor: help;
 	}
 	.debug-toggle {
 		background: none;
