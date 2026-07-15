@@ -18,7 +18,7 @@
 //  - median(min_daily) === 0
 
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { emptyDoc } from '../types';
 import { importCsv } from '../import/csv';
@@ -274,4 +274,95 @@ benchDescribe('Solver-Bench auf echter Liste.csv (BENCH=1)', () => {
 		// Übernahme-Entscheidung fällt manuell anhand der Median-Zahlen.
 		expect(report).toHaveLength(SEEDS.length);
 	}, 300_000);
+
+	// Audit D-2 (2026-07): Was bringt EIN Produktions-Diversify-Zyklus —
+	// und was brächte best-of-k (= die Qualitäts-Vorschau auf D-3, parallele
+	// Diversify-Inseln: gleiche Wanduhr-Zeit, bester gewinnt)?
+	//
+	// Pro Seed: Basis-Plan (construct + 8s ILS, coupled-solvable wie oben),
+	// dann von IDENTISCHER Basis (a) 1 Zyklus mit UI-Defaults (fraction 0.25,
+	// Strategie random) und (b) 3 Zyklen mit verschiedenen Seeds, bester
+	// gewinnt. Alle Stände werden über DENSELBEN Messpfad gescort
+	// (buildState hotStart + computeScore) — nur so sind die Deltas ehrlich.
+	//
+	// Harte Invariante: der Revert-Guard garantiert, dass ein Diversify-
+	// Zyklus den Plan NIE verschlechtert.
+	it('D-2 Diversify-Zyklus: Einzel vs best-of-3 (Median-Gewinn)', async () => {
+		const CYCLE_MS = 10_000;
+		const K = 3;
+		const report: Record<string, unknown>[] = [];
+
+		for (const seed of SEEDS) {
+			const doc = loadRealDoc();
+			for (const s of doc.specs.filter(s => s.subject === 'BSP' && s.count === 3)) s.couplingId = 'bench-bsp';
+			for (const s of doc.specs.filter(s => s.subject === 'REL' && s.count === 2)) s.couplingId = 'bench-rel';
+			const state = buildState(doc);
+			const w = defaultWeights(doc);
+			construct(state, { weights: w, seed });
+			const ils = iteratedLocalSearch(state, computeScore(state, w), {
+				weights: w,
+				totalBudgetMs: 8_000,
+				innerBudgetMs: INNER_MS,
+				plateauMs: PLATEAU_MS,
+				seed,
+			});
+			const basePlaced = placementToPlacedLessons(state, ils.bestPlacement);
+
+			// Einheitlicher Messpfad für Basis UND Kandidaten.
+			const scorePlaced = (placed: typeof basePlaced) => {
+				const d = JSON.parse(JSON.stringify(doc)) as typeof doc;
+				d.placed = placed.map(p => ({ ...p }));
+				const st = buildState(d, { hotStart: true });
+				return {
+					total: computeScore(st, defaultWeights(d)).total,
+					gaps: computeTeacherMetrics(st).gapsTotal,
+				};
+			};
+			const base = scorePlaced(basePlaced);
+
+			const oneCycle = async (cycleSeed: number) => {
+				const d = JSON.parse(JSON.stringify(doc)) as typeof doc;
+				d.placed = basePlaced.map(p => ({ ...p }));
+				const out = await new Promise<SolverOutput>(resolve => {
+					const session = startSolve(d, {
+						hotStart: true,
+						seed: cycleSeed,
+						diversify: { fraction: 0.25, durationMs: CYCLE_MS },
+					});
+					session.on('done', ev => resolve(ev.final));
+				});
+				return scorePlaced(out.placed);
+			};
+
+			const single = await oneCycle(seed * 31 + 1);
+			const kResults: { total: number; gaps: number }[] = [];
+			for (let i = 0; i < K; i++) {
+				kResults.push(await oneCycle(seed * 31 + 100 + i * 7919));
+			}
+			const bestOfK = kResults.reduce((a, b) => (b.total < a.total ? b : a));
+
+			report.push({
+				seed,
+				baseTotal: base.total, baseGaps: base.gaps,
+				singleTotal: single.total, singleGaps: single.gaps,
+				singleDelta: single.total - base.total,
+				bestOf3Total: bestOfK.total, bestOf3Gaps: bestOfK.gaps,
+				bestOf3Delta: bestOfK.total - base.total,
+				kTotals: kResults.map(r => r.total),
+			});
+			// Revert-Guard-Invariante (gleicher Messpfad, gleiche Gewichte).
+			expect(single.total, `Seed ${seed}: Diversify darf den Plan nie verschlechtern`).toBeLessThanOrEqual(base.total);
+			expect(bestOfK.total, `Seed ${seed}: best-of-${K} darf nie schlechter als Basis sein`).toBeLessThanOrEqual(base.total);
+		}
+
+		// eslint-disable-next-line no-console
+		console.log('BENCH-D2-DIVERSIFY:', JSON.stringify(report, null, 2));
+		// Report-Datei (optional): vitest-Reporter schlucken console.log je
+		// nach Umgebung — mit BENCH_REPORT_FILE landet der Report garantiert
+		// auswertbar auf der Platte.
+		if (process.env.BENCH_REPORT_FILE) {
+			writeFileSync(process.env.BENCH_REPORT_FILE, JSON.stringify(report, null, 2));
+		}
+		expect(report).toHaveLength(SEEDS.length);
+	}, 600_000);
 });

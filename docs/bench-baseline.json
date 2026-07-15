@@ -469,6 +469,27 @@
         "REGRESSION GRÜN: subject_run-Median 0 — der Generator hält die Fach-Limits ein (Liste.csv-Hauptfächer haben Limit 2 aus dem CSV-Import) statt sie zu reißen. Alle übrigen Metriken auf LAHC-Niveau unverändert (unplaced 2, weightedTotal 215675≈215695, coupled 5/5 vollständig, gaps im Varianzband).",
         "Delta-Korrektheit: subject_run läuft als 10. Klassen-Zeilen-Komponente durch den Scoped-Delta-Pfad; der Property-Test (500 States × 8 Moves, Hauptfächer mit Limit 2) deckt sie feldgenau mit ab."
       ]
+    },
+    {
+      "label": "d2-diversify-baseline",
+      "commit": "be40247",
+      "date": "2026-07-15",
+      "machine": "Geo-Windows-Dev",
+      "setup": "Audit D-2: coupled-solvable Basis (construct + 8s Sync-ILS je Seed), dann von IDENTISCHER Basis (a) 1 Produktions-Diversify-Zyklus (startSolve hotStart, fraction 0.25, 10s, random) vs (b) best-of-3 Zyklen mit verschiedenen Seeds. Einheitlicher Messpfad buildState(hotStart)+computeScore.",
+      "perSeed": [
+        { "seed": 42, "baseTotal": 10705, "baseGaps": 9, "singleDelta": 0, "bestOf3Delta": -1016, "bestOf3Gaps": 7, "kTotals": [9689, 10705, 10705] },
+        { "seed": 1337, "baseTotal": 10885, "baseGaps": 9, "singleDelta": 0, "bestOf3Delta": -530, "bestOf3Gaps": 7, "kTotals": [10885, 10355, 10885] },
+        { "seed": 7, "baseTotal": 11939, "baseGaps": 15, "singleDelta": 0, "bestOf3Delta": 0, "bestOf3Gaps": 15, "kTotals": [11939, 11939, 11939] },
+        { "seed": 2024, "baseTotal": 14079, "baseGaps": 11, "singleDelta": -812, "bestOf3Delta": -3856, "bestOf3Gaps": 7, "kTotals": [10223, 14079, 11258] },
+        { "seed": 99999, "baseTotal": 9715, "baseGaps": 7, "singleDelta": 0, "bestOf3Delta": 0, "bestOf3Gaps": 7, "kTotals": [9715, 9715, 9715] }
+      ],
+      "median": { "singleDelta": 0, "bestOf3Delta": -530 },
+      "_befund": [
+        "EIN 10s-Diversify-Zyklus bringt im Median NICHTS (4/5 Seeds: Revert-Guard stellt die Basis wieder her, nur Seed 2024 -812). Das erklärt, warum Diversifizieren sich oft wirkungslos anfühlt.",
+        "BEST-OF-3 von identischer Basis: Median -530, Maximum -3856 (Seed 2024); Springstunden auf den Gewinner-Seeds 9→7, 9→7, 11→7. Die Streuung ZWISCHEN den Versuchen (kTotals) ist die Quelle des Gewinns — einzelne Versuche finden entweder deutlich oder gar nichts.",
+        "SCHLUSSFOLGERUNG für D-3: k parallele Diversify-Inseln (gleicher Plan, verschiedene Seeds, bester gewinnt) sind der gemessen richtige Hebel — nicht längere Einzel-Zyklen. Revert-Guard-Invariante hielt auf allen 5 Seeds in beiden Armen (harter Assert im Bench).",
+        "Bench-Fall: bench.test.ts 'D-2 Diversify-Zyklus', Report optional via BENCH_REPORT_FILE."
+      ]
     }
   ]
 }
