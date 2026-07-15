@@ -2,7 +2,7 @@
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
 	import { downloadAsJson, readJsonFile } from '../lib/persistence';
-	import { loadSnapshots, importSnapshots } from '../lib/snapshots';
+	import { loadSnapshots, importSnapshots, notifySnapshotsChanged } from '../lib/snapshots';
 	import { importCsv, type ImportResult } from '../lib/import/csv';
 	import { emptyDoc } from '../lib/types';
 
@@ -134,7 +134,7 @@
 			let added = 0;
 			if (snapshots.length > 0) {
 				added = importSnapshots(snapshots);
-				window.dispatchEvent(new CustomEvent('snapshots-changed'));
+				notifySnapshotsChanged();
 			}
 			alert(added > 0 ? `Backup geladen. ${added} Snapshots übernommen.` : 'Backup geladen.');
 		} catch (e) {

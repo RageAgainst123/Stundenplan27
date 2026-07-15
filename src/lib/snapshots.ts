@@ -81,6 +81,19 @@ export function isBackupSnapshot(s: Pick<Snapshot, 'source'>): boolean {
 	return s.source === 'backup';
 }
 
+/**
+ * Audit C-4: Name des window-Events, mit dem UI-Teile über Snapshot-
+ * Änderungen informiert werden — vorher ein Magic-String an 11 Stellen.
+ */
+export const SNAPSHOTS_CHANGED_EVENT = 'snapshots-changed';
+
+/** Snapshot-Änderung an alle UI-Listener melden (no-op ohne window). */
+export function notifySnapshotsChanged(): void {
+	if (typeof window !== 'undefined') {
+		window.dispatchEvent(new CustomEvent(SNAPSHOTS_CHANGED_EVENT));
+	}
+}
+
 /** Strukturelle Mindest-Prüfung eines (fremden) Snapshot-Eintrags. */
 export function isValidSnapshot(s: unknown): s is Snapshot {
 	return (

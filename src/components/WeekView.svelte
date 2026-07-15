@@ -9,11 +9,10 @@
 		type Day, type GradeLevel, type LessonSpec, type Period, type PlacedLesson
 	} from '../lib/types';
 	import { teacherStripeBackground, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
-	import { timeLabel } from '../lib/format';
+	import { createBackupSnapshot } from '../lib/backup';
 	import { buildSlotOccupancy, couplingBackground, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
-	import { loadSnapshots, saveSnapshot, samePlacements, type Snapshot } from '../lib/snapshots';
-	import { scorePlacedPlan } from '../lib/quality';
+	import { loadSnapshots, samePlacements, SNAPSHOTS_CHANGED_EVENT, type Snapshot } from '../lib/snapshots';
 	import PrintSheets from './PrintSheets.svelte';
 	import type { PrintMode } from '../lib/types-ui';
 
@@ -42,8 +41,8 @@
 	// Setup-Registrierung ohne Cleanup leakte pro Tab-Wechsel einen toten
 	// Listener (WeekView wird per {#if} in App.svelte unmountet).
 	$effect(() => {
-		window.addEventListener('snapshots-changed', refreshSnapshots);
-		return () => window.removeEventListener('snapshots-changed', refreshSnapshots);
+		window.addEventListener(SNAPSHOTS_CHANGED_EVENT, refreshSnapshots);
+		return () => window.removeEventListener(SNAPSHOTS_CHANGED_EVENT, refreshSnapshots);
 	});
 
 	function placedFor(sourceId: string): PlacedLesson[] {
@@ -81,17 +80,9 @@
 			`Der jetzige Plan wird vorher automatisch als Backup gesichert.`
 		);
 		if (!ok) return;
-		if (store.doc.placed.length > 0) {
-			saveSnapshot({
-				name: `Backup vor Aktivieren ${timeLabel()}`,
-				score: Math.round(scorePlacedPlan(store.doc).total),
-				placed: store.doc.placed.map(p => ({ ...p })),
-				source: 'backup'
-			});
-		}
+		createBackupSnapshot(store.doc, 'Backup vor Aktivieren');
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
-		window.dispatchEvent(new CustomEvent('snapshots-changed'));
 	}
 
 	// ---- Cell-Daten: gemeinsame Slot-Map (Audit A5) ----

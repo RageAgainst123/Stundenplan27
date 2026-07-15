@@ -6,12 +6,13 @@
 	// Worker-Support auf das bisherige Inline-startSolve zurück.
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { PlacedLesson } from '../lib/types';
-	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, setSnapshotPinned, renameSnapshot, samePlacements, MAX_PLANS, MAX_BACKUPS, type Snapshot } from '../lib/snapshots';
+	import { saveSnapshot, loadSnapshots, deleteSnapshot, clearSnapshots, nextSnapshotNumber, setSnapshotPinned, renameSnapshot, samePlacements, notifySnapshotsChanged, SNAPSHOTS_CHANGED_EVENT, MAX_PLANS, MAX_BACKUPS, type Snapshot } from '../lib/snapshots';
+	import { createBackupSnapshot } from '../lib/backup';
 	import { computeSpecDifficulties } from '../lib/spec-difficulty';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { teacherName } from '../lib/teacher-helpers';
 	import { slotKeyOf } from '../lib/schedule-helpers';
-	import { timeLabel, fileTimestamp } from '../lib/format';
+	import { fileTimestamp } from '../lib/format';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
 	const store = useStore();
@@ -63,15 +64,9 @@
 	// Setup-Registrierung ohne Cleanup leakte pro Tab-Wechsel einen toten
 	// Listener (ScheduleGrid/GenerateButton werden per {#if} unmountet).
 	$effect(() => {
-		window.addEventListener('snapshots-changed', refreshSnapshots);
-		return () => window.removeEventListener('snapshots-changed', refreshSnapshots);
+		window.addEventListener(SNAPSHOTS_CHANGED_EVENT, refreshSnapshots);
+		return () => window.removeEventListener(SNAPSHOTS_CHANGED_EVENT, refreshSnapshots);
 	});
-
-	function notifySnapshotsChanged(): void {
-		if (typeof window !== 'undefined') {
-			window.dispatchEvent(new CustomEvent('snapshots-changed'));
-		}
-	}
 
 	// ---- Run state ----
 	let session = $state<SolveSession | null>(null);
@@ -460,17 +455,6 @@
 		notifySnapshotsChanged();
 	}
 
-	// SN2: Backup-Snapshot des aktuellen Plans (Sicherheitsnetz, eigener Ring).
-	function saveBackupOfCurrent(label: string): void {
-		const breakdown = scorePlacedPlan(store.doc);
-		saveSnapshot({
-			name: `${label} ${timeLabel()}`,
-			score: Math.round(breakdown.total),
-			placed: store.doc.placed.map(p => ({ ...p })),
-			scoreBreakdown: breakdown as any,
-			source: 'backup'
-		});
-	}
 
 	function restoreSnapshot(snap: Snapshot): void {
 		const ok = confirm(
@@ -479,10 +463,8 @@
 			`Vor dem Wiederherstellen wird automatisch ein Backup deines aktuellen Plans gespeichert.`
 		);
 		if (!ok) return;
-		// Auto-Backup vor Restore (nur wenn aktueller Plan nicht leer)
-		if (store.doc.placed.length > 0) {
-			saveBackupOfCurrent('Backup vor Restore');
-		}
+		// Auto-Backup vor Restore (C-4-Helper; leerer Plan → no-op)
+		createBackupSnapshot(store.doc, 'Backup vor Restore');
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
 		// Best-Score wieder auf den Snapshot-Score setzen für UI-Konsistenz.
@@ -497,9 +479,7 @@
 			`Aktueller Plan wird vor Restore automatisch als Backup gespeichert.`
 		);
 		if (!ok) return;
-		if (store.doc.placed.length > 0) {
-			saveBackupOfCurrent('Backup vor Diversify');
-		}
+		createBackupSnapshot(store.doc, 'Backup vor Diversify');
 		store.doc.placed = snap.placed.map(p => ({ ...p }));
 		store.persistNow();
 		bestScore = snap.score;

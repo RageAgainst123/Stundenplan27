@@ -7,10 +7,9 @@
 	import { unplacedSpecs } from '../lib/schedule-helpers';
 	import { buildScheduleExport } from '../lib/schedule-export';
 	import { mapScheduleImport, parseScheduleExport } from '../lib/schedule-import';
-	import { saveSnapshot } from '../lib/snapshots';
-	import { scorePlacedPlan } from '../lib/quality';
+	import { createBackupSnapshot } from '../lib/backup';
 	import { FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
-	import { timeLabel, fileTimestamp } from '../lib/format';
+	import { fileTimestamp } from '../lib/format';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
@@ -170,17 +169,7 @@
 				: 'Der Plan wird eingespielt.')
 		);
 		if (!ok) return;
-		if (store.doc.placed.length > 0) {
-			saveSnapshot({
-				name: `Backup vor Plan-Import ${timeLabel()}`,
-				score: Math.round(scorePlacedPlan(store.doc).total),
-				placed: store.doc.placed.map(p => ({ ...p })),
-				source: 'backup',
-			});
-			if (typeof window !== 'undefined') {
-				window.dispatchEvent(new CustomEvent('snapshots-changed'));
-			}
-		}
+		createBackupSnapshot(store.doc, 'Backup vor Plan-Import');
 		store.doc.placed = result.placed;
 		store.persistNow();
 	}

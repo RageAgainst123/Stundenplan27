@@ -22,12 +22,11 @@
 	} from '../lib/types';
 	import { buildSlotOccupancy, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { teacherTint, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
-	import { timeLabel } from '../lib/format';
+	import { createBackupSnapshot } from '../lib/backup';
 	import { computeTeacherQuality } from '../lib/teacher-quality';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { suggestSwaps, type FinetuneSuggestion } from '../lib/finetune-suggest';
 	import { pushUndo, popUndo, type UndoEntry } from '../lib/undo-stack';
-	import { saveSnapshot } from '../lib/snapshots';
 	import { startSolveSession } from '../lib/solver-v2/worker-bridge';
 	import type { SolveSession, SolverOutput } from '../lib/solver-v2/index';
 
@@ -97,13 +96,7 @@
 
 	function applySuggestion(s: FinetuneSuggestion): void {
 		if (!suggestBackupDone) {
-			saveSnapshot({
-				name: `Backup vor Tauschvorschlägen ${timeLabel()}`,
-				score: Math.round(scorePlacedPlan(store.doc).total),
-				placed: store.doc.placed.map(p => ({ ...p })),
-				source: 'backup',
-			});
-			if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
+			createBackupSnapshot(store.doc, 'Backup vor Tauschvorschlägen');
 			suggestBackupDone = true;
 		}
 		recordUndo(`Zug: ${s.label}`);
@@ -522,13 +515,7 @@
 	function acceptCandidate(): void {
 		if (!candidate) return;
 		// Sicherheitsnetz: aktuellen Stand als Backup-Snapshot sichern.
-		saveSnapshot({
-			name: `Backup vor Feinschliff ${timeLabel()}`,
-			score: Math.round(scorePlacedPlan(store.doc).total),
-			placed: store.doc.placed.map(p => ({ ...p })),
-			source: 'backup',
-		});
-		if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent('snapshots-changed'));
+		createBackupSnapshot(store.doc, 'Backup vor Feinschliff');
 		recordUndo(`Lauf: ${runLabel}`);
 		store.doc.placed = candidate;
 		store.persistNow();
