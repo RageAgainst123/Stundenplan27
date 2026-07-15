@@ -167,7 +167,9 @@ function computeOrdering(state: SolverState): Unit[] {
 
 /**
  * Build a (day, grade) → lessonCount index for fast slot scoring.
- * O(nUnits) once per construction call, lookups O(1).
+ * O(nUnits) pro Aufruf; wird pro Unit-Iteration der Construction UND pro
+ * Ejection-Rekursionsebene neu gebaut (nicht inkrementell — Audit G-3
+ * notiert das als mögliche Pool-Phase-Optimierung). Lookups O(1).
  */
 function buildDayGradeCounts(state: SolverState): Int32Array {
 	const G = 4;

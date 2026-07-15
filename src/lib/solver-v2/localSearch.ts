@@ -1,10 +1,12 @@
 // Solver v2 — Phase 2: Local Search.
 //
-// Hill-climbing + Simulated Annealing + Tabu list. See SOLVER-V2-CONCEPT.md §7.
+// Hill-climbing + LAHC (Late Acceptance Hill Climbing, Default seit R3-S3)
+// + Tabu list; SA-Metropolis bleibt als 'sa'-Referenz-Arm für Bench-A/B.
+// See SOLVER-V2-CONCEPT.md §7 (dort inkl. R3-S3-Korrektur-Notiz).
 //
 // Operates on a constructed (hard-feasible) state. Each iteration generates
 // a random move, evaluates the score delta, and accepts/rejects according to
-// the SA criterion. The tabu list prevents direct undo of recent moves.
+// the acceptance criterion. The tabu list prevents direct undo of recent moves.
 //
 // RESUME-Mechanik (Schritt 2 der Solver-Optimierung): Der Async-Pfad
 // (iteratedLocalSearchAsync) zerlegt die innere LS in ~250ms-Chunks, damit

@@ -43,9 +43,10 @@ export interface IteratedLSOptions {
 	/** Optional callback fired when a restart is initiated. */
 	onRestart?: (info: { iteration: number; tElapsedMs: number; reason: string }) => void;
 	/**
-	 * R3-S3: Akzeptanz-Kriterium der inneren Local Search ('sa' Default,
-	 * 'lahc' = Late Acceptance Hill Climbing). Bench-A/B-Hook — siehe
-	 * localSearch.ts und docs/bench-baseline.json (r3-schritt-3).
+	 * R3-S3: Akzeptanz-Kriterium der inneren Local Search ('lahc' Default
+	 * = Late Acceptance Hill Climbing; 'sa' = SA-Metropolis-Referenz-Arm,
+	 * nur via Bench-A/B-Hook erreichbar) — siehe localSearch.ts und
+	 * docs/bench-baseline.json (r3-schritt-3).
 	 */
 	acceptance?: LocalSearchOptions['acceptance'];
 	/** R3-S4: Move-Generator-Auswahl ('fixed' Default, 'alns' adaptiv). */

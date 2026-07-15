@@ -438,6 +438,15 @@ Iterated Local Search ist der Industriestandard. SciELO-Paper berichtet
 
 ## 9. Streaming-Architektur
 
+> **Stand der Umsetzung (R2-S5/6 + R3-S2, Audit C-10 2026-07-15):** Dieser
+> Abschnitt beschreibt den Plan-Stand von Phase 1 und ist **überholt**.
+> Der Solver läuft seit R2-S5 in einem **Web Worker** (`solve.worker.ts`,
+> `worker-bridge.ts` — gleiche SolveSession-API, Inline-Fallback für
+> jsdom/Tests). Seit R2-S6 gibt es eine **Parallel-Pool-Phase** und seit
+> R3-S2 die **Island-ILS**: k = min(4, Kerne−2) unabhängige Sessions,
+> Gewinner-Kürung per unplaced → no_free(roh) → total. Die Microtask-
+> Yield-Idee unten lebt als 250-ms-Chunking im Worker weiter.
+
 Solver v2 läuft **direkt im Main Thread** des Browsers (kein Worker
 nötig — TypeScript-Code in Sekundenbruchteilen pro Iteration).
 
@@ -464,6 +473,8 @@ um den Main Thread komplett freizuhalten. Bei MS-SiG-Größe (128 Lessons)
 ist das nicht nötig.
 
 **Entscheidung Phase 1:** kein Worker, Microtask-Yield reicht.
+*(Superseded — siehe Korrektur-Notiz am Abschnittsanfang: seit R2-S5
+läuft alles im Worker, seit R3-S2 mit Island-Parallelität.)*
 
 ---
 

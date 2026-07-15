@@ -14,7 +14,7 @@ Folgende Dateien werden mit dieser CLAUDE.md geladen:
 ## Doku-Hygiene (kurz)
 
 `docs/MODEL.md` ist die kanonische Quelle für Datenstruktur (Domänenmodell,
-Solver-Internals, alle 16 Score-Komponenten, alle 10 Hard-Constraints,
+Solver-Internals, alle 24 Score-Komponenten, alle 11 Hard-Constraints,
 Schema-Versionen). Drei Update-Anlässe:
 
 1. **`src/lib/types.ts`** geändert (`LessonSpec`, `ConstraintConfig`,
@@ -49,7 +49,7 @@ Browser-Stundenplan-Generator für eine kleine Mittelschule mit Mehrstufenklasse
 | `npm run dev`         | Vite Dev-Server, Port 5173 (HMR — Reactivity-Fallen!)    |
 | `npm run build`       | Production-Build → `dist/`                               |
 | `npm run preview`     | Preview-Server, Port 4173 (für E2E-Smoke-Tests)          |
-| `npm test`            | vitest run, alle 54 Tests einmalig                       |
+| `npm test`            | vitest run, alle Tests einmalig (~434, Stand 2026-07)    |
 | `npm run test:watch`  | vitest watch                                             |
 | `npm run check`       | svelte-check + tsc                                       |
 
@@ -107,7 +107,7 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
   Referenz-Arm `acceptance:'sa'`), Scoped Score-Delta, ~10-14k Iter/sec (jsdom).
 - Phase 3: Iterated LS mit adaptiver Perturbation, SA-Reheat (Cap 500), Kempe-Boost.
 - 2-Phase-Solve: bei `noFreePeriodsForClass.strict=true` läuft nach Phase 2 eine Auto-Lockerung mit normalem Soft-Gewicht falls Lücken übrig.
-- 23 Score-Komponenten, alle in `solver-v2/score.ts` (kanonische Liste: MODEL.md §3). Konfigurierbar im `RulesPanel`.
+- 24 Score-Komponenten, alle in `solver-v2/score.ts` (kanonische Liste: MODEL.md §3). Konfigurierbar im `RulesPanel`.
 
 ### Bekannte offene Bugs
 
@@ -139,10 +139,10 @@ Vite 8 · TypeScript 6 · Svelte 5 (Runes) · @thisux/sveltednd · TypeScript-ei
 ## Verbotene Aktionen
 
 - Niemals localStorage löschen ohne Bestätigung — der User verliert sonst seinen aktuellen Plan.
-- Niemals Bundle-Größe ohne Grund vergrößern. JS-Bundle ohne MiniZinc liegt bei ~50 KB gz; alles drüber ist verdächtig.
+- Niemals Bundle-Größe ohne Grund vergrößern. Richtwerte (Audit 2026-07): Haupt-Bundle ~110 KB gz, Solver-Worker ~60 KB, exceljs als Lazy-Chunk ~256 KB gz (lädt nur beim Excel-Export). Deutliche Sprünge ohne neues Feature sind verdächtig.
 - Niemals `package.json` Hauptversionen anheben ohne ausdrücklichen Auftrag — wir hatten genug Reactivity-Pannen, lass das Stack-Stack stabil.
 
-## Phasen-Status (Stand 2026-05-17)
+## Phasen-Status (Stand 2026-07-15)
 
 - ✅ Phase 1–4: Datenmodell, CSV-Import, Editor, Anzeige
 - ✅ Phase 5: MiniZinc-Solver (harte Constraints)

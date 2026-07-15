@@ -6,7 +6,7 @@
 >
 > **Update-Anlass:** Änderungen an `src/lib/types.ts` (`LessonSpec`,
 > `ConstraintConfig`, Schema-Version), an `src/lib/solver-v2/types.ts`
-> (`Unit`, `ScoreBreakdown`, `ScoreWeights`), oder an den 10 Hard-Constraints in
+> (`Unit`, `ScoreBreakdown`, `ScoreWeights`), oder an den 11 Hard-Constraints in
 > `src/lib/solver-v2/hardCheck.ts`. Bei jeder solchen Änderung: prüfe ob die
 > Tabellen unten noch stimmen. Drift hier ist teuer (Bug-Quelle), Drift in
 > SOLVER-V2-CONCEPT ist akzeptabler (Konzept ≠ Implementation).
