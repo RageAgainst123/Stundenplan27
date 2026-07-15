@@ -12,6 +12,32 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Audit-Umsetzung Runde 1 — Doku-Sync, Quick-Wins, Seed (2026-07-15)
+Umsetzung der „empfohlenen ersten Session" aus dem Audit-Bericht
+([docs/AUDIT-2026-07.md](docs/AUDIT-2026-07.md)); Savepoint
+`savepoint-pre-audit-umsetzung`.
+- **C-10 Doku-Sync:** SOLVER-V2-CONCEPT §9 trägt jetzt die Korrektur-
+  Notiz (Worker/Islands statt Main-Thread), CLAUDE.md-Zahlen korrigiert
+  (434 Tests, 24 Score-Komponenten, 11 Hard-Constraints, Bundle-Richtwert
+  ~110 KB gz), MODEL.md, 3 veraltete Code-Kommentare (iteratedLS,
+  localSearch-Header, buildDayGradeCounts-JSDoc).
+- **C-1/C-2 Toter Code:** `UNIT_COMPONENTS` und `clearLocalStorage`
+  entfernt; `@types/uuid` deinstalliert.
+- **C-3 Repo-Leichen:** `_archive_legacy/` aus dem aktuellen Stand
+  entfernt (Git-History behält es), verirrtes leeres `app/`-Skelett
+  gelöscht.
+- **C-5 Kleinvieh:** neues `lib/format.ts` (timeLabel, fileTimestamp,
+  hexByte, +3 Tests), `FALLBACK_TEACHER_COLOR` als eine Konstante statt
+  13 hartkodierter Grautöne, `slotKeyOf` statt 7 inline gebauter
+  Slot-Keys.
+- **D-1 Seed durchreichen:** Das UI erzeugt jetzt den Zufalls-Startwert
+  selbst, übergibt ihn an alle Läufe (Generieren/Diversify/Autopilot)
+  und zeigt ihn als 🌱-Chip im Solver-Log-Header — Läufe sind damit
+  nachstellbar. Grundlage für D-2 (Diversify-Bench) und D-3
+  (Parallelisierung).
+- Verifikation: 429 Tests grün (+3), svelte-check 0/0, Build ok,
+  Browser-E2E (Seed-Chip, Wochenplan, Export-Vorschau).
+
 ### Snapshot-Galerie 2.0 — Backups getrennt, Pin, mehr Platz (2026-07)
 User-Anlass: „Warum nur 10 Snapshots? Wie speichere ich den besten Plan
 sicher und springe zu einem anderen zurück?" Kern-Befund: Sicherheits-
