@@ -12,6 +12,20 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Audit-Umsetzung Runde 3 — Backup-Helper + Test-Lücken (2026-07-15)
+C-4 und C-6 aus dem Audit-Bericht; Savepoint `savepoint-pre-backup-helper`.
+Branch erstmals nach GitHub gepusht (origin/feature/team-teaching-segments).
+- **C-4 Backup-Helper:** Neues `lib/backup.ts` mit `createBackupSnapshot`
+  — der eine Weg für Sicherheits-Backups statt 4 driftender Inline-Kopien.
+  Nebeneffekt behoben: Backups aus Feinschliff/Import/Aktivieren haben
+  jetzt eine Score-Aufschlüsselung in der Galerie; WeekViews Event-Drift
+  (ungeguardeter Dispatch ohne Backup) ist weg. `SNAPSHOTS_CHANGED_EVENT`
+  + `notifySnapshotsChanged` ersetzen den Magic-String an 11 Stellen.
+- **C-6 Test-Lücken geschlossen:** 22 neue Tests für die G/U-Wochen-
+  Logik (`now.ts`, inkl. ISO-Jahreswechsel-Randfälle), Farb-Helpers
+  und die Schwierigkeits-Heuristik des 🧩-Reports.
+- Verifikation: 459 Tests grün (+25), check 0/0, Build ok.
+
 ### Audit-Umsetzung Runde 2 — Diversify messbar + parallel (2026-07-15)
 D-2 und D-3 aus dem Audit-Bericht; Savepoints
 `savepoint-pre-diversify-bench` / `savepoint-pre-diversify-parallel`.
