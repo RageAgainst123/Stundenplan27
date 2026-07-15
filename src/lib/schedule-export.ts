@@ -13,6 +13,7 @@
 //   - subjects[]: code → name, isMain
 
 import type { ScheduleDoc, Day, GradeLevel, Period } from './types';
+import { slotKeyOf } from './schedule-helpers';
 
 interface ExportedTeacher {
 	id: string;
@@ -119,7 +120,7 @@ export function buildScheduleExport(doc: ScheduleDoc): ExportedSchedule {
 		};
 
 		placements.push(placement);
-		distinctSlots.add(`${p.day}|${p.period}|${p.grade}`);
+		distinctSlots.add(slotKeyOf(p.day, p.period, p.grade));
 
 		// Denormalisierte Sicht
 		const dayMap = byDay[p.day];

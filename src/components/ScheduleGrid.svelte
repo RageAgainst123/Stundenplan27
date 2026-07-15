@@ -9,6 +9,8 @@
 	import { mapScheduleImport, parseScheduleExport } from '../lib/schedule-import';
 	import { saveSnapshot } from '../lib/snapshots';
 	import { scorePlacedPlan } from '../lib/quality';
+	import { FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
+	import { timeLabel, fileTimestamp } from '../lib/format';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { draggable, droppable } from '@thisux/sveltednd';
 	import type { DragDropState } from '@thisux/sveltednd';
@@ -120,7 +122,7 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		const ts = new Date().toISOString().replace(/[:.]/g, '-');
+		const ts = fileTimestamp();
 		a.download = `stundenplan-${ts}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
@@ -170,7 +172,7 @@
 		if (!ok) return;
 		if (store.doc.placed.length > 0) {
 			saveSnapshot({
-				name: `Backup vor Plan-Import ${new Date().toLocaleTimeString('de-AT')}`,
+				name: `Backup vor Plan-Import ${timeLabel()}`,
 				score: Math.round(scorePlacedPlan(store.doc).total),
 				placed: store.doc.placed.map(p => ({ ...p })),
 				source: 'backup',
@@ -332,7 +334,7 @@
 							container: 'sidebar',
 							dragData: { specId: spec.id } as DragPayload
 						}}
-						style:--c={t?.color ?? '#9ca3af'}
+						style:--c={t?.color ?? FALLBACK_TEACHER_COLOR}
 					>
 						<div class="row1">
 							<span class="subj">{spec.subject}</span>

@@ -15,7 +15,8 @@
 import type { ScheduleDoc, Day, GradeLevel, Period, Teacher } from './types';
 import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from './types';
 import { buildScheduleExport } from './schedule-export';
-import { buildSlotOccupancy } from './schedule-helpers';
+import { buildSlotOccupancy, slotKeyOf } from './schedule-helpers';
+import { hexByte } from './format';
 
 export interface ExcelExportOptions {
 	includeClassPlan?: boolean;
@@ -238,7 +239,7 @@ function addClassPlanSheet(
 			for (let g = 0; g < GRADES.length; g++) {
 				const startCol = colForGrade(d, g, 0);
 				const endCol = startCol + SUB_PER_GRADE - 1;
-				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+				const entries = slotMap.get(slotKeyOf(DAYS[d], period, GRADES[g])) ?? [];
 
 				if (entries.length === 0) {
 					// Leerer Slot — alle Sub-Spalten gemerged + weiß
@@ -555,7 +556,7 @@ function addClassPlanFilteredSheet(
 			for (let g = 0; g < GRADES.length; g++) {
 				const startCol = colForGrade(d, g, 0);
 				const endCol = startCol + SUB_PER_GRADE - 1;
-				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+				const entries = slotMap.get(slotKeyOf(DAYS[d], period, GRADES[g])) ?? [];
 
 				if (entries.length === 0) {
 					ws.mergeCells(rowIdx, startCol, rowIdx, endCol);
@@ -689,7 +690,7 @@ function addClassPlanBwSheet(
 			for (let g = 0; g < GRADES.length; g++) {
 				const startCol = colForGradeSw(g, 0);
 				const endCol = startCol + COLS_PER_GRADE_BW - 1;
-				const entries = slotMap.get(`${DAYS[d]}|${period}|${GRADES[g]}`) ?? [];
+				const entries = slotMap.get(slotKeyOf(DAYS[d], period, GRADES[g])) ?? [];
 				if (entries.length === 0) {
 					ws.mergeCells(currentRow, startCol, currentRow, endCol);
 					const cell = ws.getCell(currentRow, startCol);
@@ -853,7 +854,7 @@ function addTeacherSheet(
 			// Alle Slots dieses Lehrers an (day, period) sammeln über alle Stufen
 			const entries: { entry: SlotEntry; grade: GradeLevel }[] = [];
 			for (const grade of GRADES) {
-				const arr = slotMap.get(`${DAYS[d]}|${period}|${grade}`) ?? [];
+				const arr = slotMap.get(slotKeyOf(DAYS[d], period, grade)) ?? [];
 				for (const e of arr) {
 					if (e.teachers.some(t => t.id === teacher.id)) {
 						entries.push({ entry: e, grade });
@@ -1100,6 +1101,6 @@ function blendWithWhite(hex: string, ratio: number): string {
 	const g = parseInt(clean.slice(2, 4), 16);
 	const b = parseInt(clean.slice(4, 6), 16);
 	const bl = (c: number) => Math.round(c + (255 - c) * ratio);
-	const toHex = (n: number) => n.toString(16).padStart(2, '0').toUpperCase();
+	const toHex = (n: number) => hexByte(n).toUpperCase();
 	return `#${toHex(bl(r))}${toHex(bl(g))}${toHex(bl(b))}`;
 }

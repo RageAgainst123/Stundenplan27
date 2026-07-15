@@ -10,6 +10,8 @@
 	import { computeSpecDifficulties } from '../lib/spec-difficulty';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { teacherName } from '../lib/teacher-helpers';
+	import { slotKeyOf } from '../lib/schedule-helpers';
+	import { timeLabel, fileTimestamp } from '../lib/format';
 	import { planAutopilot, describeAutopilotPlan } from '../lib/autopilot';
 	import TeacherQualityPanel from './TeacherQualityPanel.svelte';
 	const store = useStore();
@@ -108,9 +110,8 @@
 		// even though buildState validated pins; e.g. coupling-aware
 		// solver moves can produce overlaps the dedup-by-key wouldn't
 		// catch.
-		type Key = string; // `${day}|${period}|${grade}`
-		const slotKey = (p: PlacedLesson): Key => `${p.day}|${p.period}|${p.grade}`;
-		const pinnedBySlot = new Map<Key, PlacedLesson>();
+		const slotKey = (p: PlacedLesson): string => slotKeyOf(p.day, p.period, p.grade);
+		const pinnedBySlot = new Map<string, PlacedLesson>();
 		for (const p of pinnedKept) pinnedBySlot.set(slotKey(p), p);
 
 		// (2) Dedup non-pinned by (specId, day, period, grade) like before.
@@ -205,7 +206,7 @@
 		// Phase 18: .json statt .dzn — Inhalt ist seit Phase 11 immer JSON gewesen,
 		// .dzn-Endung war Legacy aus MiniZinc-Zeit. .json macht es für Editoren
 		// und Tools direkt nutzbar.
-		a.download = `stundenplan-snapshot-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+		a.download = `stundenplan-snapshot-${fileTimestamp()}.json`;
 		a.click();
 		URL.revokeObjectURL(url);
 	}
@@ -452,7 +453,7 @@
 	function saveBackupOfCurrent(label: string): void {
 		const breakdown = scorePlacedPlan(store.doc);
 		saveSnapshot({
-			name: `${label} ${new Date().toLocaleTimeString('de-AT')}`,
+			name: `${label} ${timeLabel()}`,
 			score: Math.round(breakdown.total),
 			placed: store.doc.placed.map(p => ({ ...p })),
 			scoreBreakdown: breakdown as any,

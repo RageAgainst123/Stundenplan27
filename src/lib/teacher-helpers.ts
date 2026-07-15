@@ -3,6 +3,12 @@
 
 import type { ScheduleDoc, Teacher, TeacherId } from './types';
 
+/**
+ * Audit C-5: DIE Fallback-Farbe für Lehrer ohne Farbe / unbekannte IDs.
+ * Vorher 12× als '#9ca3af' (+ 4× '#999') hartkodiert verstreut.
+ */
+export const FALLBACK_TEACHER_COLOR = '#9ca3af';
+
 /** Find the Teacher record by id, or undefined if missing. */
 export function teacherById(doc: ScheduleDoc, id: TeacherId): Teacher | undefined {
 	return doc.teachers.find(t => t.id === id);
@@ -10,7 +16,7 @@ export function teacherById(doc: ScheduleDoc, id: TeacherId): Teacher | undefine
 
 /** Display color for a teacher, with a fallback grey when the id is unknown. */
 export function teacherColor(doc: ScheduleDoc, id: TeacherId): string {
-	return teacherById(doc, id)?.color ?? '#9ca3af';
+	return teacherById(doc, id)?.color ?? FALLBACK_TEACHER_COLOR;
 }
 
 /** Display name for a teacher, with an em-dash fallback. */
@@ -36,7 +42,7 @@ export function teacherTint(color: string): string {
  * Streifen zu je 100/N %. Leere Liste = grauer Fallback.
  */
 export function teacherStripeBackground(colors: string[]): string {
-	if (colors.length === 0) return teacherTint('#9ca3af');
+	if (colors.length === 0) return teacherTint(FALLBACK_TEACHER_COLOR);
 	if (colors.length === 1) return teacherTint(colors[0]);
 	const stops = colors.map((c, i) => {
 		const from = ((i / colors.length) * 100).toFixed(2);

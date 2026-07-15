@@ -1,8 +1,8 @@
 <script lang="ts">
 	import { useStore } from '../lib/store.svelte';
 	import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from '../lib/types';
-	import { buildSlotOccupancy } from '../lib/schedule-helpers';
-	import { teacherStripeBackground, teacherTint } from '../lib/teacher-helpers';
+	import { buildSlotOccupancy, slotKeyOf } from '../lib/schedule-helpers';
+	import { teacherStripeBackground, teacherTint, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
 	import { buildHtmlPlan } from '../lib/html-export';
 	import type { ScheduleDoc } from '../lib/types';
 	const store = useStore();
@@ -212,7 +212,7 @@
 								</th>
 								{#each DAYS as day, dIdx}
 									{#each GRADES as grade}
-										{@const entries = slotMap.get(`${day}|${period}|${grade}`) ?? []}
+										{@const entries = slotMap.get(slotKeyOf(day, period, grade)) ?? []}
 										{@const primary = entries[0]}
 										{#if primary}
 											{@const allTeachers = (() => {
@@ -225,9 +225,9 @@
 												}
 												return list;
 											})()}
-											{@const firstColor = allTeachers[0] ? effectiveColor(allTeachers[0].id, allTeachers[0].color) : '#9ca3af'}
+											{@const firstColor = allTeachers[0] ? effectiveColor(allTeachers[0].id, allTeachers[0].color) : FALLBACK_TEACHER_COLOR}
 											{@const bgGradient = allTeachers.length === 0
-												? teacherTint('#9ca3af')
+												? teacherTint(FALLBACK_TEACHER_COLOR)
 												: teacherStripeBackground(allTeachers.map(t => effectiveColor(t.id, t.color)))}
 											<td class="slot filled" style:background={bgGradient} style:border-left={`3px solid ${firstColor}`}>
 												<div class="slot-line">

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import type { LessonSpec, TeachingSegment } from '../lib/types';
 	import { validateTeachingSegments } from '../lib/types';
-	import { teacherById as teacherByIdH } from '../lib/teacher-helpers';
+	import { teacherById as teacherByIdH, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
 	import { useStore } from '../lib/store.svelte';
 
 	interface Props {
@@ -93,7 +93,7 @@
 				<th>Stunden</th>
 				{#each spec.teachers as tid (tid)}
 					{@const t = teacherById(tid)}
-					<th class="teacher-col" style:--c={t?.color ?? '#999'}>
+					<th class="teacher-col" style:--c={t?.color ?? FALLBACK_TEACHER_COLOR}>
 						<span class="teacher-chip">{t?.name ?? '?'}</span>
 					</th>
 				{/each}

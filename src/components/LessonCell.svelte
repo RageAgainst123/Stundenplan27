@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { LessonSpec, Teacher, WeekPattern } from '../lib/types';
-	import { teacherStripeBackground } from '../lib/teacher-helpers';
+	import { teacherStripeBackground, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
 
 	interface Props {
 		spec: LessonSpec;
@@ -19,7 +19,7 @@
 	let { spec, teachers, pinned, weekParity, onTogglePin, onRemove }: Props = $props();
 
 	const validTeachers = $derived(teachers.filter((t): t is Teacher => !!t));
-	const color = $derived(validTeachers[0]?.color ?? '#9ca3af');
+	const color = $derived(validTeachers[0]?.color ?? FALLBACK_TEACHER_COLOR);
 	const colorLast = $derived(validTeachers.length > 1 ? validTeachers[validTeachers.length - 1].color : color);
 	const dimmedByWeek = $derived(spec.weekPattern !== 'every' && spec.weekPattern !== weekParity);
 

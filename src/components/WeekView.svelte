@@ -8,7 +8,8 @@
 		DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES,
 		type Day, type GradeLevel, type LessonSpec, type Period, type PlacedLesson
 	} from '../lib/types';
-	import { teacherStripeBackground } from '../lib/teacher-helpers';
+	import { teacherStripeBackground, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
+	import { timeLabel } from '../lib/format';
 	import { buildSlotOccupancy, couplingBackground, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
 	import { findCurrentPeriod, currentWeekParity } from '../lib/now';
 	import { loadSnapshots, saveSnapshot, samePlacements, type Snapshot } from '../lib/snapshots';
@@ -82,7 +83,7 @@
 		if (!ok) return;
 		if (store.doc.placed.length > 0) {
 			saveSnapshot({
-				name: `Backup vor Aktivieren ${new Date().toLocaleTimeString('de-AT')}`,
+				name: `Backup vor Aktivieren ${timeLabel()}`,
 				score: Math.round(scorePlacedPlan(store.doc).total),
 				placed: store.doc.placed.map(p => ({ ...p })),
 				source: 'backup'
@@ -410,7 +411,7 @@
 														{#each slot.placements as cp, idx (cp.placed.specId + '|' + idx)}
 															{@const teachersAll = cp.teachers}
 															{@const visible = isHighlighted(cp.spec, slot.startGrade)}
-															{@const tcol = teachersAll[0]?.color ?? '#9ca3af'}
+															{@const tcol = teachersAll[0]?.color ?? FALLBACK_TEACHER_COLOR}
 															{@const tcolLast = teachersAll.length > 1 ? teachersAll[teachersAll.length - 1].color : tcol}
 															{@const teachersBg = teacherStripeBackground(teachersAll.map(t => t.color))}
 															{@const namesTooltip = teachersAll.map(t => t.name).join(' + ')}

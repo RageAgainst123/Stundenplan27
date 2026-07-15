@@ -20,6 +20,8 @@
 import type { Day, ScheduleDoc } from './types';
 import { DAYS, GRADES, PERIODS, DEFAULT_PERIOD_TIMES } from './types';
 import { buildScheduleExport } from './schedule-export';
+import { FALLBACK_TEACHER_COLOR } from './teacher-helpers';
+import { hexByte } from './format';
 
 const DAY_FULL: Record<Day, string> = {
 	Mo: 'Montag', Di: 'Dienstag', Mi: 'Mittwoch', Do: 'Donnerstag', Fr: 'Freitag',
@@ -42,15 +44,14 @@ export function tintHex(hex: string, colorShare = 0.4): string {
 	const clean = (hex ?? '').replace('#', '').padEnd(6, '0').slice(0, 6);
 	const ch = (i: number) => parseInt(clean.slice(i, i + 2), 16) || 0;
 	const blend = (v: number) => Math.round(v * colorShare + 255 * (1 - colorShare));
-	const h2 = (n: number) => n.toString(16).padStart(2, '0');
-	return `#${h2(blend(ch(0)))}${h2(blend(ch(2)))}${h2(blend(ch(4)))}`;
+	return `#${hexByte(blend(ch(0)))}${hexByte(blend(ch(2)))}${hexByte(blend(ch(4)))}`;
 }
 
 interface CellTeacher { id: string; name: string; color: string; shortNumber: number }
 
 /** Hintergrund einer Stunden-Karte: Tint bzw. Streifen-Gradient (Team). */
 function cardBackground(teachers: CellTeacher[]): string {
-	if (teachers.length === 0) return tintHex('#9ca3af');
+	if (teachers.length === 0) return tintHex(FALLBACK_TEACHER_COLOR);
 	if (teachers.length === 1) return tintHex(teachers[0].color);
 	const stops = teachers.map((t, i) => {
 		const from = ((i / teachers.length) * 100).toFixed(1);
@@ -95,7 +96,7 @@ export function buildHtmlPlan(doc: ScheduleDoc): string {
 			`<span class="wk">${p.weekPattern === 'even' ? 'G' : 'U'}</span>`;
 		const tids = p.teachers.map(t => t.id).join(' ');
 		const names = p.teachers.map(t => t.name).join(' + ');
-		const border = p.teachers[0]?.color ?? '#9ca3af';
+		const border = p.teachers[0]?.color ?? FALLBACK_TEACHER_COLOR;
 		return `<div class="lesson" data-teachers="${esc(tids)}"` +
 			` style="background:${cardBackground(p.teachers)};border-left-color:${esc(border)}"` +
 			` title="${esc(`${p.subjectName} · ${names}`)}">` +
@@ -176,7 +177,7 @@ table.plan { width:100%; border-collapse:collapse; background:#fff; border-radiu
 .pn { display:block; font-weight:800; font-size:12px; }
 .pt { display:block; font-size:9px; color:var(--muted); white-space:nowrap; }
 .plan td { height:38px; }
-.lesson { border-left:3px solid #9ca3af; border-radius:5px; padding:3px 5px; margin:1px 0; transition:opacity .15s; }
+.lesson { border-left:3px solid ${FALLBACK_TEACHER_COLOR}; border-radius:5px; padding:3px 5px; margin:1px 0; transition:opacity .15s; }
 .lesson .subj { display:block; font-weight:800; font-size:12px; line-height:1.15; }
 .lesson .meta { display:block; font-size:10px; color:#333; font-family:ui-monospace,Menlo,Consolas,monospace; }
 .lesson .wk { margin-left:4px; font-weight:800; color:#7c3aed; }

@@ -2,6 +2,7 @@
 	import { useStore } from '../lib/store.svelte';
 	const store = useStore();
 	import { DAYS, PERIODS, type AvailabilityCell, type Day, type Period, type Teacher } from '../lib/types';
+	import { FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
 	import AvailabilityGrid from './AvailabilityGrid.svelte';
 
 	let editingId = $state<string | null>(null);
@@ -12,7 +13,7 @@
 			id: crypto.randomUUID(),
 			name: 'Neuer Lehrer',
 			shortNumber: next,
-			color: '#9ca3af',
+			color: FALLBACK_TEACHER_COLOR,
 			subjects: [],
 			unavailable: []
 		};

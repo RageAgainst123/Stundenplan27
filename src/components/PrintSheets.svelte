@@ -13,6 +13,7 @@
 		type Day, type GradeLevel, type PlacedLesson, type Period, type Teacher, type WeekPattern
 	} from '../lib/types';
 	import { buildSlotOccupancy, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
+	import { FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
 	import type { PrintMode } from '../lib/types-ui';
 
 	interface Props {
@@ -213,7 +214,7 @@
 									{@const entries = entriesAt(d, p, sheet.grade)}
 									<td>
 										{#each entries as occ, i (occ.spec.id + '|' + i)}
-											<div class="entry" style:border-left-color={occ.teachers[0]?.color ?? '#999'}>
+											<div class="entry" style:border-left-color={occ.teachers[0]?.color ?? FALLBACK_TEACHER_COLOR}>
 												<span class="subj">{occ.spec.subject}</span>
 												<span class="meta">
 													{occ.teachers.map(t => `L${t.shortNumber}`).join(' ')}
@@ -267,7 +268,7 @@
 									{@const entries = entriesAt(d, p, g)}
 									<td class="mini">
 										{#each entries as occ, i (occ.spec.id + '|' + i)}
-											<div class="entry mini-entry" style:border-left-color={occ.teachers[0]?.color ?? '#999'}>
+											<div class="entry mini-entry" style:border-left-color={occ.teachers[0]?.color ?? FALLBACK_TEACHER_COLOR}>
 												<span class="subj">{occ.spec.subject}</span>
 												<span class="meta">{occ.teachers.map(t => `L${t.shortNumber}`).join(' ')}{#if weekBadge(occ.spec.weekPattern)} [{weekBadge(occ.spec.weekPattern)}]{/if}</span>
 											</div>

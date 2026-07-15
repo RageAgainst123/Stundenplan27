@@ -21,7 +21,8 @@
 		type Day, type GradeLevel, type Period, type PlacedLesson, type ScheduleDoc,
 	} from '../lib/types';
 	import { buildSlotOccupancy, slotKeyOf, type SlotOccupant } from '../lib/schedule-helpers';
-	import { teacherTint } from '../lib/teacher-helpers';
+	import { teacherTint, FALLBACK_TEACHER_COLOR } from '../lib/teacher-helpers';
+	import { timeLabel } from '../lib/format';
 	import { computeTeacherQuality } from '../lib/teacher-quality';
 	import { qualityPercent, scorePlacedPlan } from '../lib/quality';
 	import { suggestSwaps, type FinetuneSuggestion } from '../lib/finetune-suggest';
@@ -97,7 +98,7 @@
 	function applySuggestion(s: FinetuneSuggestion): void {
 		if (!suggestBackupDone) {
 			saveSnapshot({
-				name: `Backup vor Tauschvorschlägen ${new Date().toLocaleTimeString('de-AT')}`,
+				name: `Backup vor Tauschvorschlägen ${timeLabel()}`,
 				score: Math.round(scorePlacedPlan(store.doc).total),
 				placed: store.doc.placed.map(p => ({ ...p })),
 				source: 'backup',
@@ -522,7 +523,7 @@
 		if (!candidate) return;
 		// Sicherheitsnetz: aktuellen Stand als Backup-Snapshot sichern.
 		saveSnapshot({
-			name: `Backup vor Feinschliff ${new Date().toLocaleTimeString('de-AT')}`,
+			name: `Backup vor Feinschliff ${timeLabel()}`,
 			score: Math.round(scorePlacedPlan(store.doc).total),
 			placed: store.doc.placed.map(p => ({ ...p })),
 			source: 'backup',
@@ -835,7 +836,7 @@
 													class:pinned={occ.placed.pinned}
 													class:added={phase === 'review' && reviewView === 'after' && diffKeys?.added.has(key)}
 													class:willmove={phase === 'review' && reviewView === 'before' && diffKeys?.removed.has(key)}
-													style:background={teacherTint(occ.teachers[0]?.color ?? '#9ca3af')}
+													style:background={teacherTint(occ.teachers[0]?.color ?? FALLBACK_TEACHER_COLOR)}
 													onclick={() => phase !== 'review' && toggleLesson(occ)}
 													title={phase === 'review'
 														? (reviewView === 'after' && diffKeys?.added.has(key)
