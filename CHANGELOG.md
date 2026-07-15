@@ -12,6 +12,27 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Audit-Umsetzung Runde 2 — Diversify messbar + parallel (2026-07-15)
+D-2 und D-3 aus dem Audit-Bericht; Savepoints
+`savepoint-pre-diversify-bench` / `savepoint-pre-diversify-parallel`.
+- **D-2 Diversify-Bench:** Neuer Bench-Fall auf dem Produktions-Pfad
+  misst erstmals, was ein Diversify-Zyklus bringt. **Messergebnis:**
+  Ein einzelner 10-s-Zyklus findet im Median NICHTS (4/5 Seeds: Revert
+  stellt die Basis wieder her) — best-of-3 von derselben Basis bringt
+  Median −530, maximal −3856, Springstunden 9→7/11→7 auf den
+  Gewinner-Seeds (`docs/bench-baseline.json`, d2-diversify-baseline).
+  Harter Bench-Assert: der Revert-Guard verschlechtert nie.
+- **D-3 Parallel-Diversify:** Genau diesen best-of-k-Gewinn holt sich
+  die App jetzt automatisch — „🌀 Diversifizieren" und alle Autopilot-
+  Zyklen fahren k = min(4, Kerne−2) **parallele Versuche mit
+  verschiedenen Seeds auf demselben Plan**, der beste gewinnt (gleiche
+  Kürung wie die Optimierungs-Inseln). Vorher lief Diversify auf einem
+  Kern, während drei brachlagen. Jeder Versuch behält seinen eigenen
+  Revert-Guard: scheitern alle, bleibt der Plan unverändert.
+- Verifikation: 434 Tests grün (+5 Bridge-Tests), check 0/0, Browser-
+  E2E mit echten Workern (4 Arme auf 8 Kernen, Kürung im Log, Plan
+  intakt).
+
 ### Audit-Umsetzung Runde 1 — Doku-Sync, Quick-Wins, Seed (2026-07-15)
 Umsetzung der „empfohlenen ersten Session" aus dem Audit-Bericht
 ([docs/AUDIT-2026-07.md](docs/AUDIT-2026-07.md)); Savepoint
