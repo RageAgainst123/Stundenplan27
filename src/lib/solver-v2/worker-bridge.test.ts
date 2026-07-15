@@ -309,4 +309,129 @@ describe('startSolveSession — Worker-Protokoll (Fake-Worker)', () => {
 		expect(msg.type).toBe('start');
 		expect(msg.opts?.poolBudgetMs).toBe(5_000); // Session-interner Pool
 	});
+
+	// ----- Audit D-3: Parallel-Diversify --------------------------------------
+
+	const diversifyOpts = { fraction: 0.25, durationMs: 10_000 } as const;
+
+	function diversifyDoc() {
+		const doc = tinyDoc();
+		doc.placed.push({ specId: 's1', day: 'Mo', period: 1, grade: 5, pinned: false });
+		return doc;
+	}
+
+	it('D-3: Diversify startet k Arme mit distinkten Seeds und diversify-Option', async () => {
+		withFakeWorker();
+		withCores(8); // → k = 4
+		const session = startSolveSession(diversifyDoc(), { hotStart: true, seed: 7, diversify: diversifyOpts });
+		const logs: string[] = [];
+		session.on('log', l => logs.push((l as { message: string }).message));
+		await Promise.resolve(); // queueMicrotask des Start-Logs
+
+		expect(FakeWorker.instances).toHaveLength(4);
+		const seeds: number[] = [];
+		for (const w of FakeWorker.instances) {
+			const msg = w.sent[0] as { type: string; opts: Record<string, unknown> };
+			expect(msg.type).toBe('start');
+			expect(msg.opts.diversify).toEqual(diversifyOpts);
+			expect(msg.opts.hotStart).toBe(true);
+			expect(msg.opts.poolBudgetMs).toBe(0);
+			seeds.push(msg.opts.seed as number);
+		}
+		expect(new Set(seeds).size).toBe(4); // Arme suchen unabhängig
+		expect(logs.some(m => /Diversify parallel: 4 Versuche/.test(m))).toBe(true);
+	});
+
+	it('D-3: bester Arm gewinnt (unplaced → no_free → total), Solutions werden gegated', async () => {
+		withFakeWorker();
+		withCores(8);
+		const session = startSolveSession(diversifyDoc(), { hotStart: true, seed: 7, diversify: diversifyOpts });
+		const solutions: Array<{ score: number | null }> = [];
+		const logs: string[] = [];
+		const dones: Array<{ final: { penalties?: { total: number } } }> = [];
+		session.on('solution', s => solutions.push(s as never));
+		session.on('log', l => logs.push((l as { message: string }).message));
+		session.on('done', d => dones.push(d as never));
+		await Promise.resolve();
+		const arms = FakeWorker.instances;
+
+		// Live-Gating: erste Lösung passiert, schlechtere wird ignoriert.
+		arms[1].receive({ kind: 'solution', payload: { placed: poolPlaced, score: 9000, tElapsedMs: 3, phase: 'optimize' } });
+		arms[2].receive({ kind: 'solution', payload: { placed: poolPlaced, score: 9500, tElapsedMs: 4, phase: 'optimize' } });
+		arms[0].receive({ kind: 'solution', payload: { placed: poolPlaced, score: 8000, tElapsedMs: 5, phase: 'optimize' } });
+		expect(solutions.map(s => s.score)).toEqual([9000, 8000]);
+		expect(logs.some(m => /Diversify-Versuch 2\/4 übernimmt die Führung/.test(m))).toBe(true);
+
+		const armDone = (total: number, dzn: string) => ({
+			kind: 'done' as const,
+			payload: {
+				final: { status: 'SAT' as const, placed: poolPlaced, unplaced: [], penalties: { no_free: 0, total } },
+				totalElapsedMs: 1,
+			},
+			dzn,
+		});
+		arms[0].receive(armDone(9200, 'd0'));
+		arms[1].receive(armDone(8100, 'd1'));
+		arms[2].receive(armDone(10400, 'd2'));
+		expect(dones).toHaveLength(0); // erst wenn ALLE fertig sind
+		arms[3].receive(armDone(9900, 'd3'));
+		expect(dones).toHaveLength(1);
+		expect(dones[0].final.penalties?.total).toBe(8100); // Arm 2 gewinnt
+		expect(session.getDzn()).toBe('d1');
+		expect(logs.some(m => /Versuch 2 gewinnt/.test(m))).toBe(true);
+		expect(arms.every(w => w.terminated)).toBe(true);
+	});
+
+	it('D-3: alle Arme gescheitert → Plan bleibt unverändert (Revert-Semantik)', async () => {
+		withFakeWorker();
+		withCores(8);
+		const doc = diversifyDoc();
+		const session = startSolveSession(doc, { hotStart: true, seed: 7, diversify: diversifyOpts });
+		const dones: Array<{ final: { status: string; placed: unknown[] } }> = [];
+		session.on('done', d => dones.push(d as never));
+		await Promise.resolve();
+		for (const w of FakeWorker.instances) w.onerror?.({ message: 'boom' });
+		expect(dones).toHaveLength(1);
+		expect(dones[0].final.status).toBe('TIMEOUT');
+		expect(dones[0].final.placed).toEqual(doc.placed);
+	});
+
+	it('D-3: nur 1 nutzbarer Kern → Diversify bleibt Einzel-Lauf (Single-Worker)', () => {
+		withFakeWorker();
+		withCores(2); // → k = 1
+		startSolveSession(diversifyDoc(), { hotStart: true, diversify: diversifyOpts });
+		expect(FakeWorker.instances).toHaveLength(1);
+		const msg = FakeWorker.instances[0].sent[0] as { type: string; opts?: { diversify?: unknown } };
+		expect(msg.type).toBe('start');
+		expect(msg.opts?.diversify).toEqual(diversifyOpts);
+	});
+
+	it('D-3: Abort stoppt alle Arme; Terminate-Fallback kürt aus den Antworten', async () => {
+		vi.useFakeTimers();
+		withFakeWorker();
+		withCores(8);
+		const session = startSolveSession(diversifyDoc(), { hotStart: true, seed: 7, diversify: diversifyOpts });
+		const dones: Array<{ final: { penalties?: { total: number } } }> = [];
+		session.on('done', d => dones.push(d as never));
+		const arms = FakeWorker.instances;
+		session.abort();
+		expect(arms.every(w => w.sent.some(m => m.type === 'abort'))).toBe(true);
+		// Nur 2 Arme antworten — der Timer schließt mit dem besseren ab.
+		const armDone = (total: number, dzn: string) => ({
+			kind: 'done' as const,
+			payload: {
+				final: { status: 'TIMEOUT' as const, placed: poolPlaced, unplaced: [], penalties: { no_free: 0, total } },
+				totalElapsedMs: 1,
+			},
+			dzn,
+		});
+		arms[0].receive(armDone(9700, 'a'));
+		arms[1].receive(armDone(9100, 'b'));
+		expect(dones).toHaveLength(0);
+		vi.advanceTimersByTime(3_100);
+		expect(dones).toHaveLength(1);
+		expect(dones[0].final.penalties?.total).toBe(9100);
+		expect(session.getDzn()).toBe('b');
+		expect(arms.every(w => w.terminated)).toBe(true);
+	});
 });

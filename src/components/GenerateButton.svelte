@@ -689,7 +689,7 @@
 			<span class="ap-value">{autopilotBudgetMin} min</span>
 		</label>
 		<div class="ap-hint muted small">{autopilotPlanText}</div>
-		<button class="btn primary" onclick={() => void runAutopilot()} disabled={busy} title="Ein Klick, bestes Ergebnis: Plan generieren und danach automatisch mehrere Diversify-Zyklen fahren. Der Plan kann dabei nie schlechter werden (Best-Tracking). Jederzeit abbrechbar — beste bisherige Lösung bleibt erhalten.">
+		<button class="btn primary" onclick={() => void runAutopilot()} disabled={busy} title="Ein Klick, bestes Ergebnis: Plan generieren und danach automatisch mehrere Diversify-Zyklen fahren — jeder Zyklus läuft parallel auf allen Kernen, der beste Versuch gewinnt. Der Plan kann dabei nie schlechter werden (Best-Tracking). Jederzeit abbrechbar — beste bisherige Lösung bleibt erhalten.">
 			🎯 Gründlich optimieren
 		</button>
 	</div>
@@ -726,7 +726,7 @@
 			</label>
 		</div>
 		<button class="btn" onclick={diversify} disabled={busy || !hasExistingPlan} title={hasExistingPlan
-			? `~${diversifyFractionPct}% der Stunden werden neu platziert, dann ${diversifyDurationSec}s Local Search. Bei keiner Verbesserung bleibt der Plan unverändert (Best-Tracking).`
+			? `~${diversifyFractionPct}% der Stunden werden neu platziert, dann ${diversifyDurationSec}s Local Search — mehrere Versuche parallel auf allen Kernen, der beste gewinnt (D-3). Bei keiner Verbesserung bleibt der Plan unverändert (Best-Tracking).`
 			: 'Erst einen Plan erzeugen — dann kannst du diversifizieren.'}>
 			🌀 Diversifizieren
 		</button>

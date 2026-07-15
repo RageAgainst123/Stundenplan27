@@ -22,9 +22,19 @@
 // Klassen-Lücken (Roh-Zähler, frame-unabhängig — Auto-Relax misst den
 // Total im relaxed-Frame!), dann niedrigerer Total.
 //
+// Audit D-3 (2026-07) — Parallel-Diversify: Diversify lief bisher auf
+// EINEM Worker, während 3-4 Kerne brachlagen. Der D-2-Bench hat gemessen,
+// dass EIN 10s-Zyklus im Median NICHTS findet (Revert), best-of-3 von
+// derselben Basis aber Median -530 bringt (docs/bench-baseline.json,
+// d2-diversify-baseline). Deshalb fahren jetzt k Diversify-Versuche mit
+// abgeleiteten Seeds GLEICHZEITIG auf demselben Plan; der beste gewinnt
+// (gleiche Rangfolge wie die Inseln). Jeder Versuch hat seinen eigenen
+// Revert-Guard — das Gesamtergebnis kann nie schlechter als der
+// Ausgangsplan sein.
+//
 // Fallback-Kaskade: ohne Worker-Support (jsdom/Tests) läuft startSolve
 // inline; mit nur 1 nutzbarem Kern läuft der Pool wie bisher IN der
-// Session (Single-Worker).
+// Session (Single-Worker) und Diversify als Einzel-Lauf.
 //
 // Abort-Kette: postMessage('abort') → Worker setzt Session-Flag → greift
 // beim nächsten Chunk. Antwortet der Worker nicht binnen 3 s, wird er hart
@@ -89,6 +99,10 @@ export function startSolveSession(doc: ScheduleDoc, opts: StartSolveOptions = {}
 	const k = parallelPoolSize();
 	if (wantsPool && k >= 2) {
 		return startParallelPoolSession(doc, opts, k);
+	}
+	// Audit D-3: Diversify parallel — k Versuche, der beste gewinnt.
+	if (opts.diversify && k >= 2) {
+		return startParallelDiversifySession(doc, opts, k);
 	}
 	return startSolveInWorker(doc, opts);
 }
@@ -223,6 +237,25 @@ function startSolveInWorker(doc: ScheduleDoc, opts: StartSolveOptions): SolveSes
 	};
 }
 
+/**
+ * R3-S2: Rangfolge eines Endergebnisses — weniger unplatzierte Stunden,
+ * dann weniger Klassen-Lücken (Roh-ZÄHLER, frame-unabhängig: die Auto-
+ * Lockerung misst den Total im relaxed-Gewichts-Frame), dann Total.
+ * Kleiner = besser. Geteilt von Island- (R3-S2) und Parallel-Diversify-
+ * Kürung (D-3).
+ */
+function islandBeats(a: SolveDoneEvent, b: SolveDoneEvent): boolean {
+	const ua = a.final.unplaced?.length ?? 0;
+	const ub = b.final.unplaced?.length ?? 0;
+	if (ua !== ub) return ua < ub;
+	const na = a.final.penalties?.no_free ?? 0;
+	const nb = b.final.penalties?.no_free ?? 0;
+	if (na !== nb) return na < nb;
+	const ta = a.final.penalties?.total ?? Number.POSITIVE_INFINITY;
+	const tb = b.final.penalties?.total ?? Number.POSITIVE_INFINITY;
+	return ta < tb;
+}
+
 // ----- Parallel-Pool-Session (Schritt 6) -------------------------------------
 
 function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: number): SolveSession {
@@ -293,24 +326,6 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		} satisfies SolveProgressEvent);
 		emitLog('phase', `Phase 1: Parallel-Pool über ${k} Worker (${Math.round(poolBudget / 1000)}s Budget)`);
 	});
-
-	/**
-	 * R3-S2: Rangfolge einer Insel — weniger unplatzierte Stunden, dann
-	 * weniger Klassen-Lücken (Roh-ZÄHLER, frame-unabhängig: die Auto-
-	 * Lockerung misst den Total im relaxed-Gewichts-Frame), dann Total.
-	 * Kleiner = besser.
-	 */
-	function islandBeats(a: SolveDoneEvent, b: SolveDoneEvent): boolean {
-		const ua = a.final.unplaced?.length ?? 0;
-		const ub = b.final.unplaced?.length ?? 0;
-		if (ua !== ub) return ua < ub;
-		const na = a.final.penalties?.no_free ?? 0;
-		const nb = b.final.penalties?.no_free ?? 0;
-		if (na !== nb) return na < nb;
-		const ta = a.final.penalties?.total ?? Number.POSITIVE_INFINITY;
-		const tb = b.final.penalties?.total ?? Number.POSITIVE_INFINITY;
-		return ta < tb;
-	}
 
 	function finishIslands(): void {
 		if (done) return;
@@ -531,6 +546,178 @@ function startParallelPoolSession(doc: ScheduleDoc, opts: StartSolveOptions, k: 
 		getDzn(): string {
 			// DZN der Gewinner-Insel — verfügbar nach Session-Ende (wie beim
 			// Single-Worker-Pfad kommt der Snapshot mit dem done-Event).
+			return lastDzn;
+		},
+	};
+}
+
+// ----- Parallel-Diversify-Session (Audit D-3) ---------------------------------
+
+/**
+ * k Diversify-Versuche GLEICHZEITIG auf demselben Plan, der beste gewinnt.
+ *
+ * Jeder Arm ist eine komplette startSolve-Session (hotStart + diversify)
+ * mit eigenem abgeleiteten Seed — inklusive eigenem Pre-Snapshot und
+ * Revert-Guard. Die Kürung nutzt dieselbe Rangfolge wie die Inseln
+ * (unplaced → no_free roh → total); scheitern alle Arme, bleibt der
+ * Plan unverändert (Revert-Semantik). Begründung + Messwerte:
+ * docs/bench-baseline.json (d2-diversify-baseline).
+ */
+function startParallelDiversifySession(doc: ScheduleDoc, opts: StartSolveOptions, k: number): SolveSession {
+	// Fatale Konfigurationen → Single-Worker meldet den Fehler sauber
+	// (gleiches Muster wie die Pool-Session).
+	const fatal = diagnose(doc).find(h => h.severity === 'error');
+	if (fatal) {
+		return startSolveInWorker(doc, opts);
+	}
+
+	const emitter = makeEmitter();
+	const tStart = Date.now();
+	const baseSeed = opts.seed ?? (Date.now() & 0x7fffffff);
+	const durationSec = Math.round((opts.diversify?.durationMs ?? 0) / 1000);
+
+	let done = false;
+	const armWorkers: Worker[] = [];
+	let armDoneCount = 0;
+	const armFinals: (SolveDoneEvent | null)[] = new Array(k).fill(null);
+	const armDzns: string[] = new Array(k).fill('');
+	let lastDzn = '';
+	let abortTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function emitLog(level: SolveLogEvent['level'], message: string): void {
+		emitter.emit('log', { tElapsedMs: Date.now() - tStart, level, message } satisfies SolveLogEvent);
+	}
+	function terminateArms(): void {
+		for (const w of armWorkers) w.terminate();
+		armWorkers.length = 0;
+	}
+	function finish(doneEvent: SolveDoneEvent): void {
+		if (done) return;
+		done = true;
+		if (abortTimer !== null) { clearTimeout(abortTimer); abortTimer = null; }
+		terminateArms();
+		emitter.emit('done', doneEvent);
+	}
+
+	function finishArms(): void {
+		if (done) return;
+		let bestIdx = -1;
+		for (let i = 0; i < armFinals.length; i++) {
+			const f = armFinals[i];
+			if (!f) continue;
+			if (bestIdx === -1 || islandBeats(f, armFinals[bestIdx]!)) bestIdx = i;
+		}
+		if (bestIdx === -1) {
+			// Alle Arme gescheitert — Plan bleibt unverändert (Revert-Semantik:
+			// Diversify darf nie verschlechtern, also auch nie verlieren).
+			finish({
+				final: {
+					status: 'TIMEOUT',
+					placed: doc.placed.map(p => ({ ...p })),
+					unplaced: [],
+					message: `Alle ${k} Diversify-Versuche gescheitert — Plan bleibt unverändert.`,
+				},
+				totalElapsedMs: Date.now() - tStart,
+			});
+			return;
+		}
+		const scores = armFinals
+			.map((f, i) => f ? `Versuch ${i + 1}: ${Math.round(f.final.penalties?.total ?? 0)}` : `Versuch ${i + 1}: ✗`)
+			.join(' · ');
+		emitLog('stat', `Parallel-Diversify — ${scores} → Versuch ${bestIdx + 1} gewinnt`);
+		lastDzn = armDzns[bestIdx];
+		const winner = armFinals[bestIdx]!;
+		finish({ final: winner.final, totalElapsedMs: Date.now() - tStart });
+	}
+
+	queueMicrotask(() => {
+		if (done) return;
+		emitLog('phase', `Diversify parallel: ${k} Versuche à ${durationSec}s auf ${k} Kernen — der beste gewinnt`);
+	});
+
+	// Live-Best über alle Arme: nur echte Verbesserungen erreichen das UI;
+	// phase/progress/relaxation kommen nur von Arm 1 (wie bei den Inseln).
+	let liveBest = Number.POSITIVE_INFINITY;
+	let leadArm = -1;
+
+	for (let i = 0; i < k; i++) {
+		const w = newWorker();
+		armWorkers.push(w);
+		w.onmessage = (e: MessageEvent<WorkerOutMsg>) => {
+			if (done) return;
+			const m = e.data;
+			switch (m.kind) {
+				case 'solution': {
+					const s = m.payload.score;
+					if (s !== null && s < liveBest) {
+						liveBest = s;
+						if (leadArm !== i && k > 1) {
+							leadArm = i;
+							emitLog('stat', `Diversify-Versuch ${i + 1}/${k} übernimmt die Führung (Score ${Math.round(s)})`);
+						}
+						emitter.emit('solution', { ...m.payload, tElapsedMs: Date.now() - tStart } satisfies SolveSolutionEvent);
+					}
+					break;
+				}
+				case 'phase':
+					if (i === 0) emitter.emit('phase', m.payload);
+					break;
+				case 'progress':
+					if (i === 0) emitter.emit('progress', m.payload);
+					break;
+				case 'log':
+					if (i === 0) emitter.emit('log', m.payload);
+					break;
+				case 'relaxation':
+					if (i === 0) emitter.emit('relaxation', m.payload);
+					break;
+				case 'error':
+					if (i === 0) emitter.emit('error', new Error(m.message));
+					break;
+				case 'done':
+					armDzns[i] = m.dzn;
+					armFinals[i] = m.payload;
+					armDoneCount++;
+					if (armDoneCount === k) finishArms();
+					break;
+			}
+		};
+		w.onerror = () => {
+			if (done) return;
+			emitLog('warn', `Diversify-Versuch ${i + 1} abgestürzt — die übrigen laufen weiter`);
+			armDoneCount++;
+			if (armDoneCount === k) finishArms();
+		};
+		w.postMessage({
+			type: 'start',
+			doc,
+			opts: {
+				...opts,
+				poolBudgetMs: 0,
+				// Eigener Seed pro Arm — gleicher Mixer wie die Insel-Seeds.
+				seed: ((baseSeed ^ ((i + 1) * 0x85ebca6b)) & 0x7fffffff) || 1,
+			},
+		} satisfies WorkerInMsg);
+	}
+
+	return {
+		abort(): void {
+			if (done) return;
+			emitLog('phase', 'Benutzer hat abgebrochen — Diversify-Versuche werden gestoppt');
+			for (const w of armWorkers) {
+				w.postMessage({ type: 'abort' } satisfies WorkerInMsg);
+			}
+			if (abortTimer === null) {
+				abortTimer = setTimeout(() => {
+					abortTimer = null;
+					finishArms();
+				}, ABORT_TERMINATE_MS);
+			}
+		},
+		on(event, cb): () => void {
+			return emitter.on(event as string, cb as (e: unknown) => void);
+		},
+		getDzn(): string {
 			return lastDzn;
 		},
 	};
