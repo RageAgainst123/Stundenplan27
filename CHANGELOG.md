@@ -12,6 +12,25 @@ Lehrer-Pläne. Hauptpriorität: **wenige Springstunden**. Klassen-Qualität
 (no_free=0, min_daily=0) ist Pflicht-Invariante und blieb in allen
 Bench-Läufen erhalten.
 
+### Audit-Umsetzung Runde 4 — Restpaket (2026-07-15)
+M-4/M-6/M-8 (Mai-Audit) + C-9/D-5; Savepoint `savepoint-pre-audit-rest`.
+- **M-4 Drag&Drop-Rückfrage:** Zieht man eine Mehrstufen-Stunde in eine
+  fremde Stufen-Spalte, fragt die App jetzt nach und erklärt, dass die
+  Stunde auf ihren eigenen Stufen landet (vorher: stille Überraschung).
+  Damit ist der letzte offene Mittel-Befund des Mai-Audits erledigt.
+- **M-6 Exception-Test:** Ein Crash mitten im Solver-Hot-Loop wird
+  nachweislich sauber beantwortet (error-Event + ERROR-done) — per
+  vi.mock-Test abgesichert.
+- **M-8 entschieden:** `spec_spread` zählt bei Kopplungen bewusst pro
+  Spec-Mitglied (doppelt) — in score.ts + MODEL.md §3 dokumentiert.
+- **C-9:** `.editorconfig` (Tabs/LF/final-newline), main.ts als letzter
+  2-Space-Ausreißer auf Tabs.
+- **D-5:** Autopilot-Label ohne rätselhaftes „(random)"; die bewussten
+  Entscheidungen (kein Auto-Backup beim Einzel-Diversify,
+  totalBudgetMs bei Diversify wirkungslos) sind als Kommentare
+  festgehalten.
+- Verifikation: 460 Tests grün (+1), check 0/0, Build ok.
+
 ### Audit-Umsetzung Runde 3 — Backup-Helper + Test-Lücken (2026-07-15)
 C-4 und C-6 aus dem Audit-Bericht; Savepoint `savepoint-pre-backup-helper`.
 Branch erstmals nach GitHub gepusht (origin/feature/team-teaching-segments).
