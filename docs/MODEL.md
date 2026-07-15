@@ -177,7 +177,7 @@ Alle in `src/lib/solver-v2/score.ts` berechnet, Final-Sum als Summe gewichtet.
 | `main_early`       | Hauptfach: sum(period-1) — Tie-Breaker für früher                          | 2       | `preferMainEarly.{enabled, weight}`               | enabled=false|
 | `time_pref`        | Spec mit `timePref`: lin. Distanz zum Wunsch-Pol (P1 oder P8)              | 100     | `timePrefWeight` (Top-Level)                      | keine timePref-Specs |
 | `subject_twice`    | (day,grade,subject) mit Count > 1                                          | 60      | `subjectMaxOncePerDay.{enabled, weight}`          | enabled=false|
-| `spec_spread`      | (specId,day) mit ≥2 Occurrences — Lerneinheit-Spread über Wochentage       | 30      | `preferDoubleLessonsContiguous.{enabled, weight}` (Feldname Legacy) | enabled=false|
+| `spec_spread`      | (specId,day) mit ≥2 Occurrences — Lerneinheit-Spread über Wochentage. Bei Kopplungen zählt jedes Spec-Mitglied einzeln (bewusst doppelt — M-8, score.ts) | 30      | `preferDoubleLessonsContiguous.{enabled, weight}` (Feldname Legacy) | enabled=false|
 | `teacher_late_start` | sum(firstP-Index) über alle (Lehrer, Tag) — Lehrer in P1 gesperrt sind exempt | 30 | `teacherEarlyStartBalance.{enabled, weight}`     | enabled=false|
 | `teacher_under_min` | sum(min - lessons) für (Lehrer, Tag) wo `0 < lessons < min`. Freie Tage (0 lessons) sind exempt. | 150 | `teacherMinLessonsPerDay.{enabled, weight, min}` | enabled=false oder Lehrer hat ≥min an jedem aktiven Tag |
 | `target_daily`     | (day,grade) `(actual - target)²` — quadratische Abweichung vom Zieltagespensum. Inaktive Tage (0 lessons) exempt. | 80 | `targetDailyLessons.{enabled, weight, target}` | enabled=false |

@@ -302,6 +302,13 @@ export function applyUnitFootprint(
 
 	// spec_spread: Vorkommen pro (Spec, Tag). Penalty = Σ max(0, v-1);
 	// Delta hier direkt mitberechnet (globale Komponente ohne Zeilen-Scan).
+	//
+	// Audit M-8 (Mai-Audit, entschieden 2026-07): Bei Kopplungen zählt
+	// die Penalty pro Spec-Mitglied — eine gekoppelte Doppel-Belegung am
+	// selben Tag kostet also DOPPELT. Das ist GEWOLLT: eine schlecht
+	// gespreizte Kopplung betrifft mehrere Lerngruppen gleichzeitig und
+	// darf entsprechend mehr wiegen (anders als subject_twice, das pro
+	// Fach dedupliziert). Nicht "reparieren" — Baselines hängen daran.
 	let spreadDelta = 0;
 	for (const sid of unit.specIds) {
 		const spIdx = scratch.specIdxById.get(sid);

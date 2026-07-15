@@ -238,6 +238,12 @@
 		// Phase 15: Diversify-Lauf. Solver wirft 25% (oder Slider-Wert) der
 		// nicht-pinned Units raus, baut neu, optimiert. Best-Tracking →
 		// Plan kann nie schlechter werden.
+		// D-5 (bewusste Entscheidung, dokumentiert im Audit 2026-07): KEIN
+		// Auto-Backup vor dem Einzel-Diversify — der Revert-Guard garantiert
+		// bereits, dass der Plan nie schlechter wird, und die SN2-Backup-
+		// Trennung soll nicht mit No-op-Sicherungen geflutet werden.
+		// (diversifyFromSnapshot sichert dagegen, weil dort RESTORE + Lauf
+		// kombiniert sind.) D-3: läuft parallel auf k Kernen, bester gewinnt.
 		void runSolver({
 			poolBudgetMs: 0,
 			hotStart: true,
@@ -272,7 +278,9 @@
 				} else {
 					// Ohne Plan (Generate-Phase fehlgeschlagen) ist Diversify sinnlos.
 					if (store.doc.placed.length === 0) break;
-					autopilotPhaseLabel = `Diversify ${Math.round(ph.fraction * 100)}% (${ph.strategy})`;
+						// D-5: Strategie nur anzeigen, wenn sie vom Default abweicht —
+					// „(random)" stand sonst als Rätsel-Wort in jeder Phase.
+					autopilotPhaseLabel = `Diversify ${Math.round(ph.fraction * 100)}%${ph.strategy !== 'random' ? ` (${ph.strategy})` : ''}`;
 					await runSolver({
 						poolBudgetMs: 0,
 						hotStart: true,
@@ -310,6 +318,9 @@
 			// sieht ständig den aktuellen Stand und kann jederzeit abbrechen.
 			// Der Autopilot übergibt pro Phase ein eigenes Budget, damit die
 			// Session von selbst endet und die nächste Phase starten kann.
+			// D-5-Hinweis: Bei Diversify-Läufen ist dieser Wert WIRKUNGSLOS —
+			// der Solver ersetzt das Gesamtbudget durch diversify.durationMs
+			// (index.ts, Budget-Override). Er greift nur bei Generate-Läufen.
 			totalBudgetMs: extra.totalBudgetMs ?? 1_800_000,
 			innerBudgetMs: 30_000,    // 30 s pro inner-LS-Restart-Zyklus
 			poolBudgetMs: extra.poolBudgetMs,
