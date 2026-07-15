@@ -43,6 +43,17 @@
 			alert('Kann hier nicht platziert werden:\n' + conflict.reasons.join('\n'));
 			return;
 		}
+		// Audit M-4 (Mai-Audit, 2026-07 umgesetzt): Specs landen IMMER auf
+		// ihren EIGENEN Stufen — ein Drop in eine fremde Stufen-Spalte
+		// wechselt nur die Zeit. Vorher passierte das still und der User
+		// wunderte sich, warum die gewählte Spalte leer blieb.
+		if (spec.grades.length > 0 && !spec.grades.includes(grade)) {
+			const ok = confirm(
+				`„${spec.subject}" gehört zur ${spec.grades.join('.+')}. Stufe.\n\n` +
+				`Die Stunde wird auf ${day} P${period} verschoben, erscheint aber in ihrer eigenen Stufen-Spalte — nicht in der ${grade}er-Spalte, auf der du sie abgelegt hast.\n\nTrotzdem verschieben?`
+			);
+			if (!ok) return;
+		}
 		// Audit-Fix A1c: Segment-Team der bewegten Stunde retten. Team-
 		// Teaching-Lessons tragen ihr effektives Slot-Team in `teachers` —
 		// ohne Übernahme würde die Stunde nach dem Move das VOLLE Spec-Team
